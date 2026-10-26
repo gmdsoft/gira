@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 const TYPE_ICON = { folder: '📁', whiteboard: '🖊️', database: '🗄️', embed: '🔗', live: '⚡' };
 
-export default function Tree({ tree, spaceKey, currentId, navigate }) {
+export default function Tree({ tree, spaceKey, currentId, navigate, onMove }) {
   const { roots, children } = useMemo(() => {
     const children = new Map();
     const ids = new Set(tree.map((n) => String(n.id)));
@@ -22,16 +22,18 @@ export default function Tree({ tree, spaceKey, currentId, navigate }) {
   return (
     <nav className="tree">
       {roots.map((n) => (
-        <TreeNode key={n.id} node={n} children={children} spaceKey={spaceKey} currentId={currentId} navigate={navigate} depth={0} />
+        <TreeNode key={n.id} node={n} children={children} spaceKey={spaceKey} currentId={currentId}
+          navigate={navigate} onMove={onMove} depth={0} />
       ))}
     </nav>
   );
 }
 
-function TreeNode({ node, children, spaceKey, currentId, navigate, depth }) {
+function TreeNode({ node, children, spaceKey, currentId, navigate, onMove, depth }) {
   const kids = children.get(String(node.id)) ?? [];
   const isCurrent = String(node.id) === String(currentId);
   const [open, setOpen] = useState(depth < 1 || isCurrent || hasDescendant(node, children, currentId));
+  const [menu, setMenu] = useState(false);
 
   // 현재 페이지로 이동하면 그 노드와 조상을 자동으로 펼친다
   useEffect(() => {
@@ -42,7 +44,7 @@ function TreeNode({ node, children, spaceKey, currentId, navigate, depth }) {
 
   return (
     <div className="tree-node" style={{ '--depth': depth }}>
-      <div className={`tree-row ${isCurrent ? 'current' : ''}`}>
+      <div className={`tree-row ${isCurrent ? 'current' : ''} ${menu ? 'menu-open' : ''}`}>
         {kids.length > 0
           ? <button className="tree-toggle" onClick={() => setOpen(!open)}>{open ? '▾' : '▸'}</button>
           : <span className="tree-toggle" />}
@@ -56,9 +58,21 @@ function TreeNode({ node, children, spaceKey, currentId, navigate, depth }) {
             {icon && <span className="tree-icon">{icon}</span>}{node.title}
           </span>
         )}
+        {onMove && (
+          <span className="tree-menu-wrap">
+            <button className="tree-more" title="문서 메뉴" onClick={() => setMenu((v) => !v)}>⋯</button>
+            {menu && <>
+              <div className="menu-overlay" onClick={() => setMenu(false)} />
+              <div className="page-menu tree-menu">
+                <button onClick={() => { setMenu(false); onMove(node); }}>→ 이동</button>
+              </div>
+            </>}
+          </span>
+        )}
       </div>
       {open && kids.map((k) => (
-        <TreeNode key={k.id} node={k} children={children} spaceKey={spaceKey} currentId={currentId} navigate={navigate} depth={depth + 1} />
+        <TreeNode key={k.id} node={k} children={children} spaceKey={spaceKey} currentId={currentId}
+          navigate={navigate} onMove={onMove} depth={depth + 1} />
       ))}
     </div>
   );

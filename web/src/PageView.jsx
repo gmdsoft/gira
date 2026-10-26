@@ -5,6 +5,7 @@ import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
 import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
+import MoveDialog from './MoveDialog.jsx';
 
 export default function PageView({ pageId, navigate, reloadSpace }) {
   const [page, setPage] = useState(null);
@@ -195,70 +196,6 @@ function LabelEditor({ page, onChange }) {
     </div>
   );
 }
-
-// 이동 대화상자: 스페이스 선택 + 제목 검색으로 새 부모 지정
-function MoveDialog({ page, navigate, reloadSpace, onClose }) {
-  const [spaces, setSpaces] = useState([]);
-  const [spaceKey, setSpaceKey] = useState(page.spaceKey);
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState([]);
-  const [target, setTarget] = useState(undefined); // undefined=미선택, null=스페이스 최상위, {id,title}=부모 페이지
-
-  useEffect(() => { api('/api/spaces').then(setSpaces).catch(() => {}); }, []);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      api(`/api/pages?space=${encodeURIComponent(spaceKey)}&q=${encodeURIComponent(q)}`)
-        .then((rows) => setResults(rows.filter((r) => r.id !== Number(page.id))))
-        .catch(() => setResults([]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [spaceKey, q, page.id]);
-
-  const move = async () => {
-    const res = await fetch(`/api/content/${page.id}/move`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(target ? { parentId: target.id } : { spaceKey }),
-    });
-    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '이동 실패'); return; }
-    const { spaceKey: destKey } = await res.json();
-    onClose();
-    reloadSpace?.();
-    navigate(`/s/${destKey}/p/${page.id}`);
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>페이지 이동</h2>
-        <p className="muted">"{page.title}" (하위 페이지 포함) 을 옮길 위치를 선택하세요.</p>
-        <label className="modal-field">스페이스
-          <select value={spaceKey} onChange={(e) => { setSpaceKey(e.target.value); setTarget(undefined); }}>
-            {spaces.map((s) => <option key={s.key} value={s.key}>{s.name} ({s.key})</option>)}
-          </select>
-        </label>
-        <label className="modal-field">새 상위 페이지
-          <input value={q} placeholder="제목으로 검색" onChange={(e) => setQ(e.target.value)} />
-        </label>
-        <div className="move-results">
-          <button className={`move-row ${target === null ? 'selected' : ''}`} onClick={() => setTarget(null)}>
-            📁 (스페이스 최상위)
-          </button>
-          {results.map((r) => (
-            <button key={r.id} className={`move-row ${target?.id === r.id ? 'selected' : ''}`}
-              onClick={() => setTarget(r)}>
-              {r.type === 'folder' ? '📁' : '📄'} {r.title}
-            </button>
-          ))}
-        </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>취소</button>
-          <button className="btn btn-primary" disabled={target === undefined} onClick={move}>이동</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // 본문 텍스트 선택 시 뜨는 인라인 댓글 팝업
 function InlineCommentPopup({ pop, setPop, pageId, onAdded }) {
   const [text, setText] = useState('');

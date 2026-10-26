@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from './api.js';
 import Tree from './Tree.jsx';
 import PageView from './PageView.jsx';
+import MoveDialog from './MoveDialog.jsx';
 import Editor from './Editor.jsx';
 import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
@@ -24,6 +25,7 @@ function parsePath(pathname) {
 export default function App() {
   const [route, setRoute] = useState(() => parsePath(location.pathname));
   const [space, setSpace] = useState(null);
+  const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
 
   const navigate = useCallback((path) => {
     history.pushState(null, '', path);
@@ -94,7 +96,8 @@ export default function App() {
         {space && <>
           <div className="space-name">{space.name}</div>
           <button className="btn new-page" onClick={createPage}>+ 새 페이지</button>
-          <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate} />
+          <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate}
+            onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
           <a className="archive-link" href={`/s/${space.key}/archive`}
              onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
         </>}
@@ -103,6 +106,8 @@ export default function App() {
         {route.view === 'page' && <PageView pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />}
         {route.view === 'archive' && <ArchiveView spaceKey={route.spaceKey} navigate={navigate} reloadSpace={reloadSpace} />}
       </main>
+      {movePage && <MoveDialog page={movePage} navigate={navigate} reloadSpace={reloadSpace}
+        onClose={() => setMovePage(null)} />}
     </div>
   );
 }

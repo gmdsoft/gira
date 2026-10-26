@@ -65,7 +65,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 - **보관/휴지통/복원**: `POST /api/content/:id/status` (하위 트리 전체 적용, 색인 제거·복구). 사이드바 "보관함 · 휴지통"(`/s/{key}/archive`)에서 복원
 - **댓글 작성**: 페이지 하단 입력창 → `POST /api/content/:id/comments` (텍스트 → 문단 doc)
 - **레이블 추가/삭제**: 헤더에서 바로 편집 → `POST /api/content/:id/labels` (색인 반영)
-- 이동 대화상자의 제목 검색은 `GET /api/pages?space=&q=` (DB ILIKE — 검색 엔진과 무관)
+- 이동 대화상자(web/src/MoveDialog.jsx): 실제 스페이스 트리에서 새 위치 선택(자기 하위는 비활성), 제목 필터, 트리 ⋯ 메뉴에서도 호출
 
 ## 폭 충실도 (2026-10-26 추가)
 원본과 레이아웃 폭이 다르던 문제의 수정.

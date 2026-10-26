@@ -378,3 +378,28 @@ span.cf-macro-slot { display: inline; margin: 0; }
 /* PDF 미리보기 접기 */
 .macro-pdf-row { display: flex; align-items: center; gap: 8px; }
 .macro-pdf iframe { margin-top: 8px; }
+
+/* 트리 ⋯ 메뉴 + 이동 대화상자(트리 선택기) */
+.tree-row { position: relative; }
+.tree-menu-wrap { position: relative; margin-left: auto; }
+.tree-more { border: 0; background: none; cursor: pointer; color: #626f86; border-radius: 4px;
+  padding: 0 6px; font-size: 14px; visibility: hidden; }
+.tree-row:hover .tree-more, .tree-row.menu-open .tree-more { visibility: visible; }
+.tree-more:hover { background: #dcdfe4; }
+.tree-menu { min-width: 120px; }
+.modal-move { width: 560px; }
+.move-controls { display: flex; gap: 8px; }
+.move-controls select { flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 13.5px; min-width: 0; }
+.move-controls input { flex: 1; border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 13.5px; min-width: 0; }
+.move-results { min-height: 240px; max-height: 340px; }
+.move-tree-row { display: flex; align-items: center; width: 100%; text-align: left; border: 0;
+  background: none; padding: 4px 8px; font-size: 13.5px; cursor: pointer; gap: 2px; }
+.move-tree-row:hover { background: var(--bg-subtle); }
+.move-tree-row.selected, .move-tree-row.selected .move-tree-label { background: #e9f2ff; color: var(--accent); font-weight: 600; }
+.move-tree-row.disabled { opacity: 0.5; }
+.move-tree-label { border: 0; background: none; font: inherit; color: inherit; cursor: pointer;
+  text-align: left; flex: 1; min-width: 0; padding: 0; display: flex; align-items: center; gap: 4px; }
+.move-tree-label:disabled { cursor: not-allowed; }
+.move-root { font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--border); }
+.move-loading { padding: 10px; }
+.move-picked { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
