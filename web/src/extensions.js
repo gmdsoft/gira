@@ -441,7 +441,7 @@ const TextAlign = Extension.create({
   },
 });
 
-// Confluence 편집기 단축키 (editor-spec.md의 단축키 표 — TipTap 기본에 없는 것만)
+// Confluence 편집기 단축키 (editor-spec.md의 Ctrl+/ 도움말 캡처 기준 — TipTap 기본에 없는 것만)
 export const ConfluenceShortcuts = Extension.create({
   name: 'confluenceShortcuts',
   addKeyboardShortcuts() {
@@ -451,6 +451,12 @@ export const ConfluenceShortcuts = Extension.create({
       'Mod-\\': () => ed().chain().focus().unsetAllMarks().run(),
       'Mod-Alt-0': () => ed().commands.setParagraph(),
       'Mod-Shift-9': () => ed().commands.toggleBlockquote(),
+      'Mod-Shift-,': () => ed().commands.toggleMark('subscript'),
+      'Mod-Shift-.': () => ed().commands.toggleMark('superscript'),
+      'Mod-Shift--': () => ed().commands.setHorizontalRule(),
+      'Mod-Shift-l': () => ed().commands.setTextAlign(null),
+      'Mod-Alt-e': () => ed().commands.setTextAlign('center'),
+      'Mod-Alt-t': () => ed().commands.setTextAlign('right'),
       'Mod-k': () => {
         const prev = ed().getAttributes('link').href ?? '';
         const url = window.prompt('링크 URL', prev);
