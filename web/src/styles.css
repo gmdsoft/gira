@@ -295,3 +295,77 @@ mark { background: #fff0b3; border-radius: 2px; padding: 0 1px; }
 .doc .media-layout-align-end { display: block; text-align: right; }
 .doc img.media-border { border: 1px solid var(--border); }
 .pres-slide { overflow-x: auto; }
+
+/* ---------- 매크로 렌더링 (2026-10-26) ---------- */
+.cf-macro-slot { display: block; margin: 0.6em 0; }
+span.cf-macro-slot { display: inline; margin: 0; }
+.macro-toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 6px; padding: 10px 16px; margin: 0.6em 0; display: inline-block; min-width: 260px; }
+.macro-toc ul { list-style: none; margin: 0; padding: 0; }
+.macro-toc li { margin: 3px 0; font-size: 14px; }
+.macro-children ul, .macro-recent ul, .macro-labelled ul { margin: 0.3em 0; padding-left: 20px; }
+.macro-pagetree ul { list-style: none; padding-left: 18px; margin: 2px 0; }
+.macro-pagetree > ul { padding-left: 0; }
+.macro-pagetree li { margin: 2px 0; font-size: 14px; }
+.file-card { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; margin: 2px 0; background: #fff; color: inherit; text-decoration: none; max-width: 100%; }
+.file-card:hover { background: var(--bg-subtle); }
+.file-card-name { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card-size { font-size: 12px; flex: none; }
+.macro-view-image { max-width: 100%; border-radius: 4px; }
+.macro-pdf { margin: 0.6em 0; }
+.macro-pdf iframe { width: 100%; border: 1px solid var(--border); border-radius: 6px; display: block; margin-bottom: 6px; }
+.macro-widget-embed { width: 640px; max-width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 6px; display: block; margin: 0.6em 0; }
+.macro-include { border: 1px solid var(--border); border-radius: 6px; margin: 0.8em 0; }
+.macro-include-head { background: var(--bg-subtle); border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; font-size: 13px; }
+.macro-include > .doc { padding: 10px 14px; }
+.macro-details { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0.8em 0; }
+.macro-excerpt { margin: 0.4em 0; }
+.macro-contributors { color: var(--accent); }
+.decision-list { margin: 0.6em 0; }
+.decision-item { background: var(--bg-subtle); border-radius: 6px; padding: 8px 12px 8px 36px; margin: 4px 0; position: relative; }
+.decision-item::before { content: '✔'; position: absolute; left: 12px; color: #216e4e; font-weight: 700; }
+
+/* ---------- 버전 diff ---------- */
+.mode-select { border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; font-size: 13px; }
+.diff-view { padding: 16px 0; max-width: 980px; }
+.diff-line { padding: 6px 12px; margin: 2px 0; border-radius: 4px; font-size: 14.5px; line-height: 1.6; white-space: pre-wrap; }
+.diff-same { color: #44546f; }
+.diff-del { background: #ffeceb; }
+.diff-del, .diff-line del { color: #ae2a19; text-decoration: line-through; }
+.diff-add { background: #dcfff1; }
+.diff-add, .diff-line ins { color: #216e4e; text-decoration: none; }
+.diff-mod { background: #fff7d6; }
+.diff-line del { background: #ffd5d2; border-radius: 2px; }
+.diff-line ins { background: #baf3db; border-radius: 2px; }
+.diff-kind { display: inline-block; background: #dcdfe4; color: #44546f; border-radius: 3px; font-size: 11px; padding: 0 6px; margin-right: 8px; vertical-align: 1px; }
+.diff-skip { color: #8993a4; text-align: center; padding: 2px 0; }
+
+/* ---------- 인라인 댓글 ---------- */
+.sel-comment-btn { position: fixed; z-index: 60; border: 1px solid var(--border); background: #fff;
+  border-radius: 6px; padding: 5px 10px; font-size: 13px; cursor: pointer; box-shadow: 0 4px 14px rgba(9,30,66,.2); }
+.sel-comment-btn:hover { background: var(--bg-subtle); }
+.sel-comment-form { position: fixed; z-index: 60; background: #fff; border: 1px solid var(--border);
+  border-radius: 8px; padding: 12px; width: 320px; box-shadow: 0 8px 24px rgba(9,30,66,.25);
+  display: flex; flex-direction: column; gap: 8px; }
+.sel-comment-form textarea { border: 1px solid var(--border); border-radius: 5px; padding: 7px 9px; font: inherit; font-size: 13.5px; resize: vertical; }
+.sel-comment-quote { font-size: 12px; color: #626f86; background: var(--bg-subtle); border-left: 3px solid var(--accent); padding: 4px 8px; border-radius: 0 4px 4px 0; }
+.inline-comment-item { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
+.inline-comment-item .comment { border: 0; padding: 4px 0 6px; margin: 0; }
+.inline-comment-item.comment-resolved { opacity: 0.65; }
+.inline-quote { display: block; width: 100%; text-align: left; border: 0; background: var(--bg-subtle);
+  border-left: 3px solid var(--accent); border-radius: 0 4px 4px 0; padding: 5px 9px; font-size: 12.5px;
+  color: #626f86; cursor: pointer; }
+.inline-quote:hover { background: #e9f2ff; }
+.btn-xs { padding: 2px 9px; font-size: 12px; border: 1px solid var(--border); background: #fff; border-radius: 4px; cursor: pointer; margin-right: 6px; }
+.inline-flash { background: #fff0b3 !important; transition: background 0.3s; border-radius: 2px; }
+.comment-mark { background: #fff0b3; border-bottom: 2px solid #f5cd47; }
+
+/* ---------- 편집기 모드 (Confluence / Notion) ---------- */
+.mode-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.mode-switch button { border: 0; background: #fff; padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
+.mode-switch button.on { background: var(--accent); color: #fff; }
+.notion-hint { padding: 6px 24px; font-size: 12.5px; border-bottom: 1px solid var(--border); background: #fff; }
+.notion-hint code { background: var(--bg-subtle); border-radius: 3px; padding: 0 5px; }
+.bubble-menu { display: flex; gap: 2px; background: #1d2125; border-radius: 8px; padding: 4px 6px; box-shadow: 0 8px 24px rgba(9,30,66,.35); }
+.bubble-menu button { border: 0; background: none; color: #dee4ea; font-size: 13px; padding: 4px 8px; border-radius: 5px; cursor: pointer; }
+.bubble-menu button:hover { background: #333c43; }
+.bubble-menu button.on { background: #09326c; color: #85b8ff; }

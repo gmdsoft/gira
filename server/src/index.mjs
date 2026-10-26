@@ -429,9 +429,9 @@ app.get('/api/spaces/:key/archived', async (req, reply) => {
   return rows;
 });
 
-// 하단 댓글 작성
+// 댓글 작성 (하단 footer / 본문 선택 영역 inline)
 app.post('/api/content/:id/comments', async (req, reply) => {
-  const { text, doc } = req.body ?? {};
+  const { text, doc, kind, inlineRef } = req.body ?? {};
   let body = doc;
   if (!body) {
     const t = (text ?? '').trim();
@@ -441,12 +441,22 @@ app.post('/api/content/:id/comments', async (req, reply) => {
       content: t.split(/\n+/).map((line) => ({ type: 'paragraph', content: [{ type: 'text', text: line }] })),
     };
   }
+  const k = kind === 'inline' ? 'inline' : 'footer';
+  if (k === 'inline' && !inlineRef?.trim()) return reply.code(400).send({ error: 'inline 댓글은 inlineRef(선택한 텍스트)가 필요합니다' });
   const userId = await devUserId();
   const { rows } = await query(
-    `INSERT INTO comments (id, content_id, kind, doc, author_id, created_at)
-     VALUES (nextval('comment_id_seq'), $1, 'footer', $2, $3, now()) RETURNING id`,
-    [req.params.id, JSON.stringify(body), userId]);
+    `INSERT INTO comments (id, content_id, kind, inline_ref, doc, author_id, created_at)
+     VALUES (nextval('comment_id_seq'), $1, $2, $3, $4, $5, now()) RETURNING id`,
+    [req.params.id, k, k === 'inline' ? inlineRef.trim().slice(0, 500) : null, JSON.stringify(body), userId]);
   return { ok: true, id: rows[0].id };
+});
+
+// 댓글 해결/재오픈
+app.post('/api/comments/:id/resolve', async (req, reply) => {
+  const resolved = req.body?.resolved !== false;
+  const { rows } = await query(`UPDATE comments SET resolved = $2 WHERE id = $1 RETURNING id`, [req.params.id, resolved]);
+  if (!rows.length) return reply.code(404).send({ error: 'comment not found' });
+  return { ok: true, resolved };
 });
 
 // 레이블 추가/삭제
@@ -470,6 +480,49 @@ app.post('/api/content/:id/labels', async (req) => {
   const { rows } = await query(
     `SELECT l.name FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = $1 ORDER BY l.name`, [id]);
   return { labels: rows.map((r) => r.name) };
+});
+
+// ---------- 매크로 렌더링용 조회 ----------
+
+// profile 매크로: accountId → 사용자 표시 이름
+app.get('/api/users/:accountId', async (req, reply) => {
+  const { rows } = await query(
+    `SELECT display_name, email FROM users WHERE confluence_account_id = $1`, [req.params.accountId]);
+  if (!rows.length) return reply.code(404).send({ error: 'user not found' });
+  return rows[0];
+});
+
+// recently-updated 매크로: 스페이스 최근 변경 페이지
+app.get('/api/spaces/:key/recent', async (req, reply) => {
+  const limit = Math.min(Number(req.query.limit) || 5, 25);
+  const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [req.params.key]);
+  if (!sp.length) return reply.code(404).send({ error: 'space not found' });
+  const { rows } = await query(
+    `SELECT c.id, c.title, c.updated_at, u.display_name AS author_name
+       FROM content c
+       LEFT JOIN content_versions v ON v.content_id = c.id AND v.version = c.current_version
+       LEFT JOIN users u ON u.id = v.author_id
+      WHERE c.space_id = $1 AND c.status = 'current' AND c.type IN ('page', 'live')
+      ORDER BY c.updated_at DESC NULLS LAST LIMIT $2`, [sp[0].id, limit]);
+  return rows;
+});
+
+// contentbylabel 매크로: 라벨이 달린 페이지
+app.get('/api/label-content', async (req, reply) => {
+  const labels = String(req.query.label ?? '').split(/[,+\s]+/).filter(Boolean);
+  if (!labels.length) return reply.code(400).send({ error: 'label required' });
+  const max = Math.min(Number(req.query.max) || 10, 50);
+  const { rows } = await query(
+    `SELECT DISTINCT c.id, c.title, c.updated_at, s.key AS space_key
+       FROM content c
+       JOIN spaces s ON s.id = c.space_id
+       JOIN content_labels cl ON cl.content_id = c.id
+       JOIN labels l ON l.id = cl.label_id
+      WHERE c.status = 'current' AND l.name = ANY($1::text[])
+        AND ($2::text IS NULL OR s.key = $2)
+      ORDER BY c.updated_at DESC NULLS LAST LIMIT $3`,
+    [labels, req.query.space || null, max]);
+  return rows;
 });
 
 // ---------- 기존 Confluence URL 호환 ----------

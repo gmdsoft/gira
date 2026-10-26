@@ -75,6 +75,24 @@ Confluence와 같은 **초안/게시 분리** 모델.
 - **`node scripts/reconvert.mjs [--dry-run]`** — DB에 보관한 source_xhtml로 전 버전 재변환 (API 호출 없음). 변환기를 고치면 이걸로 소급 적용. 2026-10-26: 3,203건 재변환, 실패 0, render-check 3,206/3,206
 - 주의: `web/dist` 재빌드 후에는 API 서버도 재시작해야 한다 (정적 라우트가 기동 시점 파일 기준)
 
+## 매크로 렌더링 (2026-10-26 추가)
+placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/macros.js` 하이드레이터).
+- 문서 데이터만으로: toc(본문 제목으로 목차), children, pagetree, contributors, excerpt/details(본문 직접 렌더), decision-list
+- 첨부 기반: view-file(이미지/PDF/파일 카드), viewpdf(인라인 임베드), viewdoc·viewxls·viewppt(파일 카드), drawio(미리보기 PNG)
+- 조회 API: profile(`/api/users/:accountId`), recently-updated(`/api/spaces/:key/recent`), contentbylabel(`/api/label-content`)
+- include/excerpt-include: 대상 페이지 본문(또는 excerpt 부분)을 그 자리에 렌더. **미이관 스페이스를 가리키면 배지로 남는다** (전 스페이스 이관 후 자동 해소)
+- widget: YouTube는 임베드, 그 외 링크
+
+## 버전 diff · 인라인 댓글 (2026-10-26 추가)
+- 버전 기록 화면 보기 모드: 선택 버전 / 나란히 비교 / **변경 내용(텍스트)** — 블록 LCS + 변경 블록 단어 하이라이트 (`web/src/diff.js`, 서식 변경은 비표시)
+- 본문 텍스트 선택 → 💬 버튼 → 인라인 댓글 작성 (`POST /api/content/:id/comments`, kind=inline, inline_ref=선택 텍스트)
+- 인라인 댓글 목록에서 인용 클릭 → 본문 위치로 스크롤·강조, 해결/다시 열기 (`POST /api/comments/:id/resolve`)
+
+## 편집기 모드 (2026-10-26 추가)
+편집 화면 우상단 토글 — **문서 저장 형식은 동일**(ProseMirror JSON), UI만 다르다. 선택은 localStorage에 기억.
+- **Confluence 모드**: 고정 툴바 (기존)
+- **Notion 모드**: 툴바 없음, 텍스트 선택 시 버블 메뉴(B/I/U/S/code/링크/H2), 블록 추가는 `/` 명령
+
 ## 알려진 제약 (PoC)
 - 첨부 원본은 MinIO가 아니라 Confluence 프록시+캐시 (minio 이미지 pull 이슈: docker.io·quay.io 모두 401 — 재검토 필요). 업로드 첨부는 `server/data/att-cache`에 로컬 저장
 - 버전 비교는 나란히 보기(텍스트 단위 diff 하이라이트는 후순위)

@@ -159,20 +159,54 @@ const JiraTable = Node.create({
     ['span', { class: 'macro-badge' }, 'Jira 검색'], ['code', {}, node.attrs.jql ?? '']],
 });
 
+// 보기 화면에서 web/src/macros.js가 실데이터로 채우는 매크로들
+export const HYDRATED_MACROS = new Set([
+  'toc', 'children', 'pagetree', 'view-file', 'viewdoc', 'viewpdf', 'viewppt', 'viewxls',
+  'widget', 'profile', 'contributors', 'recently-updated', 'contentbylabel',
+  'include', 'excerpt-include', 'drawio',
+]);
+
+function macroSlot(tag, name, params) {
+  return [tag, {
+    class: 'cf-macro-slot', 'data-macro': name,
+    'data-params': JSON.stringify(params ?? {}),
+  }, ['span', { class: 'macro-badge' }, `매크로: ${name}`]];
+}
+
 const CfMacro = Node.create({
   name: 'cfMacro', group: 'block', content: 'block*',
   addAttributes: () => ({ name: { default: '' }, params: { default: {} }, dynamic: { default: false } }),
-  renderHTML: ({ node }) => ['div', { class: `cf-macro ${node.attrs.dynamic ? 'cf-macro-dynamic' : ''}` },
-    ['span', { class: 'macro-badge' }, `매크로: ${node.attrs.name}`],
-    ['div', { class: 'cf-macro-body' }, 0]],
+  renderHTML: ({ node }) => {
+    const { name, params, dynamic } = node.attrs;
+    // 본문을 가진 매크로는 내용을 직접 렌더링
+    if (name === 'excerpt') return ['div', { class: 'macro-excerpt' }, 0];
+    if (name === 'details') {
+      return params?.hidden === 'true'
+        ? ['div', { style: 'display: none' }, 0]
+        : ['div', { class: 'macro-details' }, 0];
+    }
+    if (HYDRATED_MACROS.has(name)) {
+      const slot = macroSlot('div', name, params);
+      slot.push(['div', { style: 'display: none' }, 0]); // 숨은 콘텐츠 홀 (스키마 요구)
+      return slot;
+    }
+    return ['div', { class: `cf-macro ${dynamic ? 'cf-macro-dynamic' : ''}` },
+      ['span', { class: 'macro-badge' }, `매크로: ${name}`],
+      ['div', { class: 'cf-macro-body' }, 0]];
+  },
 });
 
 const AdfNode = Node.create({
   name: 'adfNode', group: 'block', content: 'block*',
   addAttributes: () => ({ adfType: { default: '' }, attrs: { default: {} } }),
-  renderHTML: ({ node }) => ['div', { class: 'cf-macro' },
-    ['span', { class: 'macro-badge' }, `adf: ${node.attrs.adfType}`],
-    ['div', { class: 'cf-macro-body' }, 0]],
+  renderHTML: ({ node }) => {
+    const t = node.attrs.adfType;
+    if (t === 'decision-list') return ['div', { class: 'decision-list' }, 0];
+    if (t === 'decision-item') return ['div', { class: 'decision-item' }, 0];
+    return ['div', { class: 'cf-macro' },
+      ['span', { class: 'macro-badge' }, `adf: ${t}`],
+      ['div', { class: 'cf-macro-body' }, 0]];
+  },
 });
 
 // ---------- 인라인 ----------
@@ -260,7 +294,11 @@ const FileLink = Node.create({
 const CfMacroInline = Node.create({
   name: 'cfMacroInline', ...inlineAtom,
   addAttributes: () => ({ name: { default: '' }, params: { default: {} }, dynamic: { default: false } }),
-  renderHTML: ({ node }) => ['span', { class: 'macro-badge' }, `매크로: ${node.attrs.name}`],
+  renderHTML: ({ node }) => {
+    const { name, params } = node.attrs;
+    if (HYDRATED_MACROS.has(name)) return macroSlot('span', name, params);
+    return ['span', { class: 'macro-badge' }, `매크로: ${name}`];
+  },
 });
 
 const custom = [
