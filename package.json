@@ -1,0 +1,20 @@
+{
+  "name": "rea_confluence",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Confluence Cloud를 대체하는 사내 문서 서비스",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:api": "node server/src/index.mjs",
+    "dev:web": "npm --workspace web run dev",
+    "import": "node scripts/import-space.mjs"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "entities": "^8.1.0",
+    "htmlparser2": "^12.0.0"
+  }
+}

@@ -1,0 +1,51 @@
+# 로컬 개발용 스택. 운영 compose(TrueNAS)는 별도로 작성한다.
+# 실행: docker compose -f docker-compose.dev.yml up -d
+name: rea-confluence-dev
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: rea
+      POSTGRES_PASSWORD: rea
+      POSTGRES_DB: rea
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rea -d rea"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  search:
+    build: ./search
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - osdata:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # 첨부 저장소 (운영은 TrueNAS의 기존 MinIO 사용)
+  # 2026-10-25: docker.io/minio/minio, quay.io/minio/minio 모두 pull 거부(401).
+  # PoC는 첨부를 원본 Confluence 프록시+캐시로 처리하므로 당장 불필요. S3 연동 시 재검토.
+  # minio:
+  #   image: quay.io/minio/minio:<태그 확인 필요>
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   ports: ["9000:9000", "9001:9001"]
+  #   volumes: [miniodata:/data]
+
+volumes:
+  pgdata:
+  osdata:

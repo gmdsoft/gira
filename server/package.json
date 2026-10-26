@@ -1,0 +1,15 @@
+{
+  "name": "server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^8.3.1",
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1",
+    "pg": "^8.13.1"
+  }
+}

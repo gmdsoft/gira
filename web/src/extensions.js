@@ -1,0 +1,280 @@
+// 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
+// StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
+// JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
+import { Node, Mark, mergeAttributes } from '@tiptap/core';
+import StarterKit from '@tiptap/starter-kit';
+import TableExt from '@tiptap/extension-table';
+import TableRowExt from '@tiptap/extension-table-row';
+import TableCellExt from '@tiptap/extension-table-cell';
+import TableHeaderExt from '@tiptap/extension-table-header';
+
+// ---------- 마크 ----------
+
+const Underline = Mark.create({
+  name: 'underline',
+  renderHTML: () => ['u', 0],
+});
+
+const Subscript = Mark.create({ name: 'subscript', renderHTML: () => ['sub', 0] });
+const Superscript = Mark.create({ name: 'superscript', renderHTML: () => ['sup', 0] });
+
+const LinkMark = Mark.create({
+  name: 'link',
+  addAttributes: () => ({ href: { default: null } }),
+  renderHTML: ({ HTMLAttributes }) => {
+    const external = /^https?:/i.test(HTMLAttributes.href ?? '');
+    return ['a', mergeAttributes(HTMLAttributes, external ? { target: '_blank', rel: 'noreferrer' } : {}), 0];
+  },
+});
+
+const TextColor = Mark.create({
+  name: 'textColor',
+  addAttributes: () => ({ color: { default: null } }),
+  renderHTML: ({ node, HTMLAttributes }) => ['span', { style: `color: ${HTMLAttributes.color}` }, 0],
+});
+
+const CommentMark = Mark.create({
+  name: 'commentMark',
+  addAttributes: () => ({ ref: { default: null } }),
+  renderHTML: ({ HTMLAttributes }) => ['span', { class: 'comment-mark', 'data-ref': HTMLAttributes.ref }, 0],
+});
+
+// ---------- 표 ----------
+// 공식 확장 사용: 행/열 추가·삭제, 셀 선택, 헤더 토글 커맨드 제공.
+// 노드 이름(table/tableRow/tableHeader/tableCell)과 colspan/rowspan 속성이 변환기 출력과 일치한다.
+
+// 공식 표 확장 + Confluence 폭 속성(표 전체 폭 px, 레이아웃, colgroup 열 너비) 보존·렌더링
+const Table = TableExt.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      tableWidth: { default: null, renderHTML: () => ({}) },
+      layout: { default: null, renderHTML: (attrs) => (attrs.layout ? { 'data-layout': attrs.layout } : {}) },
+      colwidths: { default: null, renderHTML: () => ({}) },
+    };
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    // Confluence와 동일한 동작: 공간이 있으면 지정 폭으로, 좁으면 스크롤 없이
+    // 열 비율을 유지한 채 축소. px 열 너비는 합계 대비 %로 환산해야 축소가 된다
+    // (table-layout: fixed에서 px 열의 합계는 표 폭의 하한이 되기 때문).
+    const { tableWidth, colwidths } = node.attrs;
+    let cols = colwidths?.some((w) => w) ? colwidths : null;
+    let width = tableWidth;
+    if (cols && !cols.some((w) => w?.endsWith?.('%'))) {
+      const px = cols.map((w) => (w ? parseFloat(w) : null));
+      const sum = px.reduce((a, v) => a + (v ?? 0), 0);
+      const nulls = px.filter((v) => v == null).length;
+      const nullShare = nulls
+        ? (width && width > sum ? (width - sum) / nulls : sum / Math.max(px.length - nulls, 1))
+        : 0;
+      const total = sum + nulls * nullShare;
+      if (total > 0) {
+        cols = px.map((v) => `${(((v ?? nullShare) / total) * 100).toFixed(3)}%`);
+        if (!width) width = Math.round(total);
+      }
+    }
+    const style = [
+      width ? `width: ${width}px; max-width: 100%;` : '',
+      cols ? 'table-layout: fixed;' : '',
+    ].join(' ').trim();
+    const table = ['table', mergeAttributes(HTMLAttributes, style ? { style } : {})];
+    if (cols) {
+      table.push(['colgroup', ...cols.map((w) => (w ? ['col', { style: `width: ${w};` }] : ['col', {}]))]);
+    }
+    table.push(['tbody', 0]);
+    // 셀 안 이미지 등으로 최소 폭이 더 클 때만 가로 스크롤이 생긴다
+    return ['div', { class: 'table-wrap' }, table];
+  },
+}).configure({ resizable: false });
+const TableRow = TableRowExt;
+const TableHeader = TableHeaderExt;
+const TableCell = TableCellExt;
+
+// ---------- 작업 항목 ----------
+
+const TaskList = Node.create({
+  name: 'taskList',
+  group: 'block',
+  content: 'taskItem+',
+  renderHTML: () => ['ul', { class: 'task-list' }, 0],
+});
+const TaskItem = Node.create({
+  name: 'taskItem',
+  content: 'block*',
+  addAttributes: () => ({ checked: { default: false } }),
+  renderHTML: ({ node }) => ['li', { class: 'task-item', 'data-checked': String(node.attrs.checked) },
+    ['span', { class: 'task-check' }, node.attrs.checked ? '☑' : '☐'],
+    ['div', { class: 'task-body' }, 0]],
+});
+
+// ---------- 블록 ----------
+
+const Panel = Node.create({
+  name: 'panel',
+  group: 'block',
+  content: 'block+',
+  addAttributes: () => ({ panelType: { default: 'info' }, title: { default: null }, bgColor: { default: null } }),
+  renderHTML: ({ node }) => {
+    const attrs = { class: `panel panel-${node.attrs.panelType}` };
+    if (node.attrs.bgColor) attrs.style = `background: ${node.attrs.bgColor}`;
+    return node.attrs.title
+      ? ['div', attrs, ['div', { class: 'panel-title' }, node.attrs.title], ['div', { class: 'panel-body' }, 0]]
+      : ['div', attrs, ['div', { class: 'panel-body' }, 0]];
+  },
+});
+
+const Expand = Node.create({
+  name: 'expand',
+  group: 'block',
+  content: 'block+',
+  addAttributes: () => ({ title: { default: '' } }),
+  renderHTML: ({ node }) => ['details', { class: 'expand' },
+    ['summary', {}, node.attrs.title || '펼치기'],
+    ['div', { class: 'expand-body' }, 0]],
+});
+
+const Layout = Node.create({
+  name: 'layout', group: 'block', content: 'layoutSection+',
+  renderHTML: () => ['div', { class: 'layout' }, 0],
+});
+const LayoutSection = Node.create({
+  name: 'layoutSection', content: 'layoutColumn+',
+  addAttributes: () => ({ kind: { default: 'single' } }),
+  renderHTML: ({ node }) => ['div', { class: `layout-section layout-${node.attrs.kind}` }, 0],
+});
+const LayoutColumn = Node.create({
+  name: 'layoutColumn', content: 'block*',
+  renderHTML: () => ['div', { class: 'layout-column' }, 0],
+});
+
+const Mermaid = Node.create({
+  name: 'mermaid', group: 'block', content: 'text*', marks: '', code: true,
+  renderHTML: () => ['pre', { class: 'mermaid-src' }, ['code', 0]],
+});
+
+const JiraTable = Node.create({
+  name: 'jiraTable', group: 'block', atom: true,
+  addAttributes: () => ({ jql: { default: '' }, columns: { default: null }, maximumIssues: { default: null } }),
+  renderHTML: ({ node }) => ['div', { class: 'jira-table' },
+    ['span', { class: 'macro-badge' }, 'Jira 검색'], ['code', {}, node.attrs.jql ?? '']],
+});
+
+const CfMacro = Node.create({
+  name: 'cfMacro', group: 'block', content: 'block*',
+  addAttributes: () => ({ name: { default: '' }, params: { default: {} }, dynamic: { default: false } }),
+  renderHTML: ({ node }) => ['div', { class: `cf-macro ${node.attrs.dynamic ? 'cf-macro-dynamic' : ''}` },
+    ['span', { class: 'macro-badge' }, `매크로: ${node.attrs.name}`],
+    ['div', { class: 'cf-macro-body' }, 0]],
+});
+
+const AdfNode = Node.create({
+  name: 'adfNode', group: 'block', content: 'block*',
+  addAttributes: () => ({ adfType: { default: '' }, attrs: { default: {} } }),
+  renderHTML: ({ node }) => ['div', { class: 'cf-macro' },
+    ['span', { class: 'macro-badge' }, `adf: ${node.attrs.adfType}`],
+    ['div', { class: 'cf-macro-body' }, 0]],
+});
+
+// ---------- 인라인 ----------
+
+const inlineAtom = { group: 'inline', inline: true, atom: true };
+
+const Media = Node.create({
+  name: 'media', ...inlineAtom,
+  addAttributes: () => ({
+    kind: { default: 'attachment' }, filename: { default: null }, src: { default: null },
+    width: { default: null }, align: { default: null }, layout: { default: null },
+    border: { default: null }, alt: { default: null }, caption: { default: null },
+  }),
+  renderHTML: ({ node }) => {
+    const { src, filename, width, align, layout, border, alt, caption } = node.attrs;
+    if (!src) return ['span', { class: 'media-missing' }, `🖼 ${filename ?? '(이미지)'}`];
+    const img = ['img', {
+      src, alt: alt ?? filename ?? '',
+      ...(width ? { width } : {}),
+      ...(border ? { class: 'media-border' } : {}),
+    }];
+    const cls = `media ${align ? `media-${align}` : ''} ${layout ? `media-layout-${layout}` : ''}`.trim();
+    return caption
+      ? ['figure', { class: cls }, img, ['figcaption', {}, caption]]
+      : ['span', { class: cls }, img];
+  },
+});
+
+const Mention = Node.create({
+  name: 'mention', ...inlineAtom,
+  addAttributes: () => ({ accountId: { default: null }, text: { default: '' } }),
+  renderHTML: ({ node }) => ['span', { class: 'mention' }, `@${node.attrs.text || '사용자'}`],
+});
+
+const Emoji = Node.create({
+  name: 'emoji', ...inlineAtom,
+  addAttributes: () => ({ shortName: { default: '' }, text: { default: '' } }),
+  renderHTML: ({ node }) => ['span', { class: 'emoji' }, node.attrs.text || node.attrs.shortName || '❓'],
+});
+
+const DateNode = Node.create({
+  name: 'date', ...inlineAtom,
+  addAttributes: () => ({ date: { default: '' } }),
+  renderHTML: ({ node }) => ['span', { class: 'date-lozenge' }, node.attrs.date],
+});
+
+const Status = Node.create({
+  name: 'status', ...inlineAtom,
+  addAttributes: () => ({ text: { default: '' }, color: { default: 'neutral' } }),
+  renderHTML: ({ node }) => ['span', { class: `status status-${node.attrs.color}` }, node.attrs.text],
+});
+
+const Anchor = Node.create({
+  name: 'anchor', ...inlineAtom,
+  addAttributes: () => ({ name: { default: '' } }),
+  renderHTML: ({ node }) => ['span', { id: `anchor-${node.attrs.name}`, class: 'anchor' }],
+});
+
+const JiraIssue = Node.create({
+  name: 'jiraIssue', ...inlineAtom,
+  addAttributes: () => ({ key: { default: '' } }),
+  renderHTML: ({ node }) => ['a', {
+    class: 'jira-issue', target: '_blank', rel: 'noreferrer',
+    href: `https://gmdsoft.atlassian.net/browse/${node.attrs.key}`,
+  }, node.attrs.key],
+});
+
+const PageLink = Node.create({
+  name: 'pageLink', group: 'inline', inline: true, content: 'text*',
+  addAttributes: () => ({ contentTitle: { default: '' }, spaceKey: { default: null } }),
+  renderHTML: ({ node }) => ['a', {
+    class: 'page-link', href: '#',
+    'data-title': node.attrs.contentTitle, 'data-space': node.attrs.spaceKey ?? '',
+  }, node.childCount ? 0 : node.attrs.contentTitle],
+});
+
+const FileLink = Node.create({
+  name: 'fileLink', group: 'inline', inline: true, content: 'text*',
+  addAttributes: () => ({ filename: { default: '' }, href: { default: null } }),
+  renderHTML: ({ node }) => ['a', {
+    class: 'file-link', href: node.attrs.href ?? '#', target: '_blank', rel: 'noreferrer',
+  }, node.childCount ? 0 : `📎 ${node.attrs.filename}`],
+});
+
+const CfMacroInline = Node.create({
+  name: 'cfMacroInline', ...inlineAtom,
+  addAttributes: () => ({ name: { default: '' }, params: { default: {} }, dynamic: { default: false } }),
+  renderHTML: ({ node }) => ['span', { class: 'macro-badge' }, `매크로: ${node.attrs.name}`],
+});
+
+const custom = [
+  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark,
+  Table, TableRow, TableHeader, TableCell,
+  TaskList, TaskItem,
+  Panel, Expand, Layout, LayoutSection, LayoutColumn,
+  Mermaid, JiraTable, CfMacro, AdfNode,
+  Media, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
+  PageLink, FileLink, CfMacroInline,
+];
+
+// 읽기 전용 렌더링·render-check 용 (undo 히스토리 불필요)
+export const extensions = [StarterKit.configure({ history: false }), ...custom];
+
+// 편집기 용 (undo/redo 포함)
+export const editExtensions = [StarterKit, ...custom];

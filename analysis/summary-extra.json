@@ -1,0 +1,143 @@
+{
+  "collectedAt": "2026-10-24T14:48:58.893Z",
+  "site": "https://gmdsoft.atlassian.net",
+  "counts": {
+    "folder": 600,
+    "whiteboard": 33,
+    "database": 48,
+    "embed": 9,
+    "livePage": 1152
+  },
+  "folders": {
+    "parentTypes": {
+      "folder": 245,
+      "page": 350,
+      "spaceRoot": 2,
+      "database": 3
+    }
+  },
+  "pagesWithFolderDepth": {
+    "depthHistogram": {
+      "0": 307,
+      "1": 832,
+      "2": 2625,
+      "3": 6385,
+      "4": 8537,
+      "5": 4961,
+      "6": 2373,
+      "7": 170,
+      "8": 28,
+      "9": 22,
+      "10": 5,
+      "11": 4
+    },
+    "maxDepth": 11,
+    "viaFolder": 7258,
+    "total": 26249
+  },
+  "liveCoverageInInventory": {
+    "found": 1151,
+    "total": 1152
+  },
+  "spacesUsing": {
+    "folder": 52,
+    "whiteboard": 18,
+    "database": 18,
+    "embed": 7,
+    "livePage": 59
+  },
+  "topSpaces": {
+    "whiteboard": [
+      [
+        "MDLIVE",
+        5
+      ],
+      [
+        "MDX",
+        3
+      ],
+      [
+        "MDE",
+        3
+      ],
+      [
+        "~712020c0cc92c47e1d47d9a5e1f5a7e778a7d6",
+        3
+      ],
+      [
+        "U4Q7OP4YFrN7",
+        2
+      ]
+    ],
+    "database": [
+      [
+        "MDX",
+        13
+      ],
+      [
+        "DEV4",
+        5
+      ],
+      [
+        "FB",
+        5
+      ],
+      [
+        "TechnicalWriting",
+        5
+      ],
+      [
+        "AiResearch",
+        3
+      ]
+    ],
+    "folder": [
+      [
+        "Marketing",
+        90
+      ],
+      [
+        "TechnicalWriting",
+        88
+      ],
+      [
+        "PS",
+        53
+      ],
+      [
+        "FB",
+        39
+      ],
+      [
+        "SUPPORT",
+        34
+      ]
+    ],
+    "livePage": [
+      [
+        "DOC4VIDEO",
+        151
+      ],
+      [
+        "DOC4DRONE",
+        127
+      ],
+      [
+        "SUPPORT",
+        117
+      ],
+      [
+        "FB",
+        107
+      ],
+      [
+        "VL",
+        90
+      ]
+    ]
+  },
+  "errors": {
+    "count": 0,
+    "samples": []
+  }
+}
