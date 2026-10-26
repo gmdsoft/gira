@@ -19,9 +19,10 @@ async function send(path, method, body) {
   return res.json();
 }
 
-export default function Editor({ pageId, navigate }) {
+export default function Editor({ pageId, navigate, reloadSpace }) {
   const [page, setPage] = useState(null);
   const [initialDoc, setInitialDoc] = useState(null);
+  const [initialTitle, setInitialTitle] = useState(null);
   const [fromDraft, setFromDraft] = useState(false);
   const [saveState, setSaveState] = useState('');     // '', '저장 중…', '저장됨 HH:MM'
   const [publishing, setPublishing] = useState(false);
@@ -36,11 +37,13 @@ export default function Editor({ pageId, navigate }) {
         const d = await api(`/api/content/${pageId}/draft`);
         if (d.doc) {
           setInitialDoc(hydrateDoc(d.doc, pageId));
+          setInitialTitle(d.title ?? p.title);
           if (d.base_version != null) baseVersion.current = d.base_version;
           setFromDraft(true);
           return;
         }
       } catch { /* 초안 없음 */ }
+      setInitialTitle(p.title);
       setInitialDoc(p.version?.doc
         ? hydrateDoc(structuredClone(p.version.doc), pageId)
         : { type: 'doc', content: [{ type: 'paragraph' }] });
@@ -48,16 +51,21 @@ export default function Editor({ pageId, navigate }) {
   }, [pageId]);
 
   if (!page || !initialDoc) return <div className="page-loading">편집기 여는 중…</div>;
-  return <EditorInner page={page} initialDoc={initialDoc} fromDraft={fromDraft}
-    baseVersion={baseVersion} saveState={saveState} setSaveState={setSaveState}
-    publishing={publishing} setPublishing={setPublishing} navigate={navigate} />;
+  return <EditorInner page={page} initialDoc={initialDoc} initialTitle={initialTitle ?? page.title}
+    fromDraft={fromDraft} baseVersion={baseVersion} saveState={saveState} setSaveState={setSaveState}
+    publishing={publishing} setPublishing={setPublishing} navigate={navigate} reloadSpace={reloadSpace} />;
 }
 
-function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setSaveState, publishing, setPublishing, navigate }) {
+function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, saveState, setSaveState, publishing, setPublishing, navigate, reloadSpace }) {
   const timer = useRef(null);
   const dirty = useRef(false);
   const fileInput = useRef(null);
   const editorRef = useRef(null);
+  const isUntitled = initialTitle === '제목 없는 문서';
+  const [title, setTitle] = useState(isUntitled ? '' : initialTitle);
+  const titleRef = useRef(title);
+  titleRef.current = title;
+  const titleInput = useRef(null);
   // 편집기 모드: confluence(고정 툴바) | notion(버블 메뉴 + / 명령 중심). 문서 저장 형식은 동일하다.
   const [mode, setMode] = useState(() => {
     try { return localStorage.getItem('editorMode') ?? 'confluence'; } catch { return 'confluence'; }
@@ -93,7 +101,7 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
     setSaveState('저장 중…');
     try {
       await send(`/api/content/${page.id}/draft`, 'PUT', {
-        doc: editor.getJSON(), baseVersion: baseVersion.current,
+        doc: editor.getJSON(), title: titleRef.current, baseVersion: baseVersion.current,
       });
       dirty.current = false;
       setSaveState(`저장됨 ${new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}`);
@@ -105,7 +113,7 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
   const editor = useEditor({
     extensions: exts,
     content: initialDoc,
-    autofocus: true,
+    autofocus: !isUntitled, // 새 문서는 제목 입력부터
     editorProps: {
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files ?? [])];
@@ -134,9 +142,16 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
     setPublishing(true);
     clearTimeout(timer.current);
     try {
+      if (!titleRef.current.trim()) {
+        alert('제목을 입력해주세요.');
+        titleInput.current?.focus();
+        setPublishing(false);
+        return;
+      }
       const r = await send(`/api/content/${page.id}/publish`, 'POST', {
-        doc: editor.getJSON(), baseVersion: baseVersion.current,
+        doc: editor.getJSON(), title: titleRef.current, baseVersion: baseVersion.current,
       });
+      reloadSpace?.(); // 제목이 바뀌었을 수 있으니 트리 갱신
       navigate(`/s/${page.spaceKey}/p/${page.id}`);
     } catch (e) {
       if (e.status === 409) {
@@ -156,9 +171,15 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
   };
 
   const discard = async () => {
-    if (!confirm('초안을 버리고 게시된 버전으로 돌아갈까요?')) return;
+    const neverPublished = !page.version;
+    if (!confirm(neverPublished ? '이 문서를 게시하지 않고 버릴까요? (휴지통으로 이동)' : '초안을 버리고 게시된 버전으로 돌아갈까요?')) return;
     clearTimeout(timer.current);
     await send(`/api/content/${page.id}/draft`, 'DELETE');
+    if (neverPublished) {
+      await send(`/api/content/${page.id}/status`, 'POST', { status: 'trashed' });
+      navigate(`/s/${page.spaceKey}`);
+      return;
+    }
     navigate(`/s/${page.spaceKey}/p/${page.id}`);
   };
 
@@ -166,7 +187,7 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
     <div className="editor">
       <div className="editor-top">
         <div className="editor-title">
-          <strong>{page.title}</strong>
+          <strong>{title.trim() || '제목 없는 문서'}</strong>
           <span className="muted"> — v{baseVersion.current} 기준 편집 {fromDraft && '(미게시 초안 불러옴)'}</span>
         </div>
         <div className="editor-actions">
@@ -206,6 +227,22 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
       <input ref={fileInput} type="file" multiple hidden
         onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ''; }} />
       <div className={`page editor-body ${page.fullWidth ? 'page-full' : ''}`}>
+        <input ref={titleInput} className="title-input" value={title} placeholder="제목을 입력하세요"
+          autoFocus={isUntitled}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            dirty.current = true;
+            setSaveState('변경됨');
+            clearTimeout(timer.current);
+            timer.current = setTimeout(() => { const ed = editorRef.current; if (ed) saveDraft(ed); }, 1500);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              const ed = editorRef.current;
+              if (ed) { ed.commands.focus('start'); ed.view.dom.focus(); } // dom.focus()로 동기 전환
+            }
+          }} />
         <EditorContent editor={editor} className="doc" />
       </div>
     </div>

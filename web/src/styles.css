@@ -369,3 +369,8 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .bubble-menu button { border: 0; background: none; color: #dee4ea; font-size: 13px; padding: 4px 8px; border-radius: 5px; cursor: pointer; }
 .bubble-menu button:hover { background: #333c43; }
 .bubble-menu button.on { background: #09326c; color: #85b8ff; }
+
+/* 편집기 제목 입력 */
+.title-input { display: block; width: 100%; box-sizing: border-box; border: 0; outline: none;
+  font-size: 30px; font-weight: 700; color: #172b4d; padding: 18px 0 10px; background: none; font-family: inherit; }
+.title-input::placeholder { color: #c1c7d0; }

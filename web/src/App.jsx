@@ -47,12 +47,11 @@ export default function App() {
     if (route.spaceKey) api(`/api/spaces/${route.spaceKey}`).then(setSpace).catch(console.error);
   }, [route.spaceKey]);
 
+  // Confluence처럼 제목 없이 바로 만들고 편집기에서 제목을 입력한다
   const createPage = useCallback(async () => {
-    const title = prompt('새 페이지 제목:');
-    if (!title?.trim()) return;
     const res = await fetch('/api/content', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spaceKey: route.spaceKey, parentId: route.pageId ?? space?.homepage_id ?? null, title: title.trim() }),
+      body: JSON.stringify({ spaceKey: route.spaceKey, parentId: route.pageId ?? space?.homepage_id ?? null }),
     });
     if (!res.ok) { alert('생성 실패'); return; }
     const { id } = await res.json();
@@ -83,7 +82,7 @@ export default function App() {
   }, [route.spaceKey, navigate]);
 
   if (route.view === 'home') return <Home navigate={navigate} />;
-  if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} />;
+  if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
   if (route.view === 'search') return <SearchView navigate={navigate} />;
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
 

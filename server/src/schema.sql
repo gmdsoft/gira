@@ -69,10 +69,12 @@ CREATE TABLE IF NOT EXISTS content_versions (
 CREATE TABLE IF NOT EXISTS drafts (
   content_id bigint PRIMARY KEY REFERENCES content(id),
   doc jsonb,
+  title text, -- 초안 단계의 제목 변경 (게시 시 content.title에 반영)
   base_version int,
   updated_by bigint REFERENCES users(id),
   updated_at timestamptz
 );
+ALTER TABLE drafts ADD COLUMN IF NOT EXISTS title text;
 
 CREATE TABLE IF NOT EXISTS attachments (
   id bigint PRIMARY KEY,

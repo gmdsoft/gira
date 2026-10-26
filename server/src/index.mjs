@@ -166,20 +166,20 @@ async function devUserId() {
 }
 
 app.get('/api/content/:id/draft', async (req, reply) => {
-  const { rows } = await query(`SELECT doc, base_version, updated_at FROM drafts WHERE content_id = $1`, [req.params.id]);
+  const { rows } = await query(`SELECT doc, title, base_version, updated_at FROM drafts WHERE content_id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'no draft' });
   return rows[0];
 });
 
 app.put('/api/content/:id/draft', async (req) => {
-  const { doc, baseVersion } = req.body;
+  const { doc, title, baseVersion } = req.body;
   const userId = await devUserId();
   await query(
-    `INSERT INTO drafts (content_id, doc, base_version, updated_by, updated_at)
-     VALUES ($1, $2, $3, $4, now())
-     ON CONFLICT (content_id) DO UPDATE SET doc = EXCLUDED.doc, base_version = EXCLUDED.base_version,
-       updated_by = EXCLUDED.updated_by, updated_at = now()`,
-    [req.params.id, JSON.stringify(doc), baseVersion ?? null, userId]);
+    `INSERT INTO drafts (content_id, doc, title, base_version, updated_by, updated_at)
+     VALUES ($1, $2, $3, $4, $5, now())
+     ON CONFLICT (content_id) DO UPDATE SET doc = EXCLUDED.doc, title = EXCLUDED.title,
+       base_version = EXCLUDED.base_version, updated_by = EXCLUDED.updated_by, updated_at = now()`,
+    [req.params.id, JSON.stringify(doc), title?.trim() || null, baseVersion ?? null, userId]);
   return { ok: true, savedAt: new Date().toISOString() };
 });
 
@@ -193,9 +193,10 @@ app.post('/api/content/:id/publish', async (req, reply) => {
   const id = req.params.id;
   const { rows: cur } = await query(`SELECT current_version FROM content WHERE id = $1`, [id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
-  const { rows: dr } = await query(`SELECT doc, base_version FROM drafts WHERE content_id = $1`, [id]);
+  const { rows: dr } = await query(`SELECT doc, title, base_version FROM drafts WHERE content_id = $1`, [id]);
   const doc = req.body?.doc ?? dr[0]?.doc;
   if (!doc) return reply.code(400).send({ error: 'no draft to publish' });
+  const newTitle = (req.body?.title ?? dr[0]?.title)?.trim();
   const baseVersion = req.body?.baseVersion ?? dr[0]?.base_version;
   const currentVersion = cur[0].current_version ?? 0;
   if (baseVersion != null && Number(baseVersion) !== Number(currentVersion)) {
@@ -207,16 +208,18 @@ app.post('/api/content/:id/publish', async (req, reply) => {
     `INSERT INTO content_versions (content_id, version, doc, message, minor_edit, author_id, created_at)
      VALUES ($1, $2, $3, $4, false, $5, now())`,
     [id, next, JSON.stringify(doc), req.body?.message ?? null, userId]);
-  await query(`UPDATE content SET current_version = $2, updated_at = now() WHERE id = $1`, [id, next]);
+  await query(`UPDATE content SET current_version = $2, updated_at = now(), title = COALESCE($3, title) WHERE id = $1`,
+    [id, next, newTitle || null]);
   await query(`DELETE FROM drafts WHERE content_id = $1`, [id]);
   reindex(id);
   return { ok: true, version: next };
 });
 
-// 새 페이지 생성 (초안 상태로 시작)
+// 새 페이지 생성 (Confluence처럼 제목 없이 먼저 만들고 편집기에서 입력)
 app.post('/api/content', async (req, reply) => {
-  const { spaceKey, parentId, title } = req.body ?? {};
-  if (!spaceKey || !title) return reply.code(400).send({ error: 'spaceKey, title required' });
+  const { spaceKey, parentId } = req.body ?? {};
+  const title = req.body?.title?.trim() || '제목 없는 문서';
+  if (!spaceKey) return reply.code(400).send({ error: 'spaceKey required' });
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
   if (!sp.length) return reply.code(404).send({ error: 'space not found' });
   const userId = await devUserId();
