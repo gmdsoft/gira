@@ -7,6 +7,30 @@ import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
 import MoveDialog from './MoveDialog.jsx';
 
+// inline_ref 텍스트를 본문에서 찾아 Range로 반환.
+// 여러 문단에 걸친 선택은 첫 줄만, 서식으로 쪼개진 텍스트 노드도 이어 붙여 찾는다.
+function findRefRange(root, ref) {
+  const needle = ref.split('\n').map((s) => s.trim()).find((s) => s.length >= 2)?.slice(0, 60);
+  if (!needle) return null;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let full = '';
+  while (walker.nextNode()) {
+    nodes.push({ node: walker.currentNode, start: full.length });
+    full += walker.currentNode.textContent;
+  }
+  const idx = full.indexOf(needle);
+  if (idx < 0) return null;
+  const end = idx + needle.length;
+  const range = document.createRange();
+  for (const { node, start } of nodes) {
+    const len = node.textContent.length;
+    if (idx >= start && idx < start + len) range.setStart(node, idx - start);
+    if (end > start && end <= start + len) { range.setEnd(node, end - start); return range; }
+  }
+  return null;
+}
+
 export default function PageView({ pageId, navigate, reloadSpace }) {
   const [page, setPage] = useState(null);
   const [comments, setComments] = useState(null);
@@ -45,18 +69,16 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
         let el = null;
         try { el = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`); } catch { /* 선택자 불가 문자 */ }
         if (!el) {
-          const needle = c.inline_ref.slice(0, 60);
-          const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
-          while (walker.nextNode()) {
-            const idx = walker.currentNode.textContent.indexOf(needle);
-            if (idx >= 0) {
-              const range = document.createRange();
-              range.setStart(walker.currentNode, idx);
-              range.setEnd(walker.currentNode, idx + needle.length);
-              const span = document.createElement('span');
-              span.className = 'comment-mark';
-              try { range.surroundContents(span); el = span; } catch { /* 노드 경계 걸침 — 표시 생략 */ }
-              break;
+          const range = findRefRange(doc, c.inline_ref);
+          if (range) {
+            const span = document.createElement('span');
+            span.className = 'comment-mark';
+            try {
+              range.surroundContents(span);
+              el = span;
+            } catch {
+              // 노드 경계에 걸치면 내용을 꺼내 span에 담아 되넣는다
+              try { span.appendChild(range.extractContents()); range.insertNode(span); el = span; } catch { /* 표시 생략 */ }
             }
           }
         }
@@ -295,11 +317,8 @@ function InlineComments({ comments, pageId, onChanged }) {
     let target = null;
     try { target = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(ref)}"]`); } catch { /* 선택자 불가 문자는 텍스트 검색으로 */ }
     if (!target) {
-      const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
-      const needle = ref.slice(0, 60);
-      while (walker.nextNode()) {
-        if (walker.currentNode.textContent.includes(needle)) { target = walker.currentNode.parentElement; break; }
-      }
+      const range = findRefRange(doc, ref);
+      if (range) target = range.startContainer.parentElement;
     }
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });

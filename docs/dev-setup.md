@@ -87,6 +87,7 @@ placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/
 - 버전 기록 화면 보기 모드: 선택 버전 / 나란히 비교 / **변경 내용(텍스트)** — 블록 LCS + 변경 블록 단어 하이라이트 (`web/src/diff.js`, 서식 변경은 비표시)
 - 본문 텍스트 선택 → 💬 버튼 → 인라인 댓글 작성 (`POST /api/content/:id/comments`, kind=inline, inline_ref=선택 텍스트)
 - 인라인 댓글 목록에서 인용 클릭 → 본문 위치로 스크롤·강조, 해결/다시 열기 (`POST /api/comments/:id/resolve`)
+- 저장된(미해결) 인라인 댓글은 본문에 상시 하이라이트. 여러 문단에 걸친 선택은 첫 줄로 앵커하고, 서식으로 쪼개진 텍스트 노드도 이어 붙여 찾는다 (`findRefRange`)
 
 ## 편집기 모드 (2026-10-26 추가)
 편집 화면 우상단 토글 — **문서 저장 형식은 동일**(ProseMirror JSON), UI만 다르다. 선택은 localStorage에 기억.
