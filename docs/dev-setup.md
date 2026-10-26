@@ -78,7 +78,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 ## 매크로 렌더링 (2026-10-26 추가)
 placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/macros.js` 하이드레이터).
 - 문서 데이터만으로: toc(본문 제목으로 목차), children, pagetree, contributors, excerpt/details(본문 직접 렌더), decision-list
-- 첨부 기반: view-file(이미지/PDF/파일 카드), viewpdf(인라인 임베드), viewdoc·viewxls·viewppt(파일 카드), drawio(미리보기 PNG)
+- 첨부 기반: view-file(이미지는 본문 표시, 그 외 파일 카드), viewpdf·PDF(기본 카드 + "미리보기" 버튼으로 펼침), viewdoc·viewxls·viewppt(파일 카드), drawio(미리보기 PNG)
 - 조회 API: profile(`/api/users/:accountId`), recently-updated(`/api/spaces/:key/recent`), contentbylabel(`/api/label-content`)
 - include/excerpt-include: 대상 페이지 본문(또는 excerpt 부분)을 그 자리에 렌더. **미이관 스페이스를 가리키면 배지로 남는다** (전 스페이스 이관 후 자동 해소)
 - widget: YouTube는 임베드, 그 외 링크

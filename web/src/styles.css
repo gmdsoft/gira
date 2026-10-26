@@ -374,3 +374,7 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .title-input { display: block; width: 100%; box-sizing: border-box; border: 0; outline: none;
   font-size: 30px; font-weight: 700; color: #172b4d; padding: 18px 0 10px; background: none; font-family: inherit; }
 .title-input::placeholder { color: #c1c7d0; }
+
+/* PDF 미리보기 접기 */
+.macro-pdf-row { display: flex; align-items: center; gap: 8px; }
+.macro-pdf iframe { margin-top: 8px; }
