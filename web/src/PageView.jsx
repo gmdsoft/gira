@@ -27,6 +27,59 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
     loadComments();
   }, [pageId, loadComments]);
 
+  // 선택 팝업(아직 안 연 상태)은 스크롤하면 숨긴다 — fixed 좌표가 본문과 어긋나 떠다니지 않도록
+  useEffect(() => {
+    const onScroll = () => setSelPop((p) => (p && !p.open ? null : p));
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, []);
+
+  // 저장된 인라인 댓글을 본문에 영구 표시: 해당 텍스트를 하이라이트하고 클릭하면 댓글로 이동
+  useEffect(() => {
+    if (!page || !comments) return;
+    const t = setTimeout(() => {
+      const doc = document.querySelector('.doc');
+      if (!doc) return;
+      for (const c of comments.filter((x) => x.kind === 'inline' && x.inline_ref && !x.resolved)) {
+        if (doc.querySelector(`[data-inline-anchor="${c.id}"]`)) continue;
+        let el = null;
+        try { el = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`); } catch { /* 선택자 불가 문자 */ }
+        if (!el) {
+          const needle = c.inline_ref.slice(0, 60);
+          const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+          while (walker.nextNode()) {
+            const idx = walker.currentNode.textContent.indexOf(needle);
+            if (idx >= 0) {
+              const range = document.createRange();
+              range.setStart(walker.currentNode, idx);
+              range.setEnd(walker.currentNode, idx + needle.length);
+              const span = document.createElement('span');
+              span.className = 'comment-mark';
+              try { range.surroundContents(span); el = span; } catch { /* 노드 경계 걸침 — 표시 생략 */ }
+              break;
+            }
+          }
+        }
+        if (el) {
+          el.dataset.inlineAnchor = c.id;
+          el.title = '인라인 댓글 보기';
+          el.style.cursor = 'pointer';
+          // mousedown에서 가로채 ProseMirror 선택 처리(분할된 텍스트 노드에서 오류)를 막는다
+          el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = document.querySelector(`[data-comment-item="${c.id}"]`);
+            if (!item) return;
+            item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            item.classList.add('inline-flash');
+            setTimeout(() => item.classList.remove('inline-flash'), 1800);
+          });
+        }
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [page, comments]);
+
   if (error) return <div className="page-error">불러오기 실패: {error}</div>;
   if (!page) return <div className="page-loading">불러오는 중…</div>;
 
@@ -266,7 +319,7 @@ function InlineComments({ comments, pageId, onChanged }) {
     <section className="comments inline-comments">
       <h2>인라인 댓글 <span className="muted">({list.length})</span></h2>
       {list.map((c) => (
-        <div key={c.id} className={`inline-comment-item ${c.resolved ? 'comment-resolved' : ''}`}>
+        <div key={c.id} data-comment-item={c.id} className={`inline-comment-item ${c.resolved ? 'comment-resolved' : ''}`}>
           {c.inline_ref && (
             <button className="inline-quote" onClick={() => locate(c.inline_ref)} title="본문에서 보기">
               “{c.inline_ref.slice(0, 90)}{c.inline_ref.length > 90 ? '…' : ''}”
