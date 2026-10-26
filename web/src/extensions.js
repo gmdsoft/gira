@@ -179,7 +179,14 @@ const Expand = Node.create({
         return { dom: details, contentDOM: body, update: (n) => n.type.name === 'expand' };
       }
       const dom = document.createElement('div');
-      dom.className = 'expand expand-edit';
+      // 넓은 표를 품은 펼치기는 편집기에서도 박스째 돌출 (expandViewAttrs가 breakout 판단)
+      const applyAttrs = (n) => {
+        const a = expandViewAttrs(n);
+        dom.className = `${a.class} expand-edit`;
+        if (a.style) dom.setAttribute('style', a.style);
+        else dom.removeAttribute('style');
+      };
+      applyAttrs(node);
       const head = document.createElement('div');
       head.className = 'expand-edit-head';
       head.contentEditable = 'false';
@@ -214,6 +221,7 @@ const Expand = Node.create({
         ignoreMutation: (m) => !body.contains(m.target),
         update: (n) => {
           if (n.type.name !== 'expand') return false;
+          applyAttrs(n);
           if (document.activeElement !== input && (n.attrs.title ?? '') !== input.value) input.value = n.attrs.title ?? '';
           return true;
         },

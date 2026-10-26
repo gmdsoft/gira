@@ -43,13 +43,13 @@ body { margin: 0; }
 /* 페이지 */
 /* Confluence 기본 레이아웃: 760px 고정 컬럼. 넓은 표·펼치기는 .breakout으로 중앙 돌출 */
 .page { max-width: 824px; margin: 0 auto; padding: 40px 32px 80px; }
-.page:not(.page-full) .breakout {
+/* 돌출은 문서 최상위 블록에만 — 중첩(펼치기·스크롤 컨테이너 내부)에서 transform하면
+   보이지 않는 영역이 생기므로, 넓은 표를 품은 펼치기는 박스째 돌출시킨다 */
+.page:not(.page-full) .doc > .ProseMirror > .breakout {
   width: min(var(--bw), calc(100vw - 380px));
   margin-left: 50%;
   transform: translateX(-50%);
 }
-/* 돌출된 펼치기 안의 표는 이미 넓은 박스 안에 있으므로 다시 돌출하지 않는다 */
-.page:not(.page-full) .breakout .breakout { width: auto; margin-left: 0; transform: none; }
 .page-header h1 { font-size: 28px; margin: 0 0 8px; }
 .page-meta { display: flex; gap: 12px; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .live-badge, .legacy-badge { font-size: 11px; border-radius: 3px; padding: 1px 6px; margin-right: 8px; vertical-align: middle; }
@@ -97,8 +97,9 @@ body { margin: 0; }
 .panel-warning { background: #fff7d6; border-color: #f5e489; }
 .panel-error { background: #ffefeb; border-color: #ffd5d2; }
 .panel-title { font-weight: 700; margin-bottom: 4px; }
-.panel-body > p:first-child { margin-top: 0; }
-.panel-body > p:last-child { margin-bottom: 0; }
+.panel-body > :first-child { margin-top: 0; }
+.panel-body > :last-child { margin-bottom: 0; }
+.panel-body h1, .panel-body h2, .panel-body h3, .panel-body h4 { margin: 0.3em 0; }
 
 /* 펼치기 — Confluence처럼 접힘: 테두리 없음 / 펼침: 전체 박스 테두리 */
 .expand { margin: 0.4em 0; }
