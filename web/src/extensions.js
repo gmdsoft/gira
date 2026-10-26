@@ -129,7 +129,7 @@ const Expand = Node.create({
   content: 'block+',
   addAttributes: () => ({ title: { default: '' } }),
   renderHTML: ({ node }) => ['details', { class: 'expand' },
-    ['summary', {}, node.attrs.title || '펼치기'],
+    ['summary', {}, node.attrs.title || '여기를 클릭하여 펼치기...'],
     ['div', { class: 'expand-body' }, 0]],
 });
 
