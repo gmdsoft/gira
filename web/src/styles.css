@@ -295,3 +295,31 @@ mark { background: #fff0b3; border-radius: 2px; padding: 0 1px; }
 .doc .media-layout-align-end { display: block; text-align: right; }
 .doc img.media-border { border: 1px solid var(--border); }
 .pres-slide { overflow-x: auto; }
+
+/* ---------- 매크로 렌더링 (2026-10-26) ---------- */
+.cf-macro-slot { display: block; margin: 0.6em 0; }
+span.cf-macro-slot { display: inline; margin: 0; }
+.macro-toc { background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 6px; padding: 10px 16px; margin: 0.6em 0; display: inline-block; min-width: 260px; }
+.macro-toc ul { list-style: none; margin: 0; padding: 0; }
+.macro-toc li { margin: 3px 0; font-size: 14px; }
+.macro-children ul, .macro-recent ul, .macro-labelled ul { margin: 0.3em 0; padding-left: 20px; }
+.macro-pagetree ul { list-style: none; padding-left: 18px; margin: 2px 0; }
+.macro-pagetree > ul { padding-left: 0; }
+.macro-pagetree li { margin: 2px 0; font-size: 14px; }
+.file-card { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; margin: 2px 0; background: #fff; color: inherit; text-decoration: none; max-width: 100%; }
+.file-card:hover { background: var(--bg-subtle); }
+.file-card-name { font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-card-size { font-size: 12px; flex: none; }
+.macro-view-image { max-width: 100%; border-radius: 4px; }
+.macro-pdf { margin: 0.6em 0; }
+.macro-pdf iframe { width: 100%; border: 1px solid var(--border); border-radius: 6px; display: block; margin-bottom: 6px; }
+.macro-widget-embed { width: 640px; max-width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: 6px; display: block; margin: 0.6em 0; }
+.macro-include { border: 1px solid var(--border); border-radius: 6px; margin: 0.8em 0; }
+.macro-include-head { background: var(--bg-subtle); border-bottom: 1px solid var(--border); border-radius: 6px 6px 0 0; padding: 6px 12px; font-size: 13px; }
+.macro-include > .doc { padding: 10px 14px; }
+.macro-details { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0.8em 0; }
+.macro-excerpt { margin: 0.4em 0; }
+.macro-contributors { color: var(--accent); }
+.decision-list { margin: 0.6em 0; }
+.decision-item { background: var(--bg-subtle); border-radius: 6px; padding: 8px 12px 8px 36px; margin: 4px 0; position: relative; }
+.decision-item::before { content: '✔'; position: absolute; left: 12px; color: #216e4e; font-weight: 700; }

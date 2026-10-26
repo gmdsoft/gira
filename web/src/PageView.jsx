@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { generateHTML } from '@tiptap/html';
 import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
+import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
 
 export default function PageView({ pageId, navigate, reloadSpace }) {
@@ -72,7 +73,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
         </div>
         <LabelEditor page={page} onChange={(labels) => setPage({ ...page, labels })} />
       </header>
-      <Doc doc={page.version?.doc} pageId={page.id} />
+      <Doc page={page} navigate={navigate} />
       {isEmptyDoc(page.version?.doc) && page.children?.length > 0 && (
         <section className="children-list">
           <h2>하위 페이지</h2>
@@ -278,11 +279,18 @@ function isEmptyDoc(doc) {
   return doc.content.every((n) => n.type === 'paragraph' && !(n.content?.length));
 }
 
-function Doc({ doc, pageId }) {
-  const content = useMemo(() => doc ? hydrateDoc(structuredClone(doc), pageId) : null, [doc, pageId]);
+function Doc({ page, navigate }) {
+  const doc = page.version?.doc;
+  const content = useMemo(() => doc ? hydrateDoc(structuredClone(doc), page.id) : null, [doc, page.id]);
   const editor = useEditor({ extensions, content, editable: false }, [content]);
+  const ref = React.useRef(null);
+  useEffect(() => {
+    if (!editor || !content) return;
+    const t = setTimeout(() => hydrateMacros(ref.current, { page, navigate }), 80);
+    return () => clearTimeout(t);
+  }, [editor, content, page, navigate]);
   if (!doc) return <div className="muted">본문이 없습니다.</div>;
-  return <EditorContent editor={editor} className="doc" />;
+  return <div ref={ref}><EditorContent editor={editor} className="doc" /></div>;
 }
 
 function Comment({ comment, pageId }) {

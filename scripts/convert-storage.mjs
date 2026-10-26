@@ -36,7 +36,12 @@ function macroParams(node) {
   const params = {};
   for (const p of childEls(node, 'ac:parameter')) {
     const name = dec(p.attribs['ac:name'] ?? '');
-    const ref = (p.children ?? []).find((c) => isEl(c) && c.name.startsWith('ri:'));
+    // ri:* 참조는 직접 자식이거나 <ac:link> 안에 감싸여 올 수 있다 (include/excerpt-include 등)
+    let ref = (p.children ?? []).find((c) => isEl(c) && c.name.startsWith('ri:'));
+    if (!ref) {
+      const link = (p.children ?? []).find((c) => isEl(c) && c.name === 'ac:link');
+      if (link) ref = (link.children ?? []).find((c) => isEl(c) && c.name.startsWith('ri:'));
+    }
     params[name] = ref ? { ref: ref.name, ...mapValues(ref.attribs, dec) } : textOf(p).trim();
   }
   return params;

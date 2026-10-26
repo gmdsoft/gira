@@ -84,8 +84,14 @@ export default function VersionHistory({ pageId, spaceKey, navigate }) {
   );
 }
 
-function RenderDoc({ doc, pageId }) {
+function RenderDoc({ doc, pageId, page, navigate }) {
   const content = React.useMemo(() => hydrateDoc(structuredClone(doc), pageId), [doc, pageId]);
   const editor = useEditor({ extensions, content, editable: false }, [content]);
-  return <EditorContent editor={editor} className="doc" />;
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!editor || !page) return;
+    const t = setTimeout(() => hydrateMacros(ref.current, { page, navigate }), 80);
+    return () => clearTimeout(t);
+  }, [editor, content, page, navigate]);
+  return <div ref={ref}><EditorContent editor={editor} className="doc" /></div>;
 }
