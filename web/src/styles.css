@@ -89,7 +89,8 @@ body { margin: 0; }
 .task-body p { margin: 0; }
 
 /* 패널 */
-.panel { border-radius: 6px; padding: 10px 14px; margin: 0.8em 0; background: #f0f6ff; border: 1px solid #cce0ff; }
+.panel { border-radius: 6px; padding: 7px 12px; margin: 0.6em 0; background: #f0f6ff; border: 1px solid #cce0ff; }
+.panel-body p { margin: 0.3em 0; }
 .panel-info { background: #e9f2ff; border-color: #cce0ff; }
 .panel-note { background: #f3f0ff; border-color: #dfd8fd; }
 .panel-tip, .panel-success { background: #effaf1; border-color: #bbe3c4; }
@@ -111,7 +112,7 @@ details.expand[open] { border: 1px solid var(--border); border-radius: 8px; padd
 .expand-edit-head { display: flex; gap: 4px; align-items: center; }
 .expand-caret { border: none; background: none; cursor: pointer; font-size: 14px; padding: 2px 6px; color: var(--muted); }
 .expand-title-input { flex: 1; border: none; outline: none; font: inherit; font-weight: 600; padding: 4px; background: transparent; }
-.expand-edit .expand-body { padding: 0 4px 0 24px; }
+.expand-edit .expand-body { padding: 0 4px 0 24px; overflow-x: auto; }
 
 /* 레이아웃(다단) */
 .layout-section { display: flex; gap: 24px; }

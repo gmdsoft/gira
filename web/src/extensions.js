@@ -46,15 +46,16 @@ const CommentMark = Mark.create({
 // Confluence 고정 폭 컬럼(760px)보다 넓은 블록은 컬럼 밖으로 "돌출(breakout)"시켜 중앙 정렬한다
 const COLUMN_WIDTH = 760;
 
-// 표의 렌더링 폭(px). tableWidth가 없으면 px 열 너비 합계로 추정
+// 표의 렌더링 폭(px). Confluence는 px 열 너비 합이 tableWidth보다 크면 열 합을 따른다
+// (tableWidth=760은 기본값 표식으로 남는 경우가 있어 열 합이 실제 폭).
 function tableRenderWidth(attrs) {
-  if (attrs.tableWidth) return attrs.tableWidth;
   const cols = attrs.colwidths;
+  let sum = 0;
   if (cols?.length && cols.some((w) => w) && !cols.some((w) => w?.endsWith?.('%'))) {
-    const sum = cols.reduce((a, w) => a + (w ? parseFloat(w) : 0), 0);
-    return sum || null;
+    sum = cols.reduce((a, w) => a + (w ? parseFloat(w) : 0), 0);
   }
-  return null;
+  const width = Math.max(attrs.tableWidth ?? 0, sum);
+  return width || null;
 }
 
 // 공식 표 확장 + Confluence 폭 속성(표 전체 폭 px, 레이아웃, colgroup 열 너비) 보존·렌더링
@@ -84,7 +85,8 @@ const Table = TableExt.extend({
       const total = sum + nulls * nullShare;
       if (total > 0) {
         cols = px.map((v) => `${(((v ?? nullShare) / total) * 100).toFixed(3)}%`);
-        if (!width) width = Math.round(total);
+        // 열 합이 지정 폭보다 크면 열 합이 실제 폭 (tableWidth=760은 기본값 표식인 경우가 있다)
+        if (!width || total > width) width = Math.round(total);
       }
     }
     const style = [
@@ -328,10 +330,20 @@ const Mention = Node.create({
   renderHTML: ({ node }) => ['span', { class: 'mention' }, `@${node.attrs.text || '사용자'}`],
 });
 
+// 레거시 Confluence 이모티콘(유니코드 fallback 없음) → 유니코드 매핑
+const LEGACY_EMOTICONS = {
+  smile: '🙂', sad: '🙁', cheeky: '😛', laugh: '😄', wink: '😉',
+  'thumbs-up': '👍', 'thumbs-down': '👎', information: 'ℹ️', tick: '✅', cross: '❌',
+  warning: '⚠️', plus: '➕', minus: '➖', question: '❓', 'light-on': '💡', 'light-off': '🔅',
+  'yellow-star': '⭐', 'red-star': '🔴', 'green-star': '🟢', 'blue-star': '🔵',
+  heart: '❤️', 'broken-heart': '💔',
+};
+
 const Emoji = Node.create({
   name: 'emoji', ...inlineAtom,
   addAttributes: () => ({ shortName: { default: '' }, text: { default: '' } }),
-  renderHTML: ({ node }) => ['span', { class: 'emoji' }, node.attrs.text || node.attrs.shortName || '❓'],
+  renderHTML: ({ node }) => ['span', { class: 'emoji' },
+    node.attrs.text || LEGACY_EMOTICONS[node.attrs.shortName?.replaceAll(':', '')] || node.attrs.shortName || '❓'],
 });
 
 const DateNode = Node.create({

@@ -73,6 +73,8 @@ Confluence와 같은 **초안/게시 분리** 모델.
 - 변환기: 표의 `data-table-width`(px)·`data-layout`·colgroup 열 너비(px/%) → table 노드 attrs(tableWidth/layout/colwidths), 이미지의 `ac:custom-width`/`ac:original-width`(width 대체값)·`ac:layout`·`ac:border` 수집
 - 렌더러: Confluence와 동일하게 "공간이 있으면 지정 폭, 좁으면 열 비율 유지하며 스크롤 없이 축소" — px 열 너비는 렌더링 시 %로 환산(고정 레이아웃에서 px 열 합계는 표 폭의 하한이라 축소가 안 되기 때문), `width + max-width:100%` 인라인 적용. 편집 모드에서도 속성 보존
 - **페이지 폭 모델 (2026-10-26 정정)**: Confluence 기본은 **760px 고정 컬럼 + 넓은 블록(표·펼치기)만 중앙 "돌출(breakout)"**. 과거 "전체 폭이 기본" 결론은 1800px 표의 돌출을 전체 폭으로 오인한 것. `content.full_width`는 속성이 명시적으로 full-width일 때만 true(기본 false). 렌더러가 폭>760px인 표(와 그런 표를 품은 펼치기)에 `.breakout` + `--bw`를 붙이고, CSS가 `margin-left:50%; translateX(-50%)`로 중앙 돌출시킨다. 신규 임포트는 import-space.mjs, 소급은 `node scripts/import-appearance.mjs`
+- 표 폭 판정: **px 열 너비 합이 tableWidth보다 크면 열 합이 실제 폭** (tableWidth=760은 기본값 표식으로 남는 경우가 있음)
+- 레거시 이모티콘(tick·cross·information·별 등 유니코드 fallback 없는 것) → 유니코드 매핑으로 렌더 (`LEGACY_EMOTICONS`)
 - **`node scripts/reconvert.mjs [--dry-run]`** — DB에 보관한 source_xhtml로 전 버전 재변환 (API 호출 없음). 변환기를 고치면 이걸로 소급 적용. 2026-10-26: 3,203건 재변환, 실패 0, render-check 3,206/3,206
 - 주의: `web/dist` 재빌드 후에는 API 서버도 재시작해야 한다 (정적 라우트가 기동 시점 파일 기준)
 
