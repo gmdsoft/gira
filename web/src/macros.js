@@ -140,15 +140,28 @@ const HANDLERS = {
     }
   },
 
+  // PDF는 기본 파일 카드, '미리보기' 버튼을 눌렀을 때만 펼친다 (페이지 로드를 가볍게)
   viewpdf(el, params, ctx) {
     const info = attInfo(ctx, params);
     if (!info) return;
     const wrap = document.createElement('div');
     wrap.className = 'macro-pdf';
-    const frame = document.createElement('iframe');
-    frame.src = info.url;
-    frame.style.height = `${Number(params.height) || 560}px`;
-    wrap.append(frame, fileCard(info));
+    const row = document.createElement('div');
+    row.className = 'macro-pdf-row';
+    const btn = document.createElement('button');
+    btn.className = 'btn-xs';
+    btn.textContent = '미리보기';
+    let frame = null;
+    btn.addEventListener('click', () => {
+      if (frame) { frame.remove(); frame = null; btn.textContent = '미리보기'; return; }
+      frame = document.createElement('iframe');
+      frame.src = info.url;
+      frame.style.height = `${Number(params.height) || 560}px`;
+      wrap.append(frame);
+      btn.textContent = '미리보기 닫기';
+    });
+    row.append(fileCard(info), btn);
+    wrap.append(row);
     swap(el, wrap);
   },
 

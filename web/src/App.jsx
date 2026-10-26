@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from './api.js';
 import Tree from './Tree.jsx';
 import PageView from './PageView.jsx';
+import MoveDialog from './MoveDialog.jsx';
 import Editor from './Editor.jsx';
 import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
@@ -24,6 +25,7 @@ function parsePath(pathname) {
 export default function App() {
   const [route, setRoute] = useState(() => parsePath(location.pathname));
   const [space, setSpace] = useState(null);
+  const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
 
   const navigate = useCallback((path) => {
     history.pushState(null, '', path);
@@ -47,18 +49,42 @@ export default function App() {
     if (route.spaceKey) api(`/api/spaces/${route.spaceKey}`).then(setSpace).catch(console.error);
   }, [route.spaceKey]);
 
+  // Confluence처럼 제목 없이 바로 만들고 편집기에서 제목을 입력한다
   const createPage = useCallback(async () => {
-    const title = prompt('새 페이지 제목:');
-    if (!title?.trim()) return;
     const res = await fetch('/api/content', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spaceKey: route.spaceKey, parentId: route.pageId ?? space?.homepage_id ?? null, title: title.trim() }),
+      body: JSON.stringify({ spaceKey: route.spaceKey, parentId: route.pageId ?? space?.homepage_id ?? null }),
     });
     if (!res.ok) { alert('생성 실패'); return; }
     const { id } = await res.json();
     reloadSpace();
     navigate(`/s/${route.spaceKey}/p/${id}/edit`);
   }, [route, space, navigate, reloadSpace]);
+
+  // Confluence 단축키 (보기 화면): e=편집, c=새 페이지, /=검색, m=댓글
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('.presentation, .modal-backdrop, .sel-comment-form')) return;
+      if (route.view === 'page' && e.key === 'e') {
+        e.preventDefault();
+        navigate(`/s/${route.spaceKey}/p/${route.pageId}/edit`);
+      } else if (route.view === 'page' && e.key === 'm') {
+        const ta = document.querySelector('.comment-form textarea');
+        if (ta) { e.preventDefault(); ta.scrollIntoView({ block: 'center' }); ta.focus(); }
+      } else if ((route.view === 'page' || route.view === 'archive') && e.key === 'c') {
+        e.preventDefault();
+        createPage();
+      } else if (e.key === '/') {
+        const inp = document.querySelector('.sidebar-search input, .search-input');
+        if (inp) { e.preventDefault(); inp.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [route, navigate, createPage]);
 
   // 스페이스 홈 → 홈페이지로
   useEffect(() => {
@@ -83,7 +109,7 @@ export default function App() {
   }, [route.spaceKey, navigate]);
 
   if (route.view === 'home') return <Home navigate={navigate} />;
-  if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} />;
+  if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
   if (route.view === 'search') return <SearchView navigate={navigate} />;
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
 
@@ -95,7 +121,8 @@ export default function App() {
         {space && <>
           <div className="space-name">{space.name}</div>
           <button className="btn new-page" onClick={createPage}>+ 새 페이지</button>
-          <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate} />
+          <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate}
+            onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
           <a className="archive-link" href={`/s/${space.key}/archive`}
              onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
         </>}
@@ -104,6 +131,8 @@ export default function App() {
         {route.view === 'page' && <PageView pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />}
         {route.view === 'archive' && <ArchiveView spaceKey={route.spaceKey} navigate={navigate} reloadSpace={reloadSpace} />}
       </main>
+      {movePage && <MoveDialog page={movePage} navigate={navigate} reloadSpace={reloadSpace}
+        onClose={() => setMovePage(null)} />}
     </div>
   );
 }

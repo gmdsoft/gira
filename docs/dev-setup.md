@@ -65,7 +65,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 - **보관/휴지통/복원**: `POST /api/content/:id/status` (하위 트리 전체 적용, 색인 제거·복구). 사이드바 "보관함 · 휴지통"(`/s/{key}/archive`)에서 복원
 - **댓글 작성**: 페이지 하단 입력창 → `POST /api/content/:id/comments` (텍스트 → 문단 doc)
 - **레이블 추가/삭제**: 헤더에서 바로 편집 → `POST /api/content/:id/labels` (색인 반영)
-- 이동 대화상자의 제목 검색은 `GET /api/pages?space=&q=` (DB ILIKE — 검색 엔진과 무관)
+- 이동 대화상자(web/src/MoveDialog.jsx): 실제 스페이스 트리에서 새 위치 선택(자기 하위는 비활성), 제목 필터, 트리 ⋯ 메뉴에서도 호출
 
 ## 폭 충실도 (2026-10-26 추가)
 원본과 레이아웃 폭이 다르던 문제의 수정.
@@ -78,7 +78,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 ## 매크로 렌더링 (2026-10-26 추가)
 placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/macros.js` 하이드레이터).
 - 문서 데이터만으로: toc(본문 제목으로 목차), children, pagetree, contributors, excerpt/details(본문 직접 렌더), decision-list
-- 첨부 기반: view-file(이미지/PDF/파일 카드), viewpdf(인라인 임베드), viewdoc·viewxls·viewppt(파일 카드), drawio(미리보기 PNG)
+- 첨부 기반: view-file(이미지는 본문 표시, 그 외 파일 카드), viewpdf·PDF(기본 카드 + "미리보기" 버튼으로 펼침), viewdoc·viewxls·viewppt(파일 카드), drawio(미리보기 PNG)
 - 조회 API: profile(`/api/users/:accountId`), recently-updated(`/api/spaces/:key/recent`), contentbylabel(`/api/label-content`)
 - include/excerpt-include: 대상 페이지 본문(또는 excerpt 부분)을 그 자리에 렌더. **미이관 스페이스를 가리키면 배지로 남는다** (전 스페이스 이관 후 자동 해소)
 - widget: YouTube는 임베드, 그 외 링크
@@ -87,14 +87,26 @@ placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/
 - 버전 기록 화면 보기 모드: 선택 버전 / 나란히 비교 / **변경 내용(텍스트)** — 블록 LCS + 변경 블록 단어 하이라이트 (`web/src/diff.js`, 서식 변경은 비표시)
 - 본문 텍스트 선택 → 💬 버튼 → 인라인 댓글 작성 (`POST /api/content/:id/comments`, kind=inline, inline_ref=선택 텍스트)
 - 인라인 댓글 목록에서 인용 클릭 → 본문 위치로 스크롤·강조, 해결/다시 열기 (`POST /api/comments/:id/resolve`)
+- 저장된(미해결) 인라인 댓글은 본문에 상시 하이라이트. 여러 문단에 걸친 선택은 줄 단위로 전 구간을 칠하고, 서식으로 쪼개진 텍스트 노드도 이어 붙여 찾는다 (`findTextRange`/`wrapRefMarks`)
 
 ## 편집기 모드 (2026-10-26 추가)
 편집 화면 우상단 토글 — **문서 저장 형식은 동일**(ProseMirror JSON), UI만 다르다. 선택은 localStorage에 기억.
 - **Confluence 모드**: 고정 툴바 (기존)
 - **Notion 모드**: 툴바 없음, 텍스트 선택 시 버블 메뉴(B/I/U/S/code/링크/H2), 블록 추가는 `/` 명령
+- 버블 메뉴는 직접 구현(selection 좌표 기반) — tippy 기반 `@tiptap/react BubbleMenu`는 DOM을 React 밖으로 옮겨 모드 전환 시 removeChild 충돌(빈 화면)을 일으킨다
+
+## 단축키 (2026-10-26 추가)
+- 보기: `e` 편집, `c` 새 페이지, `/` 검색 포커스, `m` 댓글 입력
+- 편집기: `Ctrl/Cmd+S` 또는 `Ctrl/Cmd+Enter` 게시(업데이트), 제목에서 `Enter`/`↓` 본문 이동
+- 입력란·모달·프레젠테이션 중에는 보기 단축키 비활성
+
+## 새 문서·제목 편집 (2026-10-26 추가)
+- `+ 새 페이지`: Confluence처럼 **제목 없이 즉시 생성** → 편집기에서 제목 입력(포커스 자동, Enter로 본문 이동)
+- 편집기 상단에 제목 입력란 — 기존 문서 제목도 여기서 수정, **게시 시 반영** (초안에는 drafts.title로 저장)
+- 빈 제목은 게시 차단. 게시 전 문서를 "초안 버리기" 하면 휴지통으로
+- 게시 후 사이드바 트리 자동 갱신
 
 ## 알려진 제약 (PoC)
 - 첨부 원본은 MinIO가 아니라 Confluence 프록시+캐시 (minio 이미지 pull 이슈: docker.io·quay.io 모두 401 — 재검토 필요). 업로드 첨부는 `server/data/att-cache`에 로컬 저장
-- 버전 비교는 나란히 보기(텍스트 단위 diff 하이라이트는 후순위)
-- 동시 편집(Yjs), 인라인 댓글 작성, 인증(Entra) 미구현
+- 동시 편집(Yjs), 인증(Entra) 미구현 — 초안이 페이지당 1개(사용자 구분 없음)라 동시 편집 시 초안이 덮일 수 있음
 - 읽기 렌더링에서 `media`는 문단 안 인라인으로 처리. 스키마 위치 규칙은 편집 고도화 때 재검토

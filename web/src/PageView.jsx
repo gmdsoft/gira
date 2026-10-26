@@ -5,6 +5,52 @@ import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
 import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
+import MoveDialog from './MoveDialog.jsx';
+
+// 본문 텍스트 노드를 이어 붙여 needle을 찾아 Range로 반환 (서식으로 쪼개진 노드도 매칭)
+function findTextRange(root, needle, from = 0) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  let full = '';
+  while (walker.nextNode()) {
+    nodes.push({ node: walker.currentNode, start: full.length });
+    full += walker.currentNode.textContent;
+  }
+  const idx = full.indexOf(needle, from);
+  if (idx < 0) return null;
+  const end = idx + needle.length;
+  const range = document.createRange();
+  for (const { node, start } of nodes) {
+    const len = node.textContent.length;
+    if (idx >= start && idx < start + len) range.setStart(node, idx - start);
+    if (end > start && end <= start + len) { range.setEnd(node, end - start); break; }
+  }
+  return range.collapsed ? null : { range, end };
+}
+
+const refLines = (ref) => ref.split('\n').map((s) => s.trim()).filter((s) => s.length >= 2);
+
+// inline_ref의 각 줄을 차례로 찾아 하이라이트 span으로 감싼다 — 여러 문단 선택은 줄마다 하나씩,
+// 전 구간이 칠해진다. 감싸면 노드가 쪼개지므로 줄마다 재탐색한다 (텍스트 오프셋은 유지됨)
+function wrapRefMarks(root, ref) {
+  const spans = [];
+  let from = 0;
+  for (const line of refLines(ref)) {
+    const hit = findTextRange(root, line, from);
+    if (!hit) continue;
+    from = hit.end;
+    const span = document.createElement('span');
+    span.className = 'comment-mark';
+    try {
+      hit.range.surroundContents(span);
+      spans.push(span);
+    } catch {
+      // 노드 경계에 걸치면 내용을 꺼내 span에 담아 되넣는다
+      try { span.appendChild(hit.range.extractContents()); hit.range.insertNode(span); spans.push(span); } catch { /* 표시 생략 */ }
+    }
+  }
+  return spans;
+}
 
 export default function PageView({ pageId, navigate, reloadSpace }) {
   const [page, setPage] = useState(null);
@@ -25,6 +71,47 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
       .catch((e) => setError(String(e)));
     loadComments();
   }, [pageId, loadComments]);
+
+  // 선택 팝업(아직 안 연 상태)은 스크롤하면 숨긴다 — fixed 좌표가 본문과 어긋나 떠다니지 않도록
+  useEffect(() => {
+    const onScroll = () => setSelPop((p) => (p && !p.open ? null : p));
+    window.addEventListener('scroll', onScroll, true);
+    return () => window.removeEventListener('scroll', onScroll, true);
+  }, []);
+
+  // 저장된 인라인 댓글을 본문에 영구 표시: 해당 텍스트를 하이라이트하고 클릭하면 댓글로 이동
+  useEffect(() => {
+    if (!page || !comments) return;
+    const t = setTimeout(() => {
+      const doc = document.querySelector('.doc');
+      if (!doc) return;
+      for (const c of comments.filter((x) => x.kind === 'inline' && x.inline_ref && !x.resolved)) {
+        if (doc.querySelector(`[data-inline-anchor="${c.id}"]`)) continue;
+        let els = [];
+        try {
+          const m = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`);
+          if (m) els = [m];
+        } catch { /* 선택자 불가 문자 */ }
+        if (!els.length) els = wrapRefMarks(doc, c.inline_ref);
+        for (const el of els) {
+          el.dataset.inlineAnchor = c.id;
+          el.title = '인라인 댓글 보기';
+          el.style.cursor = 'pointer';
+          // mousedown에서 가로채 ProseMirror 선택 처리(분할된 텍스트 노드에서 오류)를 막는다
+          el.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const item = document.querySelector(`[data-comment-item="${c.id}"]`);
+            if (!item) return;
+            item.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            item.classList.add('inline-flash');
+            setTimeout(() => item.classList.remove('inline-flash'), 1800);
+          });
+        }
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [page, comments]);
 
   if (error) return <div className="page-error">불러오기 실패: {error}</div>;
   if (!page) return <div className="page-loading">불러오는 중…</div>;
@@ -195,70 +282,6 @@ function LabelEditor({ page, onChange }) {
     </div>
   );
 }
-
-// 이동 대화상자: 스페이스 선택 + 제목 검색으로 새 부모 지정
-function MoveDialog({ page, navigate, reloadSpace, onClose }) {
-  const [spaces, setSpaces] = useState([]);
-  const [spaceKey, setSpaceKey] = useState(page.spaceKey);
-  const [q, setQ] = useState('');
-  const [results, setResults] = useState([]);
-  const [target, setTarget] = useState(undefined); // undefined=미선택, null=스페이스 최상위, {id,title}=부모 페이지
-
-  useEffect(() => { api('/api/spaces').then(setSpaces).catch(() => {}); }, []);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      api(`/api/pages?space=${encodeURIComponent(spaceKey)}&q=${encodeURIComponent(q)}`)
-        .then((rows) => setResults(rows.filter((r) => r.id !== Number(page.id))))
-        .catch(() => setResults([]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [spaceKey, q, page.id]);
-
-  const move = async () => {
-    const res = await fetch(`/api/content/${page.id}/move`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(target ? { parentId: target.id } : { spaceKey }),
-    });
-    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '이동 실패'); return; }
-    const { spaceKey: destKey } = await res.json();
-    onClose();
-    reloadSpace?.();
-    navigate(`/s/${destKey}/p/${page.id}`);
-  };
-
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>페이지 이동</h2>
-        <p className="muted">"{page.title}" (하위 페이지 포함) 을 옮길 위치를 선택하세요.</p>
-        <label className="modal-field">스페이스
-          <select value={spaceKey} onChange={(e) => { setSpaceKey(e.target.value); setTarget(undefined); }}>
-            {spaces.map((s) => <option key={s.key} value={s.key}>{s.name} ({s.key})</option>)}
-          </select>
-        </label>
-        <label className="modal-field">새 상위 페이지
-          <input value={q} placeholder="제목으로 검색" onChange={(e) => setQ(e.target.value)} />
-        </label>
-        <div className="move-results">
-          <button className={`move-row ${target === null ? 'selected' : ''}`} onClick={() => setTarget(null)}>
-            📁 (스페이스 최상위)
-          </button>
-          {results.map((r) => (
-            <button key={r.id} className={`move-row ${target?.id === r.id ? 'selected' : ''}`}
-              onClick={() => setTarget(r)}>
-              {r.type === 'folder' ? '📁' : '📄'} {r.title}
-            </button>
-          ))}
-        </div>
-        <div className="modal-actions">
-          <button className="btn" onClick={onClose}>취소</button>
-          <button className="btn btn-primary" disabled={target === undefined} onClick={move}>이동</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // 본문 텍스트 선택 시 뜨는 인라인 댓글 팝업
 function InlineCommentPopup({ pop, setPop, pageId, onAdded }) {
   const [text, setText] = useState('');
@@ -298,18 +321,18 @@ function InlineComments({ comments, pageId, onChanged }) {
   const list = comments?.filter((c) => c.kind === 'inline') ?? [];
   if (!list.length) return null;
 
-  const locate = (ref) => {
-    if (!ref) return;
+  const locate = (c) => {
+    if (!c.inline_ref) return;
     const doc = document.querySelector('.doc');
     if (!doc) return;
-    let target = null;
-    try { target = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(ref)}"]`); } catch { /* 선택자 불가 문자는 텍스트 검색으로 */ }
+    let target = doc.querySelector(`[data-inline-anchor="${c.id}"]`);
     if (!target) {
-      const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
-      const needle = ref.slice(0, 60);
-      while (walker.nextNode()) {
-        if (walker.currentNode.textContent.includes(needle)) { target = walker.currentNode.parentElement; break; }
-      }
+      try { target = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`); } catch { /* 선택자 불가 문자는 텍스트 검색으로 */ }
+    }
+    if (!target) {
+      const line = refLines(c.inline_ref)[0];
+      const hit = line && findTextRange(doc, line);
+      if (hit) target = hit.range.startContainer.parentElement;
     }
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -329,9 +352,9 @@ function InlineComments({ comments, pageId, onChanged }) {
     <section className="comments inline-comments">
       <h2>인라인 댓글 <span className="muted">({list.length})</span></h2>
       {list.map((c) => (
-        <div key={c.id} className={`inline-comment-item ${c.resolved ? 'comment-resolved' : ''}`}>
+        <div key={c.id} data-comment-item={c.id} className={`inline-comment-item ${c.resolved ? 'comment-resolved' : ''}`}>
           {c.inline_ref && (
-            <button className="inline-quote" onClick={() => locate(c.inline_ref)} title="본문에서 보기">
+            <button className="inline-quote" onClick={() => locate(c)} title="본문에서 보기">
               “{c.inline_ref.slice(0, 90)}{c.inline_ref.length > 90 ? '…' : ''}”
             </button>
           )}
