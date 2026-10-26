@@ -7,11 +7,8 @@ import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
 import MoveDialog from './MoveDialog.jsx';
 
-// inline_ref 텍스트를 본문에서 찾아 Range로 반환.
-// 여러 문단에 걸친 선택은 첫 줄만, 서식으로 쪼개진 텍스트 노드도 이어 붙여 찾는다.
-function findRefRange(root, ref) {
-  const needle = ref.split('\n').map((s) => s.trim()).find((s) => s.length >= 2)?.slice(0, 60);
-  if (!needle) return null;
+// 본문 텍스트 노드를 이어 붙여 needle을 찾아 Range로 반환 (서식으로 쪼개진 노드도 매칭)
+function findTextRange(root, needle, from = 0) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];
   let full = '';
@@ -19,16 +16,40 @@ function findRefRange(root, ref) {
     nodes.push({ node: walker.currentNode, start: full.length });
     full += walker.currentNode.textContent;
   }
-  const idx = full.indexOf(needle);
+  const idx = full.indexOf(needle, from);
   if (idx < 0) return null;
   const end = idx + needle.length;
   const range = document.createRange();
   for (const { node, start } of nodes) {
     const len = node.textContent.length;
     if (idx >= start && idx < start + len) range.setStart(node, idx - start);
-    if (end > start && end <= start + len) { range.setEnd(node, end - start); return range; }
+    if (end > start && end <= start + len) { range.setEnd(node, end - start); break; }
   }
-  return null;
+  return range.collapsed ? null : { range, end };
+}
+
+const refLines = (ref) => ref.split('\n').map((s) => s.trim()).filter((s) => s.length >= 2);
+
+// inline_ref의 각 줄을 차례로 찾아 하이라이트 span으로 감싼다 — 여러 문단 선택은 줄마다 하나씩,
+// 전 구간이 칠해진다. 감싸면 노드가 쪼개지므로 줄마다 재탐색한다 (텍스트 오프셋은 유지됨)
+function wrapRefMarks(root, ref) {
+  const spans = [];
+  let from = 0;
+  for (const line of refLines(ref)) {
+    const hit = findTextRange(root, line, from);
+    if (!hit) continue;
+    from = hit.end;
+    const span = document.createElement('span');
+    span.className = 'comment-mark';
+    try {
+      hit.range.surroundContents(span);
+      spans.push(span);
+    } catch {
+      // 노드 경계에 걸치면 내용을 꺼내 span에 담아 되넣는다
+      try { span.appendChild(hit.range.extractContents()); hit.range.insertNode(span); spans.push(span); } catch { /* 표시 생략 */ }
+    }
+  }
+  return spans;
 }
 
 export default function PageView({ pageId, navigate, reloadSpace }) {
@@ -66,23 +87,13 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
       if (!doc) return;
       for (const c of comments.filter((x) => x.kind === 'inline' && x.inline_ref && !x.resolved)) {
         if (doc.querySelector(`[data-inline-anchor="${c.id}"]`)) continue;
-        let el = null;
-        try { el = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`); } catch { /* 선택자 불가 문자 */ }
-        if (!el) {
-          const range = findRefRange(doc, c.inline_ref);
-          if (range) {
-            const span = document.createElement('span');
-            span.className = 'comment-mark';
-            try {
-              range.surroundContents(span);
-              el = span;
-            } catch {
-              // 노드 경계에 걸치면 내용을 꺼내 span에 담아 되넣는다
-              try { span.appendChild(range.extractContents()); range.insertNode(span); el = span; } catch { /* 표시 생략 */ }
-            }
-          }
-        }
-        if (el) {
+        let els = [];
+        try {
+          const m = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`);
+          if (m) els = [m];
+        } catch { /* 선택자 불가 문자 */ }
+        if (!els.length) els = wrapRefMarks(doc, c.inline_ref);
+        for (const el of els) {
           el.dataset.inlineAnchor = c.id;
           el.title = '인라인 댓글 보기';
           el.style.cursor = 'pointer';
@@ -310,15 +321,18 @@ function InlineComments({ comments, pageId, onChanged }) {
   const list = comments?.filter((c) => c.kind === 'inline') ?? [];
   if (!list.length) return null;
 
-  const locate = (ref) => {
-    if (!ref) return;
+  const locate = (c) => {
+    if (!c.inline_ref) return;
     const doc = document.querySelector('.doc');
     if (!doc) return;
-    let target = null;
-    try { target = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(ref)}"]`); } catch { /* 선택자 불가 문자는 텍스트 검색으로 */ }
+    let target = doc.querySelector(`[data-inline-anchor="${c.id}"]`);
     if (!target) {
-      const range = findRefRange(doc, ref);
-      if (range) target = range.startContainer.parentElement;
+      try { target = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(c.inline_ref)}"]`); } catch { /* 선택자 불가 문자는 텍스트 검색으로 */ }
+    }
+    if (!target) {
+      const line = refLines(c.inline_ref)[0];
+      const hit = line && findTextRange(doc, line);
+      if (hit) target = hit.range.startContainer.parentElement;
     }
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -340,7 +354,7 @@ function InlineComments({ comments, pageId, onChanged }) {
       {list.map((c) => (
         <div key={c.id} data-comment-item={c.id} className={`inline-comment-item ${c.resolved ? 'comment-resolved' : ''}`}>
           {c.inline_ref && (
-            <button className="inline-quote" onClick={() => locate(c.inline_ref)} title="본문에서 보기">
+            <button className="inline-quote" onClick={() => locate(c)} title="본문에서 보기">
               “{c.inline_ref.slice(0, 90)}{c.inline_ref.length > 90 ? '…' : ''}”
             </button>
           )}
