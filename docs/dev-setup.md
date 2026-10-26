@@ -55,6 +55,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 
 ## 편집기 고도화 (2026-10-25 추가)
 - 표: 공식 `@tiptap/extension-table`로 교체 — 행/열 추가·삭제, 헤더 토글, 셀 선택 (표 안에 커서가 있을 때 툴바에 조작 버튼 노출)
+- 펼치기: 편집기 전용 NodeView — 제목 입력란 + 본문 직접 편집, ▾로 접기. 보기 화면은 details/summary(접힘: 테두리 없음, 펼침: 박스 테두리 — Confluence 동일)
 - **이미지·파일 업로드**: 툴바 버튼, 붙여넣기, 드래그&드롭 → `POST /api/content/:id/attachments` (로컬 저장, 운영 전환 시 MinIO) → 이미지는 media, 그 외는 fileLink로 삽입
 - **`/` 명령 메뉴**: `web/src/slash-menu.js` — 제목, 목록, 작업 항목, 표, 패널, 펼치기, 코드, 이미지, 날짜, 상태 등 16종
 
@@ -71,7 +72,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 원본과 레이아웃 폭이 다르던 문제의 수정.
 - 변환기: 표의 `data-table-width`(px)·`data-layout`·colgroup 열 너비(px/%) → table 노드 attrs(tableWidth/layout/colwidths), 이미지의 `ac:custom-width`/`ac:original-width`(width 대체값)·`ac:layout`·`ac:border` 수집
 - 렌더러: Confluence와 동일하게 "공간이 있으면 지정 폭, 좁으면 열 비율 유지하며 스크롤 없이 축소" — px 열 너비는 렌더링 시 %로 환산(고정 레이아웃에서 px 열 합계는 표 폭의 하한이라 축소가 안 되기 때문), `width + max-width:100%` 인라인 적용. 편집 모드에서도 속성 보존
-- 페이지 "전체 폭 보기": `content.full_width` 컬럼. **현재 Confluence는 전체 폭이 기본값**(콘텐츠 속성 `content-appearance-published`는 명시 변경 시에만 기록, 실측: 595건 중 fixed-width 0건)이라 기본 true, 속성이 명시적으로 fixed-width일 때만 false. 신규 임포트는 import-space.mjs가 수집, 소급은 `node scripts/import-appearance.mjs`
+- **페이지 폭 모델 (2026-10-26 정정)**: Confluence 기본은 **760px 고정 컬럼 + 넓은 블록(표·펼치기)만 중앙 "돌출(breakout)"**. 과거 "전체 폭이 기본" 결론은 1800px 표의 돌출을 전체 폭으로 오인한 것. `content.full_width`는 속성이 명시적으로 full-width일 때만 true(기본 false). 렌더러가 폭>760px인 표(와 그런 표를 품은 펼치기)에 `.breakout` + `--bw`를 붙이고, CSS가 `margin-left:50%; translateX(-50%)`로 중앙 돌출시킨다. 신규 임포트는 import-space.mjs, 소급은 `node scripts/import-appearance.mjs`
 - **`node scripts/reconvert.mjs [--dry-run]`** — DB에 보관한 source_xhtml로 전 버전 재변환 (API 호출 없음). 변환기를 고치면 이걸로 소급 적용. 2026-10-26: 3,203건 재변환, 실패 0, render-check 3,206/3,206
 - 주의: `web/dist` 재빌드 후에는 API 서버도 재시작해야 한다 (정적 라우트가 기동 시점 파일 기준)
 

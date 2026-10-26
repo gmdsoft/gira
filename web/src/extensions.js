@@ -43,6 +43,20 @@ const CommentMark = Mark.create({
 // 공식 확장 사용: 행/열 추가·삭제, 셀 선택, 헤더 토글 커맨드 제공.
 // 노드 이름(table/tableRow/tableHeader/tableCell)과 colspan/rowspan 속성이 변환기 출력과 일치한다.
 
+// Confluence 고정 폭 컬럼(760px)보다 넓은 블록은 컬럼 밖으로 "돌출(breakout)"시켜 중앙 정렬한다
+const COLUMN_WIDTH = 760;
+
+// 표의 렌더링 폭(px). tableWidth가 없으면 px 열 너비 합계로 추정
+function tableRenderWidth(attrs) {
+  if (attrs.tableWidth) return attrs.tableWidth;
+  const cols = attrs.colwidths;
+  if (cols?.length && cols.some((w) => w) && !cols.some((w) => w?.endsWith?.('%'))) {
+    const sum = cols.reduce((a, w) => a + (w ? parseFloat(w) : 0), 0);
+    return sum || null;
+  }
+  return null;
+}
+
 // 공식 표 확장 + Confluence 폭 속성(표 전체 폭 px, 레이아웃, colgroup 열 너비) 보존·렌더링
 const Table = TableExt.extend({
   addAttributes() {
@@ -83,7 +97,9 @@ const Table = TableExt.extend({
     }
     table.push(['tbody', 0]);
     // 셀 안 이미지 등으로 최소 폭이 더 클 때만 가로 스크롤이 생긴다
-    return ['div', { class: 'table-wrap' }, table];
+    const wrap = { class: 'table-wrap' };
+    if (width > COLUMN_WIDTH) { wrap.class += ' breakout'; wrap.style = `--bw: ${Math.round(width)}px`; }
+    return ['div', wrap, table];
   },
 }).configure({ resizable: false });
 const TableRow = TableRowExt;
@@ -123,14 +139,85 @@ const Panel = Node.create({
   },
 });
 
+// 내부에 컬럼보다 넓은 표가 있으면 펼치기 박스째 돌출시킨다 (Confluence 동일)
+function expandViewAttrs(node) {
+  let bw = 0;
+  node.descendants((n) => { if (n.type.name === 'table') bw = Math.max(bw, tableRenderWidth(n.attrs) ?? 0); });
+  const attrs = { class: 'expand' };
+  if (bw > COLUMN_WIDTH) { attrs.class += ' breakout'; attrs.style = `--bw: ${Math.round(bw) + 26}px`; }
+  return attrs;
+}
+
 const Expand = Node.create({
   name: 'expand',
   group: 'block',
   content: 'block+',
   addAttributes: () => ({ title: { default: '' } }),
-  renderHTML: ({ node }) => ['details', { class: 'expand' },
-    ['summary', {}, node.attrs.title || '여기를 클릭하여 펼치기...'],
-    ['div', { class: 'expand-body' }, 0]],
+  renderHTML: ({ node }) => {
+    const attrs = expandViewAttrs(node);
+    return ['details', attrs,
+      ['summary', {}, node.attrs.title || '여기를 클릭하여 펼치기...'],
+      ['div', { class: 'expand-body' }, 0]];
+  },
+  // 편집기: 제목 입력란 + 본문을 직접 편집할 수 있는 NodeView
+  // (details/summary 그대로는 summary가 속성 텍스트라 편집이 안 되고 네이티브 토글이 클릭을 삼킨다)
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      // 읽기 전용(본문 보기 화면)은 renderHTML과 같은 details/summary로
+      if (!editor.isEditable) {
+        const details = document.createElement('details');
+        const attrs = expandViewAttrs(node);
+        details.className = attrs.class;
+        if (attrs.style) details.setAttribute('style', attrs.style);
+        const summary = document.createElement('summary');
+        summary.textContent = node.attrs.title || '여기를 클릭하여 펼치기...';
+        const body = document.createElement('div');
+        body.className = 'expand-body';
+        details.append(summary, body);
+        return { dom: details, contentDOM: body, update: (n) => n.type.name === 'expand' };
+      }
+      const dom = document.createElement('div');
+      dom.className = 'expand expand-edit';
+      const head = document.createElement('div');
+      head.className = 'expand-edit-head';
+      head.contentEditable = 'false';
+      const caret = document.createElement('button');
+      caret.type = 'button';
+      caret.className = 'expand-caret';
+      caret.textContent = '▾';
+      const input = document.createElement('input');
+      input.className = 'expand-title-input';
+      input.placeholder = '제목 입력...';
+      input.value = node.attrs.title ?? '';
+      input.addEventListener('input', () => {
+        const pos = getPos();
+        if (pos == null) return;
+        const { state, dispatch } = editor.view;
+        dispatch(state.tr.setNodeAttribute(pos, 'title', input.value));
+      });
+      const body = document.createElement('div');
+      body.className = 'expand-body';
+      let open = true;
+      caret.addEventListener('click', () => {
+        open = !open;
+        body.style.display = open ? '' : 'none';
+        caret.textContent = open ? '▾' : '▸';
+      });
+      head.append(caret, input);
+      dom.append(head, body);
+      return {
+        dom,
+        contentDOM: body,
+        stopEvent: (e) => head.contains(e.target),
+        ignoreMutation: (m) => !body.contains(m.target),
+        update: (n) => {
+          if (n.type.name !== 'expand') return false;
+          if (document.activeElement !== input && (n.attrs.title ?? '') !== input.value) input.value = n.attrs.title ?? '';
+          return true;
+        },
+      };
+    };
+  },
 });
 
 const Layout = Node.create({

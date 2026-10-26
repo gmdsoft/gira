@@ -107,8 +107,8 @@ const perPage = await mapLimit(pages, 6, async (p) => {
     getAll(`/wiki/api/v2/pages/${p.id}/properties?key=content-appearance-published`).catch(() => []),
   ]);
   if (++done % 25 === 0) console.log(`  ${done}/${pages.length}`);
-  // 현재 Confluence는 전체 폭이 기본값. 명시적으로 fixed-width일 때만 고정 폭으로 본다.
-  const fullWidth = !props.some((pr) => String(pr.value).replaceAll('"', '') === 'fixed-width');
+  // Confluence 기본은 고정 폭(넓은 블록은 돌출 렌더링). 명시적으로 full-width일 때만 전체 폭.
+  const fullWidth = props.some((pr) => String(pr.value).replaceAll('"', '') === 'full-width');
   return { attachments, labels, footer, inline, fullWidth };
 });
 

@@ -46,14 +46,14 @@ CREATE TABLE IF NOT EXISTS content (
   author_id bigint REFERENCES users(id),
   owner_id bigint REFERENCES users(id),
   current_version int,
-  -- Confluence는 2025년부터 전체 폭이 기본값(속성은 명시 변경 시에만 기록)이므로 기본 true
-  full_width boolean NOT NULL DEFAULT true,
+  -- Confluence 기본은 고정 폭(760px 컬럼, 넓은 표는 돌출 렌더링). 속성이 명시적으로 full-width일 때만 true
+  full_width boolean NOT NULL DEFAULT false,
   created_at timestamptz,
   updated_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS content_space_parent ON content(space_id, parent_id);
-ALTER TABLE content ADD COLUMN IF NOT EXISTS full_width boolean NOT NULL DEFAULT true;
-ALTER TABLE content ALTER COLUMN full_width SET DEFAULT true;
+ALTER TABLE content ADD COLUMN IF NOT EXISTS full_width boolean NOT NULL DEFAULT false;
+ALTER TABLE content ALTER COLUMN full_width SET DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS content_versions (
   content_id bigint NOT NULL REFERENCES content(id),
