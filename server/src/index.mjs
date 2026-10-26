@@ -593,14 +593,14 @@ function requireAdmin(req, reply) {
 app.get('/api/principals', async (req) => {
   const q = (req.query.q ?? '').trim();
   const { rows: users } = await query(
-    `SELECT id, display_name, email FROM users
+    `SELECT id, display_name, email, confluence_account_id FROM users
       WHERE active AND display_name IS NOT NULL AND confluence_account_id IS DISTINCT FROM 'local-dev'
         AND ($1 = '' OR display_name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
       ORDER BY display_name LIMIT 10`, [q]);
   const { rows: groups } = await query(
     `SELECT id, name FROM groups WHERE $1 = '' OR name ILIKE '%' || $1 || '%' ORDER BY name LIMIT 10`, [q]);
   return {
-    users: users.map((u) => ({ type: 'user', id: u.id, name: u.display_name, email: u.email })),
+    users: users.map((u) => ({ type: 'user', id: u.id, name: u.display_name, email: u.email, accountId: u.confluence_account_id })),
     groups: groups.map((g) => ({ type: 'group', id: g.id, name: g.name })),
   };
 });

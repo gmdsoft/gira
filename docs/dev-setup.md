@@ -98,6 +98,14 @@ placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/
 - **Notion 모드**: 툴바 없음, 텍스트 선택 시 버블 메뉴(B/I/U/S/code/링크/H2), 블록 추가는 `/` 명령
 - 버블 메뉴는 직접 구현(selection 좌표 기반) — tippy 기반 `@tiptap/react BubbleMenu`는 DOM을 React 밖으로 옮겨 모드 전환 시 removeChild 충돌(빈 화면)을 일으킨다
 
+## 편집기 Confluence 패리티 (2026-10-26 추가)
+rea 캡처 기반 명세 **docs/editor-spec.md** 에 따라 구현.
+- 툴바: 텍스트 스타일(제목 5·6 추가)·텍스트 색상 팔레트·텍스트 정렬·작업 항목·멘션·레이아웃·**표 그리드 선택기**·링크
+- 트리거: `@` 멘션(사용자 검색, /api/principals), `:` 이모지(상용 유니코드, 2자부터), `[]`+공백 → 작업 항목
+- 단축키 추가: Ctrl+Shift+M 코드, Ctrl+\ 서식 지우기, Ctrl+Alt+0 일반 텍스트, Ctrl+Shift+9 인용, Ctrl+K 링크
+- 텍스트 정렬은 자체 TextAlign 확장(문단·제목의 textAlign 속성) — 읽기 렌더에도 포함
+- 비활성화된 Confluence 계정("(Deactivated)")은 users.active=false — 로그인·멘션 목록에서 제외
+
 ## 단축키 (2026-10-26 추가)
 - 보기: `e` 편집, `c` 새 페이지, `/` 검색 포커스, `m` 댓글 입력
 - 편집기: `Ctrl/Cmd+S` 또는 `Ctrl/Cmd+Enter` 게시(업데이트), 제목에서 `Enter`/`↓` 본문 이동

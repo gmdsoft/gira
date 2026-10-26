@@ -1,7 +1,7 @@
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
-import { Node, Mark, mergeAttributes } from '@tiptap/core';
+import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
@@ -123,6 +123,14 @@ const TaskItem = Node.create({
   renderHTML: ({ node }) => ['li', { class: 'task-item', 'data-checked': String(node.attrs.checked) },
     ['span', { class: 'task-check' }, node.attrs.checked ? '☑' : '☐'],
     ['div', { class: 'task-body' }, 0]],
+  // Confluence처럼 "[]"+공백 입력 → 작업 항목 (editor-spec.md)
+  addInputRules() {
+    return [wrappingInputRule({
+      find: /^\s*\[([ xX]?)\]\s$/,
+      type: this.type,
+      getAttributes: (m) => ({ checked: /x/i.test(m[1] ?? '') }),
+    })];
+  },
 });
 
 // ---------- 블록 ----------
@@ -408,8 +416,54 @@ const CfMacroInline = Node.create({
   },
 });
 
+// 문단·제목 텍스트 정렬 (Confluence 툴바의 "텍스트 정렬" — editor-spec.md)
+const TextAlign = Extension.create({
+  name: 'textAlign',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph', 'heading'],
+      attributes: {
+        textAlign: {
+          default: null,
+          renderHTML: (attrs) => (attrs.textAlign ? { style: `text-align: ${attrs.textAlign}` } : {}),
+          parseHTML: (el) => el.style?.textAlign || null,
+        },
+      },
+    }];
+  },
+  addCommands() {
+    return {
+      setTextAlign: (align) => ({ commands }) => {
+        const results = ['paragraph', 'heading'].map((t) => commands.updateAttributes(t, { textAlign: align }));
+        return results.some(Boolean);
+      },
+    };
+  },
+});
+
+// Confluence 편집기 단축키 (editor-spec.md의 단축키 표 — TipTap 기본에 없는 것만)
+export const ConfluenceShortcuts = Extension.create({
+  name: 'confluenceShortcuts',
+  addKeyboardShortcuts() {
+    const ed = () => this.editor;
+    return {
+      'Mod-Shift-m': () => ed().commands.toggleCode(),
+      'Mod-\\': () => ed().chain().focus().unsetAllMarks().run(),
+      'Mod-Alt-0': () => ed().commands.setParagraph(),
+      'Mod-Shift-9': () => ed().commands.toggleBlockquote(),
+      'Mod-k': () => {
+        const prev = ed().getAttributes('link').href ?? '';
+        const url = window.prompt('링크 URL', prev);
+        if (url === null) return true;
+        if (!url) return ed().chain().focus().extendMarkRange('link').unsetMark('link').run();
+        return ed().chain().focus().extendMarkRange('link').setMark('link', { href: url }).run();
+      },
+    };
+  },
+});
+
 const custom = [
-  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark,
+  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
   Panel, Expand, Layout, LayoutSection, LayoutColumn,
@@ -422,4 +476,4 @@ const custom = [
 export const extensions = [StarterKit.configure({ history: false }), ...custom];
 
 // 편집기 용 (undo/redo 포함)
-export const editExtensions = [StarterKit, ...custom];
+export const editExtensions = [StarterKit, ...custom, ConfluenceShortcuts];
