@@ -92,6 +92,12 @@ placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/
 편집 화면 우상단 토글 — **문서 저장 형식은 동일**(ProseMirror JSON), UI만 다르다. 선택은 localStorage에 기억.
 - **Confluence 모드**: 고정 툴바 (기존)
 - **Notion 모드**: 툴바 없음, 텍스트 선택 시 버블 메뉴(B/I/U/S/code/링크/H2), 블록 추가는 `/` 명령
+- 버블 메뉴는 직접 구현(selection 좌표 기반) — tippy 기반 `@tiptap/react BubbleMenu`는 DOM을 React 밖으로 옮겨 모드 전환 시 removeChild 충돌(빈 화면)을 일으킨다
+
+## 단축키 (2026-10-26 추가)
+- 보기: `e` 편집, `c` 새 페이지, `/` 검색 포커스, `m` 댓글 입력
+- 편집기: `Ctrl/Cmd+S` 또는 `Ctrl/Cmd+Enter` 게시(업데이트), 제목에서 `Enter`/`↓` 본문 이동
+- 입력란·모달·프레젠테이션 중에는 보기 단축키 비활성
 
 ## 새 문서·제목 편집 (2026-10-26 추가)
 - `+ 새 페이지`: Confluence처럼 **제목 없이 즉시 생성** → 편집기에서 제목 입력(포커스 자동, Enter로 본문 이동)
@@ -101,6 +107,5 @@ placeholder로 보이던 매크로 18종을 실데이터로 렌더링 (`web/src/
 
 ## 알려진 제약 (PoC)
 - 첨부 원본은 MinIO가 아니라 Confluence 프록시+캐시 (minio 이미지 pull 이슈: docker.io·quay.io 모두 401 — 재검토 필요). 업로드 첨부는 `server/data/att-cache`에 로컬 저장
-- 버전 비교는 나란히 보기(텍스트 단위 diff 하이라이트는 후순위)
-- 동시 편집(Yjs), 인라인 댓글 작성, 인증(Entra) 미구현
+- 동시 편집(Yjs), 인증(Entra) 미구현 — 초안이 페이지당 1개(사용자 구분 없음)라 동시 편집 시 초안이 덮일 수 있음
 - 읽기 렌더링에서 `media`는 문단 안 인라인으로 처리. 스키마 위치 규칙은 편집 고도화 때 재검토

@@ -403,3 +403,6 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .move-root { font-weight: 600; padding: 7px 8px; border-bottom: 1px solid var(--border); }
 .move-loading { padding: 10px; }
 .move-picked { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 직접 구현 버블 메뉴 (tippy 미사용) */
+.bubble-floating { position: fixed; transform: translateX(-50%); z-index: 70; }

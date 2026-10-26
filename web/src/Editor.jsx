@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { BubbleMenu, EditorContent, useEditor } from '@tiptap/react';
+import { EditorContent, useEditor } from '@tiptap/react';
 import { editExtensions } from './extensions.js';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { api, hydrateDoc } from './api.js';
@@ -72,8 +72,14 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
   });
   const switchMode = (m) => {
     setMode(m);
+    setBubble(null);
     try { localStorage.setItem('editorMode', m); } catch { /* 프라이빗 모드 등 */ }
   };
+  // Notion 모드 버블 메뉴 위치. tippy 기반 BubbleMenu는 DOM을 React 밖으로 옮겨
+  // 모드 전환 시 removeChild 충돌(화면 전체가 빈 화면)을 일으켜 직접 구현한다.
+  const [bubble, setBubble] = useState(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   const uploadFiles = useCallback(async (files) => {
     for (const file of files) {
@@ -137,6 +143,37 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  // Notion 모드: 선택 영역 위에 버블 메뉴
+  useEffect(() => {
+    if (!editor) return;
+    const update = () => {
+      if (modeRef.current !== 'notion') { setBubble(null); return; }
+      const { from, to, empty } = editor.state.selection;
+      if (empty) { setBubble(null); return; }
+      try {
+        const a = editor.view.coordsAtPos(from);
+        const b = editor.view.coordsAtPos(to);
+        setBubble({ x: (a.left + b.right) / 2, y: Math.min(a.top, b.top) });
+      } catch { setBubble(null); }
+    };
+    editor.on('selectionUpdate', update);
+    editor.on('transaction', update);
+    return () => { editor.off('selectionUpdate', update); editor.off('transaction', update); };
+  }, [editor]);
+
+  // Confluence 단축키: Ctrl/Cmd+S 또는 Ctrl/Cmd+Enter = 게시(업데이트)
+  const publishRef = useRef(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'Enter')) {
+        e.preventDefault();
+        publishRef.current?.();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const publish = async () => {
     if (!editor) return;
     setPublishing(true);
@@ -163,6 +200,8 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
       setPublishing(false);
     }
   };
+
+  publishRef.current = publish;
 
   const close = async () => {
     clearTimeout(timer.current);
@@ -205,24 +244,24 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
       </div>
       {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
       {editor && mode === 'notion' && (
-        <>
-          <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>
-          <BubbleMenu editor={editor} tippyOptions={{ duration: 120 }}>
-            <div className="bubble-menu">
-              <button className={editor.isActive('bold') ? 'on' : ''} onClick={() => editor.chain().focus().toggleBold().run()}><b>B</b></button>
-              <button className={editor.isActive('italic') ? 'on' : ''} onClick={() => editor.chain().focus().toggleItalic().run()}><i>I</i></button>
-              <button className={editor.isActive('underline') ? 'on' : ''} onClick={() => editor.chain().focus().toggleMark('underline').run()}><u>U</u></button>
-              <button className={editor.isActive('strike') ? 'on' : ''} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></button>
-              <button className={editor.isActive('code') ? 'on' : ''} onClick={() => editor.chain().focus().toggleCode().run()}>{'<>'}</button>
-              <button onClick={() => {
-                const href = prompt('링크 URL:');
-                if (href) editor.chain().focus().setMark('link', { href }).run();
-              }}>🔗</button>
-              <button className={editor.isActive('heading', { level: 2 }) ? 'on' : ''}
-                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</button>
-            </div>
-          </BubbleMenu>
-        </>
+        <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>
+      )}
+      {editor && bubble && mode === 'notion' && (
+        <div className="bubble-menu bubble-floating"
+          style={{ left: bubble.x, top: Math.max(8, bubble.y - 44) }}
+          onMouseDown={(e) => e.preventDefault() /* 편집기 포커스 유지 */}>
+          <button className={editor.isActive('bold') ? 'on' : ''} onClick={() => editor.chain().focus().toggleBold().run()}><b>B</b></button>
+          <button className={editor.isActive('italic') ? 'on' : ''} onClick={() => editor.chain().focus().toggleItalic().run()}><i>I</i></button>
+          <button className={editor.isActive('underline') ? 'on' : ''} onClick={() => editor.chain().focus().toggleMark('underline').run()}><u>U</u></button>
+          <button className={editor.isActive('strike') ? 'on' : ''} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></button>
+          <button className={editor.isActive('code') ? 'on' : ''} onClick={() => editor.chain().focus().toggleCode().run()}>{'<>'}</button>
+          <button onClick={() => {
+            const href = prompt('링크 URL:');
+            if (href) editor.chain().focus().setMark('link', { href }).run();
+          }}>🔗</button>
+          <button className={editor.isActive('heading', { level: 2 }) ? 'on' : ''}
+            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</button>
+        </div>
       )}
       <input ref={fileInput} type="file" multiple hidden
         onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ''; }} />

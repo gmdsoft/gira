@@ -61,6 +61,31 @@ export default function App() {
     navigate(`/s/${route.spaceKey}/p/${id}/edit`);
   }, [route, space, navigate, reloadSpace]);
 
+  // Confluence 단축키 (보기 화면): e=편집, c=새 페이지, /=검색, m=댓글
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target;
+      if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('.presentation, .modal-backdrop, .sel-comment-form')) return;
+      if (route.view === 'page' && e.key === 'e') {
+        e.preventDefault();
+        navigate(`/s/${route.spaceKey}/p/${route.pageId}/edit`);
+      } else if (route.view === 'page' && e.key === 'm') {
+        const ta = document.querySelector('.comment-form textarea');
+        if (ta) { e.preventDefault(); ta.scrollIntoView({ block: 'center' }); ta.focus(); }
+      } else if ((route.view === 'page' || route.view === 'archive') && e.key === 'c') {
+        e.preventDefault();
+        createPage();
+      } else if (e.key === '/') {
+        const inp = document.querySelector('.sidebar-search input, .search-input');
+        if (inp) { e.preventDefault(); inp.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [route, navigate, createPage]);
+
   // 스페이스 홈 → 홈페이지로
   useEffect(() => {
     if (route.view === 'space' && space?.key === route.spaceKey && space.homepage_id) {
