@@ -71,7 +71,7 @@ app.get('/api/spaces/:key', async (req, reply) => {
   const { rows: tree } = await query(
     `SELECT id, parent_id, type, title, position, status, current_version
        FROM content WHERE space_id = $1 AND status = 'current'
-      ORDER BY position NULLS LAST, title`, [space.id]);
+      ORDER BY position NULLS LAST, created_at NULLS LAST, title`, [space.id]);
   return { ...space, tree };
 });
 
@@ -97,7 +97,7 @@ app.get('/api/content/:id', async (req, reply) => {
     `SELECT kind, count(*)::int AS n FROM comments WHERE content_id = $1 GROUP BY kind`, [c.id]);
   const { rows: children } = await query(
     `SELECT id, type, title FROM content WHERE parent_id = $1 AND status = 'current'
-      ORDER BY position NULLS LAST, title`, [c.id]);
+      ORDER BY position NULLS LAST, created_at NULLS LAST, title`, [c.id]);
   return {
     children,
     id: c.id, spaceKey: c.space_key, spaceName: c.space_name, parentId: c.parent_id,
