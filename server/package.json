@@ -7,6 +7,7 @@
     "start": "node src/index.mjs"
   },
   "dependencies": {
+    "@fastify/cookie": "^9.4.0",
     "@fastify/multipart": "^8.3.1",
     "@fastify/static": "^7.0.4",
     "fastify": "^4.28.1",

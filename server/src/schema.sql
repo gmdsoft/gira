@@ -7,8 +7,10 @@ CREATE TABLE IF NOT EXISTS users (
   confluence_account_id text UNIQUE,
   display_name text,
   avatar_key text,
-  active boolean NOT NULL DEFAULT true
+  active boolean NOT NULL DEFAULT true,
+  is_admin boolean NOT NULL DEFAULT false
 );
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS groups (
   id bigserial PRIMARY KEY,
@@ -122,6 +124,28 @@ CREATE TABLE IF NOT EXISTS space_permissions (
   principal_id bigint NOT NULL DEFAULT 0,
   role text NOT NULL CHECK (role IN ('viewer','editor','admin')),
   PRIMARY KEY (space_id, principal_type, principal_id, role)
+);
+
+-- 페이지 접근 제한 (Confluence 제한과 동일 의미: view 제한은 하위 페이지에 상속, edit 제한은 해당 페이지만)
+CREATE TABLE IF NOT EXISTS content_restrictions (
+  content_id bigint NOT NULL REFERENCES content(id),
+  rtype text NOT NULL CHECK (rtype IN ('view','edit')),
+  principal_type text NOT NULL CHECK (principal_type IN ('user','group')),
+  principal_id bigint NOT NULL,
+  PRIMARY KEY (content_id, rtype, principal_type, principal_id)
+);
+CREATE INDEX IF NOT EXISTS content_restrictions_content ON content_restrictions(content_id);
+
+-- API 키: Authorization: Bearer 로 쿠키 세션 대신 인증 (키는 해시로만 저장, 발급 시 1회 표시)
+CREATE TABLE IF NOT EXISTS api_keys (
+  id bigserial PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES users(id),
+  name text NOT NULL,
+  prefix text NOT NULL,            -- 식별용 앞 8자 (목록 표시)
+  token_hash bytea UNIQUE NOT NULL, -- sha256(토큰)
+  created_at timestamptz NOT NULL DEFAULT now(),
+  last_used_at timestamptz,
+  revoked_at timestamptz
 );
 
 -- 새로 만드는 콘텐츠의 ID 발급. 이관된 Confluence ID보다 큰 값에서 시작하도록 서버 기동 시 보정한다.
