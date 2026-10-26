@@ -12,6 +12,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   const [error, setError] = useState(null);
   const [present, setPresent] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [selPop, setSelPop] = useState(null); // {x, y, text, open} 본문 선택 → 인라인 댓글
 
   const loadComments = useCallback(() => {
     api(`/api/content/${pageId}/comments`).then(setComments).catch(() => setComments([]));
@@ -44,8 +45,20 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
     }
   };
 
+  const onMouseUp = () => {
+    if (selPop?.open) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) { setSelPop(null); return; }
+    const text = sel.toString().trim();
+    const range = sel.rangeCount ? sel.getRangeAt(0) : null;
+    const inDoc = range && (range.commonAncestorContainer.parentElement ?? range.commonAncestorContainer)?.closest?.('.doc');
+    if (!text || text.length < 2 || !inDoc) { setSelPop(null); return; }
+    const rect = range.getBoundingClientRect();
+    setSelPop({ x: rect.left + rect.width / 2, y: rect.top, text, open: false });
+  };
+
   return (
-    <article className={`page ${page.fullWidth ? 'page-full' : ''}`}>
+    <article className={`page ${page.fullWidth ? 'page-full' : ''}`} onMouseUp={onMouseUp}>
       {page.status !== 'current' && (
         <div className="status-banner">
           이 페이지는 {page.status === 'archived' ? '보관됨' : '휴지통'} 상태입니다.
@@ -89,6 +102,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
           </ul>
         </section>
       )}
+      <InlineComments comments={comments} pageId={page.id} onChanged={loadComments} />
       <section className="comments">
         {comments?.filter((c) => c.kind === 'footer').length > 0 && <h2>댓글</h2>}
         {comments?.filter((c) => c.kind === 'footer').map((c) => (
@@ -96,6 +110,8 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
         ))}
         <CommentForm pageId={page.id} onAdded={loadComments} />
       </section>
+      {selPop && <InlineCommentPopup pop={selPop} setPop={setSelPop} pageId={page.id}
+        onAdded={() => { setSelPop(null); loadComments(); }} />}
       {present && <Presentation page={page} onClose={() => setPresent(false)} />}
       {moveOpen && <MoveDialog page={page} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMoveOpen(false)} />}
@@ -240,6 +256,91 @@ function MoveDialog({ page, navigate, reloadSpace, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// 본문 텍스트 선택 시 뜨는 인라인 댓글 팝업
+function InlineCommentPopup({ pop, setPop, pageId, onAdded }) {
+  const [text, setText] = useState('');
+  const submit = async () => {
+    if (!text.trim()) return;
+    const res = await fetch(`/api/content/${pageId}/comments`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'inline', inlineRef: pop.text.slice(0, 300), text: text.trim() }),
+    });
+    if (!res.ok) { alert('댓글 등록 실패'); return; }
+    onAdded();
+  };
+  const style = { left: Math.max(8, pop.x - (pop.open ? 160 : 40)), top: Math.max(8, pop.y - (pop.open ? 120 : 40)) };
+  if (!pop.open) {
+    return (
+      <button className="sel-comment-btn" style={style}
+        onMouseUp={(e) => e.stopPropagation()}
+        onClick={() => setPop({ ...pop, open: true })}>💬 댓글</button>
+    );
+  }
+  return (
+    <div className="sel-comment-form" style={style} onMouseUp={(e) => e.stopPropagation()}>
+      <div className="sel-comment-quote">“{pop.text.slice(0, 80)}{pop.text.length > 80 ? '…' : ''}”</div>
+      <textarea autoFocus rows={3} value={text} placeholder="인라인 댓글…"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); if (e.key === 'Escape') setPop(null); }} />
+      <div className="modal-actions">
+        <button className="btn" onClick={() => setPop(null)}>취소</button>
+        <button className="btn btn-primary" onClick={submit}>등록</button>
+      </div>
+    </div>
+  );
+}
+
+// 인라인 댓글 목록: 인용 클릭 → 본문 해당 위치로 스크롤·강조
+function InlineComments({ comments, pageId, onChanged }) {
+  const list = comments?.filter((c) => c.kind === 'inline') ?? [];
+  if (!list.length) return null;
+
+  const locate = (ref) => {
+    if (!ref) return;
+    const doc = document.querySelector('.doc');
+    if (!doc) return;
+    let target = null;
+    try { target = doc.querySelector(`.comment-mark[data-ref="${CSS.escape(ref)}"]`); } catch { /* 선택자 불가 문자는 텍스트 검색으로 */ }
+    if (!target) {
+      const walker = document.createTreeWalker(doc, NodeFilter.SHOW_TEXT);
+      const needle = ref.slice(0, 60);
+      while (walker.nextNode()) {
+        if (walker.currentNode.textContent.includes(needle)) { target = walker.currentNode.parentElement; break; }
+      }
+    }
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.classList.add('inline-flash');
+    setTimeout(() => target.classList.remove('inline-flash'), 1800);
+  };
+
+  const resolve = async (c) => {
+    await fetch(`/api/comments/${c.id}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved: !c.resolved }),
+    });
+    onChanged();
+  };
+
+  return (
+    <section className="comments inline-comments">
+      <h2>인라인 댓글 <span className="muted">({list.length})</span></h2>
+      {list.map((c) => (
+        <div key={c.id} className={`inline-comment-item ${c.resolved ? 'comment-resolved' : ''}`}>
+          {c.inline_ref && (
+            <button className="inline-quote" onClick={() => locate(c.inline_ref)} title="본문에서 보기">
+              “{c.inline_ref.slice(0, 90)}{c.inline_ref.length > 90 ? '…' : ''}”
+            </button>
+          )}
+          <Comment comment={c} pageId={pageId} />
+          <button className="btn btn-xs" onClick={() => resolve(c)}>{c.resolved ? '다시 열기' : '해결'}</button>
+          {c.resolved && <span className="status status-green">해결됨</span>}
+        </div>
+      ))}
+    </section>
   );
 }
 

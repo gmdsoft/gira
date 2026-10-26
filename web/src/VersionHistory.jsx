@@ -2,13 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
+import { hydrateMacros } from './macros.js';
+import { diffDocs } from './diff.js';
 
 export default function VersionHistory({ pageId, spaceKey, navigate }) {
   const [page, setPage] = useState(null);
   const [versions, setVersions] = useState(null);
   const [selected, setSelected] = useState(null);
   const [selectedDoc, setSelectedDoc] = useState(null);
-  const [compare, setCompare] = useState(false);
+  const [mode, setMode] = useState('single'); // single | side | diff
 
   useEffect(() => {
     api(`/api/content/${pageId}`).then((p) => { setPage(p); setSelected(p.version?.version); });
@@ -39,29 +41,37 @@ export default function VersionHistory({ pageId, spaceKey, navigate }) {
         <div className="history-head">
           <h1>{page.title} <span className="muted">— 버전 기록</span></h1>
           <div className="editor-actions">
-            <label className="muted compare-toggle">
-              <input type="checkbox" checked={compare} onChange={(e) => setCompare(e.target.checked)} /> 현재 버전과 비교
-            </label>
+            {selected !== current && (
+              <select className="mode-select" value={mode} onChange={(e) => setMode(e.target.value)}>
+                <option value="single">선택 버전 보기</option>
+                <option value="side">현재와 나란히 비교</option>
+                <option value="diff">변경 내용 (텍스트)</option>
+              </select>
+            )}
             {selected !== current && <button className="btn btn-primary" onClick={restore}>v{selected} 복원</button>}
             <button className="btn" onClick={() => navigate(`/s/${spaceKey}/p/${pageId}`)}>닫기</button>
           </div>
         </div>
-        <div className={`history-body ${compare && selected !== current ? 'history-compare' : ''}`}>
-          <div className="history-pane">
-            <div className="pane-label">v{selected}{selected === current && ' (현재)'}
-              {selectedDoc && <span className="muted"> · {selectedDoc.author_name ?? ''} {selectedDoc.created_at ? new Date(selectedDoc.created_at).toLocaleString('ko-KR') : ''}</span>}
-            </div>
-            {selectedDoc?.doc
-              ? <RenderDoc doc={selectedDoc.doc} pageId={pageId} />
-              : <p className="muted">이 버전의 본문이 없습니다.</p>}
-          </div>
-          {compare && selected !== current && (
+        {mode === 'diff' && selected !== current ? (
+          <DiffView oldDoc={selectedDoc?.doc} newDoc={page.version?.doc} oldV={selected} newV={current} />
+        ) : (
+          <div className={`history-body ${mode === 'side' && selected !== current ? 'history-compare' : ''}`}>
             <div className="history-pane">
-              <div className="pane-label">v{current} (현재)</div>
-              {page.version?.doc && <RenderDoc doc={page.version.doc} pageId={pageId} />}
+              <div className="pane-label">v{selected}{selected === current && ' (현재)'}
+                {selectedDoc && <span className="muted"> · {selectedDoc.author_name ?? ''} {selectedDoc.created_at ? new Date(selectedDoc.created_at).toLocaleString('ko-KR') : ''}</span>}
+              </div>
+              {selectedDoc?.doc
+                ? <RenderDoc doc={selectedDoc.doc} pageId={pageId} page={page} navigate={navigate} />
+                : <p className="muted">이 버전의 본문이 없습니다.</p>}
             </div>
-          )}
-        </div>
+            {mode === 'side' && selected !== current && (
+              <div className="history-pane">
+                <div className="pane-label">v{current} (현재)</div>
+                {page.version?.doc && <RenderDoc doc={page.version.doc} pageId={pageId} page={page} navigate={navigate} />}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <aside className="history-list">
         <h2>버전 ({versions.length})</h2>
@@ -80,6 +90,41 @@ export default function VersionHistory({ pageId, spaceKey, navigate }) {
           </button>
         ))}
       </aside>
+    </div>
+  );
+}
+
+// 텍스트 변경 내용 보기: 블록 단위 diff + 변경 블록은 단어 하이라이트
+function DiffView({ oldDoc, newDoc, oldV, newV }) {
+  const rows = React.useMemo(() => diffDocs(oldDoc, newDoc), [oldDoc, newDoc]);
+  const changed = rows.filter((r) => r.op !== 'same').length;
+  // 긴 무변경 구간은 접는다 (변경 블록 앞뒤 1블록만 남김)
+  const visible = [];
+  rows.forEach((r, idx) => {
+    const nearChange = r.op !== 'same'
+      || (idx > 0 && rows[idx - 1].op !== 'same')
+      || (idx < rows.length - 1 && rows[idx + 1].op !== 'same');
+    if (nearChange) visible.push({ ...r, key: idx });
+    else if (visible[visible.length - 1]?.op !== 'skip') visible.push({ op: 'skip', key: idx });
+  });
+  return (
+    <div className="diff-view">
+      <p className="muted">v{oldV} → v{newV}: 변경 블록 {changed}개 (텍스트 기준, 서식 변경은 표시되지 않음)</p>
+      {changed === 0 && <p className="muted">텍스트 변경이 없습니다.</p>}
+      {visible.map((r) => {
+        if (r.op === 'skip') return <div key={r.key} className="diff-skip">⋯</div>;
+        return (
+          <div key={r.key} className={`diff-line diff-${r.op}`}>
+            {r.kind && <span className="diff-kind">{r.kind}</span>}
+            {r.op === 'mod'
+              ? r.words.map((w, i) =>
+                  w.op === 'same' ? <span key={i}>{w.t}</span>
+                  : w.op === 'del' ? <del key={i}>{w.t}</del>
+                  : <ins key={i}>{w.t}</ins>)
+              : r.text}
+          </div>
+        );
+      })}
     </div>
   );
 }

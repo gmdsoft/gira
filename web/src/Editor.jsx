@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { BubbleMenu, EditorContent, useEditor } from '@tiptap/react';
 import { editExtensions } from './extensions.js';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { api, hydrateDoc } from './api.js';
@@ -58,6 +58,14 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
   const dirty = useRef(false);
   const fileInput = useRef(null);
   const editorRef = useRef(null);
+  // 편집기 모드: confluence(고정 툴바) | notion(버블 메뉴 + / 명령 중심). 문서 저장 형식은 동일하다.
+  const [mode, setMode] = useState(() => {
+    try { return localStorage.getItem('editorMode') ?? 'confluence'; } catch { return 'confluence'; }
+  });
+  const switchMode = (m) => {
+    setMode(m);
+    try { localStorage.setItem('editorMode', m); } catch { /* 프라이빗 모드 등 */ }
+  };
 
   const uploadFiles = useCallback(async (files) => {
     for (const file of files) {
@@ -162,6 +170,10 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
           <span className="muted"> — v{baseVersion.current} 기준 편집 {fromDraft && '(미게시 초안 불러옴)'}</span>
         </div>
         <div className="editor-actions">
+          <div className="mode-switch" title="문서 형식은 동일 — 편집 UI만 다릅니다">
+            <button className={mode === 'confluence' ? 'on' : ''} onClick={() => switchMode('confluence')}>Confluence</button>
+            <button className={mode === 'notion' ? 'on' : ''} onClick={() => switchMode('notion')}>Notion</button>
+          </div>
           <span className="save-state">{saveState}</span>
           <button className="btn" onClick={discard}>초안 버리기</button>
           <button className="btn" onClick={close}>닫기</button>
@@ -170,7 +182,27 @@ function EditorInner({ page, initialDoc, fromDraft, baseVersion, saveState, setS
           </button>
         </div>
       </div>
-      {editor && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
+      {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
+      {editor && mode === 'notion' && (
+        <>
+          <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>
+          <BubbleMenu editor={editor} tippyOptions={{ duration: 120 }}>
+            <div className="bubble-menu">
+              <button className={editor.isActive('bold') ? 'on' : ''} onClick={() => editor.chain().focus().toggleBold().run()}><b>B</b></button>
+              <button className={editor.isActive('italic') ? 'on' : ''} onClick={() => editor.chain().focus().toggleItalic().run()}><i>I</i></button>
+              <button className={editor.isActive('underline') ? 'on' : ''} onClick={() => editor.chain().focus().toggleMark('underline').run()}><u>U</u></button>
+              <button className={editor.isActive('strike') ? 'on' : ''} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></button>
+              <button className={editor.isActive('code') ? 'on' : ''} onClick={() => editor.chain().focus().toggleCode().run()}>{'<>'}</button>
+              <button onClick={() => {
+                const href = prompt('링크 URL:');
+                if (href) editor.chain().focus().setMark('link', { href }).run();
+              }}>🔗</button>
+              <button className={editor.isActive('heading', { level: 2 }) ? 'on' : ''}
+                onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</button>
+            </div>
+          </BubbleMenu>
+        </>
+      )}
       <input ref={fileInput} type="file" multiple hidden
         onChange={(e) => { uploadFiles([...e.target.files]); e.target.value = ''; }} />
       <div className={`page editor-body ${page.fullWidth ? 'page-full' : ''}`}>

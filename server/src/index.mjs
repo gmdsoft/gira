@@ -429,9 +429,9 @@ app.get('/api/spaces/:key/archived', async (req, reply) => {
   return rows;
 });
 
-// 하단 댓글 작성
+// 댓글 작성 (하단 footer / 본문 선택 영역 inline)
 app.post('/api/content/:id/comments', async (req, reply) => {
-  const { text, doc } = req.body ?? {};
+  const { text, doc, kind, inlineRef } = req.body ?? {};
   let body = doc;
   if (!body) {
     const t = (text ?? '').trim();
@@ -441,12 +441,22 @@ app.post('/api/content/:id/comments', async (req, reply) => {
       content: t.split(/\n+/).map((line) => ({ type: 'paragraph', content: [{ type: 'text', text: line }] })),
     };
   }
+  const k = kind === 'inline' ? 'inline' : 'footer';
+  if (k === 'inline' && !inlineRef?.trim()) return reply.code(400).send({ error: 'inline 댓글은 inlineRef(선택한 텍스트)가 필요합니다' });
   const userId = await devUserId();
   const { rows } = await query(
-    `INSERT INTO comments (id, content_id, kind, doc, author_id, created_at)
-     VALUES (nextval('comment_id_seq'), $1, 'footer', $2, $3, now()) RETURNING id`,
-    [req.params.id, JSON.stringify(body), userId]);
+    `INSERT INTO comments (id, content_id, kind, inline_ref, doc, author_id, created_at)
+     VALUES (nextval('comment_id_seq'), $1, $2, $3, $4, $5, now()) RETURNING id`,
+    [req.params.id, k, k === 'inline' ? inlineRef.trim().slice(0, 500) : null, JSON.stringify(body), userId]);
   return { ok: true, id: rows[0].id };
+});
+
+// 댓글 해결/재오픈
+app.post('/api/comments/:id/resolve', async (req, reply) => {
+  const resolved = req.body?.resolved !== false;
+  const { rows } = await query(`UPDATE comments SET resolved = $2 WHERE id = $1 RETURNING id`, [req.params.id, resolved]);
+  if (!rows.length) return reply.code(404).send({ error: 'comment not found' });
+  return { ok: true, resolved };
 });
 
 // 레이블 추가/삭제
