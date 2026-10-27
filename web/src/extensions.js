@@ -141,6 +141,16 @@ const Panel = Node.create({
   group: 'block',
   content: 'block+',
   addAttributes: () => ({ panelType: { default: 'info' }, title: { default: null }, bgColor: { default: null } }),
+  // 복사/붙여넣기 round-trip용 (본문 변환은 convert-storage.mjs가 담당)
+  parseHTML: () => [{
+    tag: 'div.panel',
+    getAttrs: (el) => ({
+      panelType: /panel-([\w-]+)/.exec(el.className)?.[1] || 'info',
+      title: el.querySelector(':scope > .panel-title')?.textContent || null,
+      bgColor: el.style?.background || null,
+    }),
+    contentElement: (el) => el.querySelector(':scope > .panel-body') || el,
+  }],
   renderHTML: ({ node }) => {
     const attrs = { class: `panel panel-${node.attrs.panelType}` };
     if (node.attrs.bgColor) attrs.style = `background: ${node.attrs.bgColor}`;
@@ -164,8 +174,16 @@ const Expand = Node.create({
   group: 'block',
   content: 'block+',
   addAttributes: () => ({ title: { default: '' } }),
+  parseHTML: () => [{
+    tag: 'details',
+    getAttrs: (el) => ({
+      title: el.getAttribute('data-title') ?? el.querySelector(':scope > summary')?.textContent ?? '',
+    }),
+    contentElement: (el) => el.querySelector(':scope > .expand-body') || el,
+  }],
   renderHTML: ({ node }) => {
     const attrs = expandViewAttrs(node);
+    attrs['data-title'] = node.attrs.title || '';
     return ['details', attrs,
       ['summary', {}, node.attrs.title || '여기를 클릭하여 펼치기...'],
       ['div', { class: 'expand-body' }, 0]];
@@ -241,15 +259,23 @@ const Expand = Node.create({
 
 const Layout = Node.create({
   name: 'layout', group: 'block', content: 'layoutSection+',
+  parseHTML: () => [{ tag: 'div.layout' }],
   renderHTML: () => ['div', { class: 'layout' }, 0],
 });
 const LayoutSection = Node.create({
   name: 'layoutSection', content: 'layoutColumn+',
   addAttributes: () => ({ kind: { default: 'single' } }),
+  parseHTML: () => [{
+    tag: 'div.layout-section',
+    getAttrs: (el) => ({
+      kind: [...el.classList].find((c) => c.startsWith('layout-') && c !== 'layout-section')?.slice(7) || 'single',
+    }),
+  }],
   renderHTML: ({ node }) => ['div', { class: `layout-section layout-${node.attrs.kind}` }, 0],
 });
 const LayoutColumn = Node.create({
   name: 'layoutColumn', content: 'block*',
+  parseHTML: () => [{ tag: 'div.layout-column' }],
   renderHTML: () => ['div', { class: 'layout-column' }, 0],
 });
 
@@ -344,6 +370,7 @@ const Media = Node.create({
 const Mention = Node.create({
   name: 'mention', ...inlineAtom,
   addAttributes: () => ({ accountId: { default: null }, text: { default: '' } }),
+  parseHTML: () => [{ tag: 'span.mention', getAttrs: (el) => ({ text: (el.textContent || '').replace(/^@/, '') }) }],
   renderHTML: ({ node }) => ['span', { class: 'mention' }, `@${node.attrs.text || '사용자'}`],
 });
 
@@ -359,6 +386,7 @@ const LEGACY_EMOTICONS = {
 const Emoji = Node.create({
   name: 'emoji', ...inlineAtom,
   addAttributes: () => ({ shortName: { default: '' }, text: { default: '' } }),
+  parseHTML: () => [{ tag: 'span.emoji', getAttrs: (el) => ({ text: el.textContent || '' }) }],
   renderHTML: ({ node }) => ['span', { class: 'emoji' },
     node.attrs.text || LEGACY_EMOTICONS[node.attrs.shortName?.replaceAll(':', '')] || node.attrs.shortName || '❓'],
 });
@@ -366,12 +394,17 @@ const Emoji = Node.create({
 const DateNode = Node.create({
   name: 'date', ...inlineAtom,
   addAttributes: () => ({ date: { default: '' } }),
+  parseHTML: () => [{ tag: 'span.date-lozenge', getAttrs: (el) => ({ date: el.textContent || '' }) }],
   renderHTML: ({ node }) => ['span', { class: 'date-lozenge' }, node.attrs.date],
 });
 
 const Status = Node.create({
   name: 'status', ...inlineAtom,
   addAttributes: () => ({ text: { default: '' }, color: { default: 'neutral' } }),
+  parseHTML: () => [{
+    tag: 'span.status',
+    getAttrs: (el) => ({ text: el.textContent || '', color: /status-([\w-]+)/.exec(el.className)?.[1] || 'neutral' }),
+  }],
   renderHTML: ({ node }) => ['span', { class: `status status-${node.attrs.color}` }, node.attrs.text],
 });
 
