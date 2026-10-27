@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { EditorContent, useEditor } from '@tiptap/react';
 import { editExtensions } from './extensions.js';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
+import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
 
 async function send(path, method, body) {
@@ -101,6 +102,8 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
   const exts = useMemo(() => [
     ...editExtensions,
     slashMenu(makeSlashItems({ openImageDialog: () => fileInput.current?.click() })),
+    mentionMenu(),
+    emojiMenu(),
   ], []);
 
   const saveDraft = useCallback(async (editor) => {
@@ -288,22 +291,34 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
   );
 }
 
+// Confluence 표준 텍스트 색상 팔레트 느낌의 무난한 8색 (editor-spec.md)
+const TEXT_COLORS = ['#172b4d', '#0747a6', '#008da6', '#006644', '#ff8b00', '#de350b', '#5243aa', '#97a0af'];
+
 function Toolbar({ editor, onImage }) {
+  const [palette, setPalette] = useState(false);
+  const [grid, setGrid] = useState(null); // {r, c} 호버 상태 (null=닫힘)
   const B = ({ onClick, active, children, title }) => (
     <button className={`tb ${active ? 'tb-active' : ''}`} title={title}
       onMouseDown={(e) => { e.preventDefault(); onClick(); }}>{children}</button>
   );
   const chain = () => editor.chain().focus();
-  const insertTable = () => chain().insertContent({
+  const insertTable = (rows = 3, cols = 3) => chain().insertContent({
     type: 'table',
-    content: Array.from({ length: 3 }, (_, r) => ({
+    content: Array.from({ length: rows }, (_, r) => ({
       type: 'tableRow',
-      content: Array.from({ length: 3 }, () => ({
+      content: Array.from({ length: cols }, () => ({
         type: r === 0 ? 'tableHeader' : 'tableCell',
         attrs: { colspan: 1, rowspan: 1 },
         content: [{ type: 'paragraph' }],
       })),
     })),
+  }).run();
+  const insertLayout = (n) => chain().insertContent({
+    type: 'layout',
+    content: [{
+      type: 'layoutSection', attrs: { kind: n === 2 ? 'two_equal' : 'three_equal' },
+      content: Array.from({ length: n }, () => ({ type: 'layoutColumn', content: [{ type: 'paragraph' }] })),
+    }],
   }).run();
   const insertPanel = (panelType) => chain().insertContent({
     type: 'panel', attrs: { panelType, title: null, bgColor: null },
@@ -327,24 +342,78 @@ function Toolbar({ editor, onImage }) {
         <option value="h2">제목 2</option>
         <option value="h3">제목 3</option>
         <option value="h4">제목 4</option>
+        <option value="h5">제목 5</option>
+        <option value="h6">제목 6</option>
       </select>
       <span className="tb-sep" />
-      <B title="굵게" active={editor.isActive('bold')} onClick={() => chain().toggleBold().run()}><b>B</b></B>
-      <B title="기울임" active={editor.isActive('italic')} onClick={() => chain().toggleItalic().run()}><i>I</i></B>
-      <B title="밑줄" active={editor.isActive('underline')} onClick={() => chain().toggleMark('underline').run()}><u>U</u></B>
-      <B title="취소선" active={editor.isActive('strike')} onClick={() => chain().toggleStrike().run()}><s>S</s></B>
-      <B title="코드" active={editor.isActive('code')} onClick={() => chain().toggleCode().run()}>{'<>'}</B>
+      <B title="굵게 (Ctrl+B)" active={editor.isActive('bold')} onClick={() => chain().toggleBold().run()}><b>B</b></B>
+      <B title="기울임 (Ctrl+I)" active={editor.isActive('italic')} onClick={() => chain().toggleItalic().run()}><i>I</i></B>
+      <B title="밑줄 (Ctrl+U)" active={editor.isActive('underline')} onClick={() => chain().toggleMark('underline').run()}><u>U</u></B>
+      <B title="취소선 (Ctrl+Shift+S)" active={editor.isActive('strike')} onClick={() => chain().toggleStrike().run()}><s>S</s></B>
+      <B title="코드 (Ctrl+Shift+M)" active={editor.isActive('code')} onClick={() => chain().toggleCode().run()}>{'<>'}</B>
+      <span className="tb-color-wrap">
+        <B title="텍스트 색상" active={!!editor.getAttributes('textColor').color}
+          onClick={() => setPalette((v) => !v)}>
+          <span className="tb-color-a" style={{ borderBottomColor: editor.getAttributes('textColor').color ?? '#172b4d' }}>A</span>
+        </B>
+        {palette && (
+          <span className="tb-pop tb-palette" onMouseDown={(e) => e.preventDefault()}>
+            <button className="tb-swatch tb-swatch-none" title="기본"
+              onClick={() => { chain().unsetMark('textColor').run(); setPalette(false); }}>∅</button>
+            {TEXT_COLORS.map((c) => (
+              <button key={c} className="tb-swatch" style={{ background: c }} title={c}
+                onClick={() => { chain().setMark('textColor', { color: c }).run(); setPalette(false); }} />
+            ))}
+          </span>
+        )}
+      </span>
       <span className="tb-sep" />
-      <B title="글머리 목록" active={editor.isActive('bulletList')} onClick={() => chain().toggleBulletList().run()}>•≡</B>
-      <B title="번호 목록" active={editor.isActive('orderedList')} onClick={() => chain().toggleOrderedList().run()}>1≡</B>
-      <B title="인용" active={editor.isActive('blockquote')} onClick={() => chain().toggleBlockquote().run()}>❝</B>
+      <B title="왼쪽 정렬" active={!editor.getAttributes('paragraph').textAlign && !editor.getAttributes('heading').textAlign}
+        onClick={() => chain().setTextAlign(null).run()}>⇤</B>
+      <B title="가운데 정렬" active={editor.isActive({ textAlign: 'center' })}
+        onClick={() => chain().setTextAlign('center').run()}>⇹</B>
+      <B title="오른쪽 정렬" active={editor.isActive({ textAlign: 'right' })}
+        onClick={() => chain().setTextAlign('right').run()}>⇥</B>
+      <span className="tb-sep" />
+      <B title="글머리 목록 (Ctrl+Shift+8)" active={editor.isActive('bulletList')} onClick={() => chain().toggleBulletList().run()}>•≡</B>
+      <B title="번호 목록 (Ctrl+Shift+7)" active={editor.isActive('orderedList')} onClick={() => chain().toggleOrderedList().run()}>1≡</B>
+      <B title="인용 (Ctrl+Shift+9)" active={editor.isActive('blockquote')} onClick={() => chain().toggleBlockquote().run()}>❝</B>
       <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}>{ '{ }' }</B>
       <span className="tb-sep" />
-      <B title="표 삽입" onClick={insertTable}>⊞ 표</B>
-      <B title="이미지·파일 업로드" onClick={onImage}>🖼 이미지</B>
+      <B title="작업 항목 ([] 입력)" onClick={() => chain().insertContent({
+        type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] }],
+      }).run()}>☑</B>
+      <B title="멘션 (@ 입력)" onClick={() => chain().insertContent('@').run()}>@</B>
+      <B title="이미지·파일 업로드" onClick={onImage}>🖼</B>
+      <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}>⫴</B>
+      <span className="tb-table-wrap">
+        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}>⊞ 표</B>
+        {grid && (
+          <span className="tb-pop tb-grid" onMouseDown={(e) => e.preventDefault()}>
+            {Array.from({ length: 6 }, (_, r) => (
+              <span className="tb-grid-row" key={r}>
+                {Array.from({ length: 8 }, (_, c) => (
+                  <button key={c}
+                    className={`tb-cell ${r < grid.r && c < grid.c ? 'on' : ''}`}
+                    onMouseEnter={() => setGrid({ r: r + 1, c: c + 1 })}
+                    onClick={() => { insertTable(grid.r, grid.c); setGrid(null); }} />
+                ))}
+              </span>
+            ))}
+            <span className="tb-grid-label">{grid.r} × {grid.c}</span>
+          </span>
+        )}
+      </span>
       <B title="정보 패널" onClick={() => insertPanel('info')}>ℹ 패널</B>
       <B title="펼치기" onClick={insertExpand}>▸ 펼치기</B>
       <B title="구분선" onClick={() => chain().setHorizontalRule().run()}>—</B>
+      <B title="링크 (Ctrl+K)" active={editor.isActive('link')} onClick={() => {
+        const prev = editor.getAttributes('link').href ?? '';
+        const url = window.prompt('링크 URL', prev);
+        if (url === null) return;
+        if (!url) chain().extendMarkRange('link').unsetMark('link').run();
+        else chain().extendMarkRange('link').setMark('link', { href: url }).run();
+      }}>🔗</B>
       <span className="tb-sep" />
       <B title="실행 취소" onClick={() => chain().undo().run()}>↶</B>
       <B title="다시 실행" onClick={() => chain().redo().run()}>↷</B>

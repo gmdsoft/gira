@@ -26,6 +26,16 @@ export default function App() {
   const [route, setRoute] = useState(() => parsePath(location.pathname));
   const [space, setSpace] = useState(null);
   const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
+  const [me, setMe] = useState(undefined); // undefined=확인 중, null=로그인 필요
+
+  useEffect(() => {
+    api('/api/auth/me').then(setMe).catch(() => setMe(null));
+  }, []);
+
+  const logout = useCallback(async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setMe(null);
+  }, []);
 
   const navigate = useCallback((path) => {
     history.pushState(null, '', path);
@@ -108,7 +118,10 @@ export default function App() {
     }
   }, [route.spaceKey, navigate]);
 
-  if (route.view === 'home') return <Home navigate={navigate} />;
+  if (me === undefined) return <div className="page-loading">불러오는 중…</div>;
+  if (me === null) return <Login onLogin={setMe} />;
+
+  if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} />;
   if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
   if (route.view === 'search') return <SearchView navigate={navigate} />;
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
@@ -126,6 +139,10 @@ export default function App() {
           <a className="archive-link" href={`/s/${space.key}/archive`}
              onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
         </>}
+        <div className="sidebar-user">
+          <span title={me.email}>👤 {me.display_name}</span>
+          <button className="btn btn-xs" onClick={logout}>로그아웃</button>
+        </div>
       </aside>
       <main className="main" onClick={onContentClick}>
         {route.view === 'page' && <PageView pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />}
@@ -133,6 +150,45 @@ export default function App() {
       </main>
       {movePage && <MoveDialog page={movePage} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMovePage(null)} />}
+    </div>
+  );
+}
+
+// 개발용 로그인 (Entra ID OIDC 도입 전): 사용자 목록에서 선택
+function Login({ onLogin }) {
+  const [users, setUsers] = useState(null);
+  const [q, setQ] = useState('');
+  useEffect(() => { api('/api/auth/users').then(setUsers).catch(() => setUsers([])); }, []);
+
+  const login = async (u) => {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: u.id }),
+    });
+    if (!res.ok) { alert('로그인 실패'); return; }
+    onLogin(await api('/api/auth/me'));
+  };
+
+  const list = (users ?? []).filter((u) =>
+    !q.trim() || u.display_name?.toLowerCase().includes(q.trim().toLowerCase()) || u.email?.toLowerCase().includes(q.trim().toLowerCase()));
+
+  return (
+    <div className="home login">
+      <h1>GMD Docs <span className="poc-badge">PoC</span></h1>
+      <p className="muted">로그인할 사용자를 선택하세요. (개발용 — Entra ID 연동 시 회사 계정 로그인으로 교체됩니다)</p>
+      <input className="search-input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름 또는 이메일 검색" />
+      {!users ? <p>불러오는 중…</p> : (
+        <ul className="space-list login-list">
+          {list.slice(0, 15).map((u) => (
+            <li key={u.id}>
+              <a href="#" onClick={(e) => { e.preventDefault(); login(u); }}>
+                <strong>{u.display_name}</strong> <span className="muted">{u.email ?? ''}</span>
+              </a>
+            </li>
+          ))}
+          {!list.length && <li className="muted">일치하는 사용자가 없습니다</li>}
+        </ul>
+      )}
     </div>
   );
 }
@@ -187,12 +243,13 @@ function SearchBox({ navigate, spaceKey }) {
   );
 }
 
-function Home({ navigate }) {
+function Home({ navigate, me, logout }) {
   const [spaces, setSpaces] = useState(null);
   const [q, setQ] = useState('');
   useEffect(() => { api('/api/spaces').then(setSpaces).catch(console.error); }, []);
   return (
     <div className="home">
+      <div className="home-user muted">👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button></div>
       <h1>GMD Docs <span className="poc-badge">PoC</span></h1>
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`); }}>
         <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="문서 검색 (한국어 형태소 분석)" />

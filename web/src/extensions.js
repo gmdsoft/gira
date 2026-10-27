@@ -1,7 +1,7 @@
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
-import { Node, Mark, mergeAttributes } from '@tiptap/core';
+import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
@@ -43,6 +43,21 @@ const CommentMark = Mark.create({
 // 공식 확장 사용: 행/열 추가·삭제, 셀 선택, 헤더 토글 커맨드 제공.
 // 노드 이름(table/tableRow/tableHeader/tableCell)과 colspan/rowspan 속성이 변환기 출력과 일치한다.
 
+// Confluence 고정 폭 컬럼(760px)보다 넓은 블록은 컬럼 밖으로 "돌출(breakout)"시켜 중앙 정렬한다
+const COLUMN_WIDTH = 760;
+
+// 표의 렌더링 폭(px). Confluence는 px 열 너비 합이 tableWidth보다 크면 열 합을 따른다
+// (tableWidth=760은 기본값 표식으로 남는 경우가 있어 열 합이 실제 폭).
+function tableRenderWidth(attrs) {
+  const cols = attrs.colwidths;
+  let sum = 0;
+  if (cols?.length && cols.some((w) => w) && !cols.some((w) => w?.endsWith?.('%'))) {
+    sum = cols.reduce((a, w) => a + (w ? parseFloat(w) : 0), 0);
+  }
+  const width = Math.max(attrs.tableWidth ?? 0, sum);
+  return width || null;
+}
+
 // 공식 표 확장 + Confluence 폭 속성(표 전체 폭 px, 레이아웃, colgroup 열 너비) 보존·렌더링
 const Table = TableExt.extend({
   addAttributes() {
@@ -70,7 +85,8 @@ const Table = TableExt.extend({
       const total = sum + nulls * nullShare;
       if (total > 0) {
         cols = px.map((v) => `${(((v ?? nullShare) / total) * 100).toFixed(3)}%`);
-        if (!width) width = Math.round(total);
+        // 열 합이 지정 폭보다 크면 열 합이 실제 폭 (tableWidth=760은 기본값 표식인 경우가 있다)
+        if (!width || total > width) width = Math.round(total);
       }
     }
     const style = [
@@ -83,7 +99,9 @@ const Table = TableExt.extend({
     }
     table.push(['tbody', 0]);
     // 셀 안 이미지 등으로 최소 폭이 더 클 때만 가로 스크롤이 생긴다
-    return ['div', { class: 'table-wrap' }, table];
+    const wrap = { class: 'table-wrap' };
+    if (width > COLUMN_WIDTH) { wrap.class += ' breakout'; wrap.style = `--bw: ${Math.round(width)}px`; }
+    return ['div', wrap, table];
   },
 }).configure({ resizable: false });
 const TableRow = TableRowExt;
@@ -105,6 +123,14 @@ const TaskItem = Node.create({
   renderHTML: ({ node }) => ['li', { class: 'task-item', 'data-checked': String(node.attrs.checked) },
     ['span', { class: 'task-check' }, node.attrs.checked ? '☑' : '☐'],
     ['div', { class: 'task-body' }, 0]],
+  // Confluence처럼 "[]"+공백 입력 → 작업 항목 (editor-spec.md)
+  addInputRules() {
+    return [wrappingInputRule({
+      find: /^\s*\[([ xX]?)\]\s$/,
+      type: this.type,
+      getAttributes: (m) => ({ checked: /x/i.test(m[1] ?? '') }),
+    })];
+  },
 });
 
 // ---------- 블록 ----------
@@ -123,14 +149,93 @@ const Panel = Node.create({
   },
 });
 
+// 내부에 컬럼보다 넓은 표가 있으면 펼치기 박스째 돌출시킨다 (Confluence 동일)
+function expandViewAttrs(node) {
+  let bw = 0;
+  node.descendants((n) => { if (n.type.name === 'table') bw = Math.max(bw, tableRenderWidth(n.attrs) ?? 0); });
+  const attrs = { class: 'expand' };
+  if (bw > COLUMN_WIDTH) { attrs.class += ' breakout'; attrs.style = `--bw: ${Math.round(bw) + 26}px`; }
+  return attrs;
+}
+
 const Expand = Node.create({
   name: 'expand',
   group: 'block',
   content: 'block+',
   addAttributes: () => ({ title: { default: '' } }),
-  renderHTML: ({ node }) => ['details', { class: 'expand' },
-    ['summary', {}, node.attrs.title || '펼치기'],
-    ['div', { class: 'expand-body' }, 0]],
+  renderHTML: ({ node }) => {
+    const attrs = expandViewAttrs(node);
+    return ['details', attrs,
+      ['summary', {}, node.attrs.title || '여기를 클릭하여 펼치기...'],
+      ['div', { class: 'expand-body' }, 0]];
+  },
+  // 편집기: 제목 입력란 + 본문을 직접 편집할 수 있는 NodeView
+  // (details/summary 그대로는 summary가 속성 텍스트라 편집이 안 되고 네이티브 토글이 클릭을 삼킨다)
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      // 읽기 전용(본문 보기 화면)은 renderHTML과 같은 details/summary로
+      if (!editor.isEditable) {
+        const details = document.createElement('details');
+        const attrs = expandViewAttrs(node);
+        details.className = attrs.class;
+        if (attrs.style) details.setAttribute('style', attrs.style);
+        const summary = document.createElement('summary');
+        summary.textContent = node.attrs.title || '여기를 클릭하여 펼치기...';
+        const body = document.createElement('div');
+        body.className = 'expand-body';
+        details.append(summary, body);
+        return { dom: details, contentDOM: body, update: (n) => n.type.name === 'expand' };
+      }
+      const dom = document.createElement('div');
+      // 넓은 표를 품은 펼치기는 편집기에서도 박스째 돌출 (expandViewAttrs가 breakout 판단)
+      const applyAttrs = (n) => {
+        const a = expandViewAttrs(n);
+        dom.className = `${a.class} expand-edit`;
+        if (a.style) dom.setAttribute('style', a.style);
+        else dom.removeAttribute('style');
+      };
+      applyAttrs(node);
+      const head = document.createElement('div');
+      head.className = 'expand-edit-head';
+      head.contentEditable = 'false';
+      const caret = document.createElement('button');
+      caret.type = 'button';
+      caret.className = 'expand-caret';
+      caret.textContent = '▾';
+      const input = document.createElement('input');
+      input.className = 'expand-title-input';
+      input.placeholder = '제목 입력...';
+      input.value = node.attrs.title ?? '';
+      input.addEventListener('input', () => {
+        const pos = getPos();
+        if (pos == null) return;
+        const { state, dispatch } = editor.view;
+        dispatch(state.tr.setNodeAttribute(pos, 'title', input.value));
+      });
+      const body = document.createElement('div');
+      body.className = 'expand-body';
+      let open = true;
+      caret.addEventListener('click', () => {
+        open = !open;
+        body.style.display = open ? '' : 'none';
+        caret.textContent = open ? '▾' : '▸';
+      });
+      head.append(caret, input);
+      dom.append(head, body);
+      return {
+        dom,
+        contentDOM: body,
+        stopEvent: (e) => head.contains(e.target),
+        ignoreMutation: (m) => !body.contains(m.target),
+        update: (n) => {
+          if (n.type.name !== 'expand') return false;
+          applyAttrs(n);
+          if (document.activeElement !== input && (n.attrs.title ?? '') !== input.value) input.value = n.attrs.title ?? '';
+          return true;
+        },
+      };
+    };
+  },
 });
 
 const Layout = Node.create({
@@ -241,10 +346,20 @@ const Mention = Node.create({
   renderHTML: ({ node }) => ['span', { class: 'mention' }, `@${node.attrs.text || '사용자'}`],
 });
 
+// 레거시 Confluence 이모티콘(유니코드 fallback 없음) → 유니코드 매핑
+const LEGACY_EMOTICONS = {
+  smile: '🙂', sad: '🙁', cheeky: '😛', laugh: '😄', wink: '😉',
+  'thumbs-up': '👍', 'thumbs-down': '👎', information: 'ℹ️', tick: '✅', cross: '❌',
+  warning: '⚠️', plus: '➕', minus: '➖', question: '❓', 'light-on': '💡', 'light-off': '🔅',
+  'yellow-star': '⭐', 'red-star': '🔴', 'green-star': '🟢', 'blue-star': '🔵',
+  heart: '❤️', 'broken-heart': '💔',
+};
+
 const Emoji = Node.create({
   name: 'emoji', ...inlineAtom,
   addAttributes: () => ({ shortName: { default: '' }, text: { default: '' } }),
-  renderHTML: ({ node }) => ['span', { class: 'emoji' }, node.attrs.text || node.attrs.shortName || '❓'],
+  renderHTML: ({ node }) => ['span', { class: 'emoji' },
+    node.attrs.text || LEGACY_EMOTICONS[node.attrs.shortName?.replaceAll(':', '')] || node.attrs.shortName || '❓'],
 });
 
 const DateNode = Node.create({
@@ -301,8 +416,60 @@ const CfMacroInline = Node.create({
   },
 });
 
+// 문단·제목 텍스트 정렬 (Confluence 툴바의 "텍스트 정렬" — editor-spec.md)
+const TextAlign = Extension.create({
+  name: 'textAlign',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph', 'heading'],
+      attributes: {
+        textAlign: {
+          default: null,
+          renderHTML: (attrs) => (attrs.textAlign ? { style: `text-align: ${attrs.textAlign}` } : {}),
+          parseHTML: (el) => el.style?.textAlign || null,
+        },
+      },
+    }];
+  },
+  addCommands() {
+    return {
+      setTextAlign: (align) => ({ commands }) => {
+        const results = ['paragraph', 'heading'].map((t) => commands.updateAttributes(t, { textAlign: align }));
+        return results.some(Boolean);
+      },
+    };
+  },
+});
+
+// Confluence 편집기 단축키 (editor-spec.md의 Ctrl+/ 도움말 캡처 기준 — TipTap 기본에 없는 것만)
+export const ConfluenceShortcuts = Extension.create({
+  name: 'confluenceShortcuts',
+  addKeyboardShortcuts() {
+    const ed = () => this.editor;
+    return {
+      'Mod-Shift-m': () => ed().commands.toggleCode(),
+      'Mod-\\': () => ed().chain().focus().unsetAllMarks().run(),
+      'Mod-Alt-0': () => ed().commands.setParagraph(),
+      'Mod-Shift-9': () => ed().commands.toggleBlockquote(),
+      'Mod-Shift-,': () => ed().commands.toggleMark('subscript'),
+      'Mod-Shift-.': () => ed().commands.toggleMark('superscript'),
+      'Mod-Shift--': () => ed().commands.setHorizontalRule(),
+      'Mod-Shift-l': () => ed().commands.setTextAlign(null),
+      'Mod-Alt-e': () => ed().commands.setTextAlign('center'),
+      'Mod-Alt-t': () => ed().commands.setTextAlign('right'),
+      'Mod-k': () => {
+        const prev = ed().getAttributes('link').href ?? '';
+        const url = window.prompt('링크 URL', prev);
+        if (url === null) return true;
+        if (!url) return ed().chain().focus().extendMarkRange('link').unsetMark('link').run();
+        return ed().chain().focus().extendMarkRange('link').setMark('link', { href: url }).run();
+      },
+    };
+  },
+});
+
 const custom = [
-  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark,
+  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
   Panel, Expand, Layout, LayoutSection, LayoutColumn,
@@ -315,4 +482,4 @@ const custom = [
 export const extensions = [StarterKit.configure({ history: false }), ...custom];
 
 // 편집기 용 (undo/redo 포함)
-export const editExtensions = [StarterKit, ...custom];
+export const editExtensions = [StarterKit, ...custom, ConfluenceShortcuts];

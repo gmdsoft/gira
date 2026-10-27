@@ -35,10 +35,10 @@ await Promise.all(Array.from({ length: 8 }, async () => {
     const { id } = rows[i++];
     try {
       const data = await get(`/wiki/api/v2/pages/${id}/properties?key=content-appearance-published`);
-      // 현재 Confluence는 전체 폭이 기본값 — 명시적으로 fixed-width일 때만 고정 폭
-      const isFixed = (data.results ?? []).some((p) => String(p.value).replaceAll('"', '') === 'fixed-width');
-      await query(`UPDATE content SET full_width = $2 WHERE id = $1`, [id, !isFixed]);
-      if (!isFixed) full++;
+      // Confluence 기본은 고정 폭(넓은 블록만 돌출) — 속성이 명시적으로 full-width일 때만 전체 폭
+      const isFull = (data.results ?? []).some((p) => String(p.value).replaceAll('"', '') === 'full-width');
+      await query(`UPDATE content SET full_width = $2 WHERE id = $1`, [id, isFull]);
+      if (isFull) full++;
     } catch (e) {
       if (e.status === 404) missing++; // 원본에서 삭제된 페이지
       else throw e;

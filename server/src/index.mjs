@@ -12,6 +12,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, DATA_DIR } from './db.mjs';
 import { decodeTinyToken } from './tinylink.mjs';
+import { randomBytes } from 'node:crypto';
+import { registerAuth, hashToken } from './auth.mjs';
+import { spaceRole, contentAccess, filterViewable, visibleTreeSet } from './perm.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -33,6 +36,17 @@ await query(`SELECT setval('comment_id_seq',
   GREATEST((SELECT COALESCE(MAX(id), 1) FROM comments), (SELECT last_value FROM comment_id_seq)))`);
 
 await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 5 } });
+
+// 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
+await registerAuth(app);
+
+// 자주 쓰는 권한 검사: 보기/편집 불가 시 403(없으면 404)을 보내고 null 반환
+async function requireAccess(req, reply, contentId, need = 'view') {
+  const a = await contentAccess(req.access, contentId);
+  if (!a.exists) { reply.code(404).send({ error: 'not found' }); return null; }
+  if (!a[need]) { reply.code(403).send({ error: need === 'edit' ? '편집 권한이 없습니다' : '볼 수 있는 권한이 없습니다' }); return null; }
+  return a;
+}
 
 // 게시·생성 시 검색 색인 (실패해도 본 동작에는 영향 없음)
 async function reindex(contentId) {
@@ -58,24 +72,34 @@ async function reindex(contentId) {
 
 // ---------- API ----------
 
-app.get('/api/spaces', async () => {
+app.get('/api/spaces', async (req) => {
   const { rows } = await query(
     `SELECT id, key, name, type, status, homepage_id FROM spaces ORDER BY name`);
-  return rows;
+  const out = [];
+  for (const s of rows) {
+    const role = await spaceRole(req.access, s.id);
+    if (role) out.push({ ...s, role });
+  }
+  return out;
 });
 
 app.get('/api/spaces/:key', async (req, reply) => {
   const { rows } = await query(`SELECT id, key, name, type, status, homepage_id FROM spaces WHERE key = $1`, [req.params.key]);
   if (!rows.length) return reply.code(404).send({ error: 'space not found' });
   const space = rows[0];
+  const role = await spaceRole(req.access, space.id);
+  if (!role) return reply.code(403).send({ error: '이 스페이스를 볼 수 있는 권한이 없습니다' });
   const { rows: tree } = await query(
     `SELECT id, parent_id, type, title, position, status, current_version
        FROM content WHERE space_id = $1 AND status = 'current'
       ORDER BY position NULLS LAST, created_at NULLS LAST, title`, [space.id]);
-  return { ...space, tree };
+  const visible = await visibleTreeSet(req.access, space.id, role, tree);
+  return { ...space, role, tree: visible ? tree.filter((n) => visible.has(String(n.id))) : tree };
 });
 
 app.get('/api/content/:id', async (req, reply) => {
+  const acc = await requireAccess(req, reply, req.params.id);
+  if (!acc) return;
   const { rows } = await query(
     `SELECT c.*, s.key AS space_key, s.name AS space_name,
             u.display_name AS author_name
@@ -95,11 +119,13 @@ app.get('/api/content/:id', async (req, reply) => {
     `SELECT id, filename, media_type, file_size, version FROM attachments WHERE content_id = $1 ORDER BY filename`, [c.id]);
   const { rows: counts } = await query(
     `SELECT kind, count(*)::int AS n FROM comments WHERE content_id = $1 GROUP BY kind`, [c.id]);
-  const { rows: children } = await query(
+  const { rows: childRows } = await query(
     `SELECT id, type, title FROM content WHERE parent_id = $1 AND status = 'current'
       ORDER BY position NULLS LAST, created_at NULLS LAST, title`, [c.id]);
+  const childOk = await filterViewable(req.access, childRows.map((r) => r.id));
   return {
-    children,
+    children: childRows.filter((r) => childOk.has(String(r.id))),
+    canEdit: acc.edit, role: acc.role,
     id: c.id, spaceKey: c.space_key, spaceName: c.space_name, parentId: c.parent_id,
     type: c.type, title: c.title, status: c.status, fullWidth: c.full_width, authorName: c.author_name,
     createdAt: c.created_at, updatedAt: c.updated_at, version: ver[0] ?? null,
@@ -108,7 +134,8 @@ app.get('/api/content/:id', async (req, reply) => {
   };
 });
 
-app.get('/api/content/:id/comments', async (req) => {
+app.get('/api/content/:id/comments', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id)) return;
   const { rows } = await query(
     `SELECT cm.id, cm.parent_id, cm.kind, cm.inline_ref, cm.resolved, cm.doc, cm.created_at,
             u.display_name AS author_name
@@ -123,14 +150,17 @@ app.get('/api/resolve', async (req, reply) => {
   if (!title) return reply.code(400).send({ error: 'title required' });
   const { rows } = await query(
     `SELECT c.id, s.key AS space_key FROM content c JOIN spaces s ON s.id = c.space_id
-      WHERE c.title = $1 AND ($2::text IS NULL OR s.key = $2) LIMIT 2`, [title, spaceKey || null]);
-  if (!rows.length) return reply.code(404).send({ error: 'not found' });
-  return { id: rows[0].id, spaceKey: rows[0].space_key };
+      WHERE c.title = $1 AND ($2::text IS NULL OR s.key = $2) LIMIT 5`, [title, spaceKey || null]);
+  const ok = await filterViewable(req.access, rows.map((r) => r.id));
+  const hit = rows.find((r) => ok.has(String(r.id)));
+  if (!hit) return reply.code(404).send({ error: 'not found' });
+  return { id: hit.id, spaceKey: hit.space_key };
 });
 
 // 첨부 프록시: 원본 Confluence에서 받아 캐시 후 서빙 (PoC. 운영은 MinIO presigned URL)
 app.get('/api/att/:contentId/:filename', async (req, reply) => {
   const { contentId } = req.params;
+  if (!await requireAccess(req, reply, contentId)) return;
   const filename = decodeURIComponent(req.params.filename);
   const { rows } = await query(
     `SELECT media_type, source_url FROM attachments
@@ -155,25 +185,18 @@ app.get('/api/att/:contentId/:filename', async (req, reply) => {
 });
 
 // ---------- 편집: 초안, 게시, 생성 ----------
-// 인증(Entra ID) 도입 전까지 로컬 개발 사용자로 기록한다.
-async function devUserId() {
-  const { rows } = await query(
-    `INSERT INTO users (confluence_account_id, display_name)
-     VALUES ('local-dev', '개발 모드 사용자')
-     ON CONFLICT (confluence_account_id) DO UPDATE SET display_name = EXCLUDED.display_name
-     RETURNING id`);
-  return rows[0].id;
-}
 
 app.get('/api/content/:id/draft', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
   const { rows } = await query(`SELECT doc, title, base_version, updated_at FROM drafts WHERE content_id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'no draft' });
   return rows[0];
 });
 
-app.put('/api/content/:id/draft', async (req) => {
+app.put('/api/content/:id/draft', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
   const { doc, title, baseVersion } = req.body;
-  const userId = await devUserId();
+  const userId = req.access.userId;
   await query(
     `INSERT INTO drafts (content_id, doc, title, base_version, updated_by, updated_at)
      VALUES ($1, $2, $3, $4, $5, now())
@@ -183,7 +206,8 @@ app.put('/api/content/:id/draft', async (req) => {
   return { ok: true, savedAt: new Date().toISOString() };
 });
 
-app.delete('/api/content/:id/draft', async (req) => {
+app.delete('/api/content/:id/draft', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
   await query(`DELETE FROM drafts WHERE content_id = $1`, [req.params.id]);
   return { ok: true };
 });
@@ -191,6 +215,7 @@ app.delete('/api/content/:id/draft', async (req) => {
 // 게시: 초안(또는 본문 직접 전달)을 새 버전으로
 app.post('/api/content/:id/publish', async (req, reply) => {
   const id = req.params.id;
+  if (!await requireAccess(req, reply, id, 'edit')) return;
   const { rows: cur } = await query(`SELECT current_version FROM content WHERE id = $1`, [id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
   const { rows: dr } = await query(`SELECT doc, title, base_version FROM drafts WHERE content_id = $1`, [id]);
@@ -203,7 +228,7 @@ app.post('/api/content/:id/publish', async (req, reply) => {
     return reply.code(409).send({ error: 'version conflict', currentVersion, baseVersion });
   }
   const next = Number(currentVersion) + 1;
-  const userId = await devUserId();
+  const userId = req.access.userId;
   await query(
     `INSERT INTO content_versions (content_id, version, doc, message, minor_edit, author_id, created_at)
      VALUES ($1, $2, $3, $4, false, $5, now())`,
@@ -222,7 +247,10 @@ app.post('/api/content', async (req, reply) => {
   if (!spaceKey) return reply.code(400).send({ error: 'spaceKey required' });
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
   if (!sp.length) return reply.code(404).send({ error: 'space not found' });
-  const userId = await devUserId();
+  const role = await spaceRole(req.access, sp[0].id);
+  if (!role || role === 'viewer') return reply.code(403).send({ error: '이 스페이스에 페이지를 만들 권한이 없습니다' });
+  if (parentId != null && !await requireAccess(req, reply, parentId)) return;
+  const userId = req.access.userId;
   const { rows } = await query(
     `INSERT INTO content (id, space_id, parent_id, type, title, status, author_id, owner_id, current_version, created_at, updated_at)
      VALUES (nextval('content_id_seq'), $1, $2, 'page', $3, 'current', $4, $4, 0, now(), now())
@@ -234,11 +262,12 @@ app.post('/api/content', async (req, reply) => {
 // 첨부 업로드 (로컬 저장. 운영 전환 시 MinIO로 교체)
 app.post('/api/content/:id/attachments', async (req, reply) => {
   const contentId = req.params.id;
+  if (!await requireAccess(req, reply, contentId, 'edit')) return;
   const file = await req.file();
   if (!file) return reply.code(400).send({ error: 'file required' });
   const buf = await file.toBuffer();
   const filename = file.filename;
-  const userId = await devUserId();
+  const userId = req.access.userId;
   const { rows: ver } = await query(
     `SELECT coalesce(max(version), 0) + 1 AS v FROM attachments WHERE content_id = $1 AND filename = $2`,
     [contentId, filename]);
@@ -258,7 +287,11 @@ app.get('/api/search', async (req, reply) => {
   const { q, space, type } = req.query;
   if (!q?.trim()) return reply.code(400).send({ error: 'q required' });
   try {
-    return await searchSvc.search({ q: q.trim(), spaceKey: space || undefined, type: type || undefined });
+    const res = await searchSvc.search({ q: q.trim(), spaceKey: space || undefined, type: type || undefined });
+    // 권한 필터: 볼 수 없는 문서는 결과에서 제외
+    const ok = await filterViewable(req.access, res.hits.map((h) => h.id));
+    const hits = res.hits.filter((h) => ok.has(String(h.id)));
+    return { ...res, total: res.total - (res.hits.length - hits.length), hits };
   } catch (e) {
     req.log.error(e);
     return reply.code(503).send({ error: '검색 엔진에 연결할 수 없습니다' });
@@ -267,6 +300,7 @@ app.get('/api/search', async (req, reply) => {
 
 // 특정 버전 본문
 app.get('/api/content/:id/versions/:v', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id)) return;
   const { rows } = await query(
     `SELECT v.version, v.doc, v.message, v.created_at, v.source_editor,
             (v.source_xhtml IS NOT NULL) AS migrated, u.display_name AS author_name
@@ -279,13 +313,14 @@ app.get('/api/content/:id/versions/:v', async (req, reply) => {
 // 과거 버전 복원 → 새 버전으로 게시
 app.post('/api/content/:id/restore', async (req, reply) => {
   const id = req.params.id;
+  if (!await requireAccess(req, reply, id, 'edit')) return;
   const v = Number(req.body?.version);
   if (!v) return reply.code(400).send({ error: 'version required' });
   const { rows } = await query(`SELECT doc FROM content_versions WHERE content_id = $1 AND version = $2`, [id, v]);
   if (!rows.length || !rows[0].doc) return reply.code(404).send({ error: 'version not found or empty' });
   const { rows: cur } = await query(`SELECT current_version FROM content WHERE id = $1`, [id]);
   const next = Number(cur[0].current_version) + 1;
-  const userId = await devUserId();
+  const userId = req.access.userId;
   await query(
     `INSERT INTO content_versions (content_id, version, doc, message, minor_edit, author_id, created_at)
      VALUES ($1, $2, $3, $4, false, $5, now())`,
@@ -295,7 +330,8 @@ app.post('/api/content/:id/restore', async (req, reply) => {
   return { ok: true, version: next };
 });
 
-app.get('/api/content/:id/versions', async (req) => {
+app.get('/api/content/:id/versions', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id)) return;
   const { rows } = await query(
     `SELECT v.version, v.message, v.minor_edit, v.created_at, u.display_name AS author_name,
             (v.source_xhtml IS NOT NULL) AS migrated
@@ -323,12 +359,14 @@ app.get('/api/pages', async (req) => {
         AND ($1::text IS NULL OR s.key = $1)
         AND ($2::text = '' OR c.title ILIKE '%' || $2 || '%')
       ORDER BY c.title LIMIT 20`, [space || null, (q ?? '').trim()]);
-  return rows;
+  const ok = await filterViewable(req.access, rows.map((r) => r.id));
+  return rows.filter((r) => ok.has(String(r.id)));
 });
 
 // 복사본 만들기: 현재 본문을 형제 페이지로 복제 (첨부 메타·캐시 포함)
 app.post('/api/content/:id/copy', async (req, reply) => {
   const id = req.params.id;
+  if (!await requireAccess(req, reply, id, 'edit')) return;
   const { rows } = await query(
     `SELECT c.*, s.key AS space_key, v.doc
        FROM content c JOIN spaces s ON s.id = c.space_id
@@ -336,7 +374,7 @@ app.post('/api/content/:id/copy', async (req, reply) => {
       WHERE c.id = $1`, [id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   const src = rows[0];
-  const userId = await devUserId();
+  const userId = req.access.userId;
   const hasDoc = !!src.doc;
   const { rows: created } = await query(
     `INSERT INTO content (id, space_id, parent_id, type, title, status, author_id, owner_id, current_version, created_at, updated_at)
@@ -372,6 +410,7 @@ app.post('/api/content/:id/copy', async (req, reply) => {
 // 이동: 다른 부모(또는 다른 스페이스 최상위) 밑으로. 스페이스가 바뀌면 하위 트리 전체를 함께 옮긴다.
 app.post('/api/content/:id/move', async (req, reply) => {
   const id = Number(req.params.id);
+  if (!await requireAccess(req, reply, id, 'edit')) return;
   const { parentId, spaceKey } = req.body ?? {};
   const { rows: cur } = await query(`SELECT space_id FROM content WHERE id = $1`, [id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
@@ -379,6 +418,7 @@ app.post('/api/content/:id/move', async (req, reply) => {
   const newParent = parentId ?? null;
   if (newParent != null) {
     if (Number(newParent) === id) return reply.code(400).send({ error: '자기 자신 밑으로는 옮길 수 없습니다' });
+    if (!await requireAccess(req, reply, newParent, 'edit')) return;
     const { rows: p } = await query(`SELECT space_id FROM content WHERE id = $1 AND status = 'current'`, [newParent]);
     if (!p.length) return reply.code(404).send({ error: 'parent not found' });
     targetSpaceId = p[0].space_id;
@@ -392,6 +432,8 @@ app.post('/api/content/:id/move', async (req, reply) => {
     const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
     if (!sp.length) return reply.code(400).send({ error: 'parentId 또는 spaceKey가 필요합니다' });
     targetSpaceId = sp[0].id;
+    const targetRole = await spaceRole(req.access, targetSpaceId);
+    if (!targetRole || targetRole === 'viewer') return reply.code(403).send({ error: '대상 스페이스에 쓸 권한이 없습니다' });
   }
   await query(`UPDATE content SET parent_id = $2, position = NULL, updated_at = now() WHERE id = $1`, [id, newParent]);
   if (Number(targetSpaceId) !== Number(cur[0].space_id)) {
@@ -406,6 +448,7 @@ app.post('/api/content/:id/move', async (req, reply) => {
 
 // 보관/휴지통/복원: 하위 트리 전체에 적용
 app.post('/api/content/:id/status', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
   const status = req.body?.status;
   if (!['current', 'archived', 'trashed'].includes(status)) {
     return reply.code(400).send({ error: 'status는 current|archived|trashed 중 하나' });
@@ -425,15 +468,19 @@ app.post('/api/content/:id/status', async (req, reply) => {
 app.get('/api/spaces/:key/archived', async (req, reply) => {
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [req.params.key]);
   if (!sp.length) return reply.code(404).send({ error: 'space not found' });
+  const role = await spaceRole(req.access, sp[0].id);
+  if (!role || role === 'viewer') return reply.code(403).send({ error: '권한이 없습니다' });
   const { rows } = await query(
     `SELECT id, title, type, status, updated_at FROM content
       WHERE space_id = $1 AND status IN ('archived', 'trashed')
       ORDER BY updated_at DESC`, [sp[0].id]);
-  return rows;
+  const ok = await filterViewable(req.access, rows.map((r) => r.id));
+  return rows.filter((r) => ok.has(String(r.id)));
 });
 
 // 댓글 작성 (하단 footer / 본문 선택 영역 inline)
 app.post('/api/content/:id/comments', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id)) return; // 댓글은 볼 수 있으면 작성 가능
   const { text, doc, kind, inlineRef } = req.body ?? {};
   let body = doc;
   if (!body) {
@@ -446,7 +493,7 @@ app.post('/api/content/:id/comments', async (req, reply) => {
   }
   const k = kind === 'inline' ? 'inline' : 'footer';
   if (k === 'inline' && !inlineRef?.trim()) return reply.code(400).send({ error: 'inline 댓글은 inlineRef(선택한 텍스트)가 필요합니다' });
-  const userId = await devUserId();
+  const userId = req.access.userId;
   const { rows } = await query(
     `INSERT INTO comments (id, content_id, kind, inline_ref, doc, author_id, created_at)
      VALUES (nextval('comment_id_seq'), $1, $2, $3, $4, $5, now()) RETURNING id`,
@@ -456,6 +503,9 @@ app.post('/api/content/:id/comments', async (req, reply) => {
 
 // 댓글 해결/재오픈
 app.post('/api/comments/:id/resolve', async (req, reply) => {
+  const { rows: cm } = await query(`SELECT content_id FROM comments WHERE id = $1`, [req.params.id]);
+  if (!cm.length) return reply.code(404).send({ error: 'comment not found' });
+  if (!await requireAccess(req, reply, cm[0].content_id)) return;
   const resolved = req.body?.resolved !== false;
   const { rows } = await query(`UPDATE comments SET resolved = $2 WHERE id = $1 RETURNING id`, [req.params.id, resolved]);
   if (!rows.length) return reply.code(404).send({ error: 'comment not found' });
@@ -463,8 +513,9 @@ app.post('/api/comments/:id/resolve', async (req, reply) => {
 });
 
 // 레이블 추가/삭제
-app.post('/api/content/:id/labels', async (req) => {
+app.post('/api/content/:id/labels', async (req, reply) => {
   const id = req.params.id;
+  if (!await requireAccess(req, reply, id, 'edit')) return;
   const add = (req.body?.add ?? []).map((s) => String(s).trim()).filter(Boolean);
   const remove = (req.body?.remove ?? []).map((s) => String(s).trim()).filter(Boolean);
   for (const name of add) {
@@ -507,7 +558,8 @@ app.get('/api/spaces/:key/recent', async (req, reply) => {
        LEFT JOIN users u ON u.id = v.author_id
       WHERE c.space_id = $1 AND c.status = 'current' AND c.type IN ('page', 'live')
       ORDER BY c.updated_at DESC NULLS LAST LIMIT $2`, [sp[0].id, limit]);
-  return rows;
+  const ok = await filterViewable(req.access, rows.map((r) => r.id));
+  return rows.filter((r) => ok.has(String(r.id)));
 });
 
 // contentbylabel 매크로: 라벨이 달린 페이지
@@ -525,7 +577,234 @@ app.get('/api/label-content', async (req, reply) => {
         AND ($2::text IS NULL OR s.key = $2)
       ORDER BY c.updated_at DESC NULLS LAST LIMIT $3`,
     [labels, req.query.space || null, max]);
+  const ok = await filterViewable(req.access, rows.map((r) => r.id));
+  return rows.filter((r) => ok.has(String(r.id)));
+});
+
+// ---------- 권한 관리: 사이트 관리자, 그룹(팀), 스페이스 권한, 페이지 제한, API 키 ----------
+
+function requireAdmin(req, reply) {
+  if (req.access.isAdmin) return true;
+  reply.code(403).send({ error: '사이트 관리자만 사용할 수 있습니다' });
+  return false;
+}
+
+// 권한 선택 UI용 사용자·그룹 검색
+app.get('/api/principals', async (req) => {
+  const q = (req.query.q ?? '').trim();
+  const { rows: users } = await query(
+    `SELECT id, display_name, email, confluence_account_id FROM users
+      WHERE active AND display_name IS NOT NULL AND confluence_account_id IS DISTINCT FROM 'local-dev'
+        AND ($1 = '' OR display_name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+      ORDER BY display_name LIMIT 10`, [q]);
+  const { rows: groups } = await query(
+    `SELECT id, name FROM groups WHERE $1 = '' OR name ILIKE '%' || $1 || '%' ORDER BY name LIMIT 10`, [q]);
+  return {
+    users: users.map((u) => ({ type: 'user', id: u.id, name: u.display_name, email: u.email, accountId: u.confluence_account_id })),
+    groups: groups.map((g) => ({ type: 'group', id: g.id, name: g.name })),
+  };
+});
+
+app.get('/api/admin/users', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const q = (req.query.q ?? '').trim();
+  const { rows } = await query(
+    `SELECT u.id, u.display_name, u.email, u.active, u.is_admin,
+            coalesce((SELECT array_agg(g.name ORDER BY g.name) FROM user_groups ug JOIN groups g ON g.id = ug.group_id
+                       WHERE ug.user_id = u.id), '{}') AS groups
+       FROM users u
+      WHERE u.confluence_account_id IS DISTINCT FROM 'local-dev'
+        AND ($1 = '' OR u.display_name ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')
+      ORDER BY u.active DESC, u.display_name NULLS LAST LIMIT 200`, [q]);
   return rows;
+});
+
+app.post('/api/admin/users/:id', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const { active, isAdmin } = req.body ?? {};
+  if (Number(req.params.id) === req.access.userId && isAdmin === false) {
+    return reply.code(400).send({ error: '자기 자신의 관리자 권한은 해제할 수 없습니다' });
+  }
+  const { rows } = await query(
+    `UPDATE users SET active = COALESCE($2, active), is_admin = COALESCE($3, is_admin)
+      WHERE id = $1 RETURNING id, display_name, active, is_admin`,
+    [req.params.id, active ?? null, isAdmin ?? null]);
+  if (!rows.length) return reply.code(404).send({ error: 'user not found' });
+  return rows[0];
+});
+
+app.get('/api/admin/groups', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const { rows } = await query(
+    `SELECT g.id, g.name, count(ug.user_id)::int AS member_count
+       FROM groups g LEFT JOIN user_groups ug ON ug.group_id = g.id
+      GROUP BY g.id ORDER BY g.name`);
+  return rows;
+});
+
+app.post('/api/admin/groups', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const name = req.body?.name?.trim();
+  if (!name) return reply.code(400).send({ error: 'name required' });
+  const { rows } = await query(`INSERT INTO groups (name) VALUES ($1) RETURNING id, name`, [name]);
+  return rows[0];
+});
+
+app.delete('/api/admin/groups/:id', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const id = req.params.id;
+  await query(`DELETE FROM user_groups WHERE group_id = $1`, [id]);
+  await query(`DELETE FROM space_permissions WHERE principal_type = 'group' AND principal_id = $1`, [id]);
+  await query(`DELETE FROM content_restrictions WHERE principal_type = 'group' AND principal_id = $1`, [id]);
+  await query(`DELETE FROM groups WHERE id = $1`, [id]);
+  return { ok: true };
+});
+
+app.get('/api/admin/groups/:id/members', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const { rows } = await query(
+    `SELECT u.id, u.display_name, u.email FROM user_groups ug JOIN users u ON u.id = ug.user_id
+      WHERE ug.group_id = $1 ORDER BY u.display_name`, [req.params.id]);
+  return rows;
+});
+
+app.post('/api/admin/groups/:id/members', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const userId = Number(req.body?.userId);
+  if (!userId) return reply.code(400).send({ error: 'userId required' });
+  await query(`INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userId, req.params.id]);
+  return { ok: true };
+});
+
+app.delete('/api/admin/groups/:id/members/:userId', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  await query(`DELETE FROM user_groups WHERE group_id = $1 AND user_id = $2`,
+    [req.params.id, req.params.userId]);
+  return { ok: true };
+});
+
+// API 키 발급·관리 (사이트 관리자)
+app.get('/api/admin/apikeys', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const { rows } = await query(
+    `SELECT k.id, k.name, k.prefix, k.created_at, k.last_used_at, k.revoked_at,
+            u.display_name AS user_name
+       FROM api_keys k JOIN users u ON u.id = k.user_id ORDER BY k.created_at DESC`);
+  return rows;
+});
+
+app.post('/api/admin/apikeys', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const name = req.body?.name?.trim();
+  const userId = Number(req.body?.userId) || req.access.userId;
+  if (!name) return reply.code(400).send({ error: 'name required' });
+  const token = 'gmd_' + randomBytes(24).toString('base64url');
+  const { rows } = await query(
+    `INSERT INTO api_keys (user_id, name, prefix, token_hash) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [userId, name, token.slice(0, 12), hashToken(token)]);
+  return { id: rows[0].id, token }; // 토큰 평문은 이 응답에서만 — 다시 조회할 수 없다
+});
+
+app.delete('/api/admin/apikeys/:id', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  await query(`UPDATE api_keys SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, [req.params.id]);
+  return { ok: true };
+});
+
+// 스페이스 권한 (스페이스 admin 이상)
+async function requireSpaceAdmin(req, reply, spaceKey) {
+  const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
+  if (!sp.length) { reply.code(404).send({ error: 'space not found' }); return null; }
+  const role = await spaceRole(req.access, sp[0].id);
+  if (role !== 'admin') { reply.code(403).send({ error: '스페이스 관리자만 변경할 수 있습니다' }); return null; }
+  return sp[0].id;
+}
+
+app.get('/api/spaces/:key/permissions', async (req, reply) => {
+  const spaceId = await requireSpaceAdmin(req, reply, req.params.key);
+  if (!spaceId) return;
+  const { rows } = await query(
+    `SELECT p.principal_type, p.principal_id, p.role,
+            CASE p.principal_type WHEN 'user' THEN u.display_name WHEN 'group' THEN g.name ELSE '로그인한 모든 사용자' END AS name
+       FROM space_permissions p
+       LEFT JOIN users u ON p.principal_type = 'user' AND u.id = p.principal_id
+       LEFT JOIN groups g ON p.principal_type = 'group' AND g.id = p.principal_id
+      WHERE p.space_id = $1 ORDER BY p.role DESC, name`, [spaceId]);
+  return rows;
+});
+
+app.put('/api/spaces/:key/permissions', async (req, reply) => {
+  const spaceId = await requireSpaceAdmin(req, reply, req.params.key);
+  if (!spaceId) return;
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  for (const r of rows) {
+    if (!['user', 'group', 'anyone'].includes(r.principalType) || !['viewer', 'editor', 'admin'].includes(r.role)) {
+      return reply.code(400).send({ error: '잘못된 권한 행입니다' });
+    }
+  }
+  // 전체 교체. 규칙을 두는 순간 목록에 없는 사용자는 접근 불가가 되므로,
+  // 요청자 자신이 잠기지 않도록 항상 본인을 admin으로 보강한다 (사이트 관리자는 제외).
+  if (rows.length && !req.access.isAdmin) {
+    const self = rows.some((r) => r.principalType === 'user' && Number(r.principalId) === req.access.userId && r.role === 'admin');
+    if (!self) rows.push({ principalType: 'user', principalId: req.access.userId, role: 'admin' });
+  }
+  await query(`DELETE FROM space_permissions WHERE space_id = $1`, [spaceId]);
+  for (const r of rows) {
+    await query(
+      `INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
+       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      [spaceId, r.principalType, r.principalType === 'anyone' ? 0 : Number(r.principalId), r.role]);
+  }
+  return { ok: true, count: rows.length };
+});
+
+// 페이지 접근 제한 (편집 권한이 있는 사용자가 설정)
+app.get('/api/content/:id/restrictions', async (req, reply) => {
+  const acc = await requireAccess(req, reply, req.params.id);
+  if (!acc) return;
+  const { rows } = await query(
+    `SELECT r.rtype, r.principal_type, r.principal_id,
+            CASE r.principal_type WHEN 'user' THEN u.display_name ELSE g.name END AS name
+       FROM content_restrictions r
+       LEFT JOIN users u ON r.principal_type = 'user' AND u.id = r.principal_id
+       LEFT JOIN groups g ON r.principal_type = 'group' AND g.id = r.principal_id
+      WHERE r.content_id = $1 ORDER BY r.rtype, name`, [req.params.id]);
+  // 조상에 걸린 보기 제한(상속)도 함께 보여준다
+  const { rows: inherited } = await query(
+    `WITH RECURSIVE up AS (
+       SELECT id, parent_id FROM content WHERE id = $1
+       UNION ALL SELECT c.id, c.parent_id FROM content c JOIN up ON c.id = up.parent_id
+     )
+     SELECT DISTINCT c.id, c.title FROM content_restrictions r
+       JOIN up ON up.id = r.content_id AND up.id != $1
+       JOIN content c ON c.id = r.content_id
+      WHERE r.rtype = 'view'`, [req.params.id]);
+  return { restrictions: rows, inheritedFrom: inherited, canEdit: acc.edit };
+});
+
+app.put('/api/content/:id/restrictions', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
+  const list = Array.isArray(req.body?.restrictions) ? req.body.restrictions : [];
+  for (const r of list) {
+    if (!['view', 'edit'].includes(r.rtype) || !['user', 'group'].includes(r.principalType) || !Number(r.principalId)) {
+      return reply.code(400).send({ error: '잘못된 제한 행입니다' });
+    }
+  }
+  // 보기 제한을 두면서 자신이 빠지면 저장 직후 본인이 못 보게 되므로 본인을 보강한다
+  const hasView = list.some((r) => r.rtype === 'view');
+  if (hasView && !req.access.isAdmin) {
+    const selfView = list.some((r) => r.rtype === 'view' && r.principalType === 'user' && Number(r.principalId) === req.access.userId);
+    if (!selfView) list.push({ rtype: 'view', principalType: 'user', principalId: req.access.userId });
+  }
+  await query(`DELETE FROM content_restrictions WHERE content_id = $1`, [req.params.id]);
+  for (const r of list) {
+    await query(
+      `INSERT INTO content_restrictions (content_id, rtype, principal_type, principal_id)
+       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      [req.params.id, r.rtype, r.principalType, Number(r.principalId)]);
+  }
+  return { ok: true };
 });
 
 // ---------- 기존 Confluence URL 호환 ----------

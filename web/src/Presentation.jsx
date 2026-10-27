@@ -31,7 +31,11 @@ export default function Presentation({ page, onClose }) {
   const s = slides[i];
   return (
     <div className="presentation" ref={ref}
-         onClick={() => setI((v) => Math.min(v + 1, slides.length - 1))}>
+         onClick={(e) => {
+           // 펼치기·링크 등 본문 안의 인터랙션은 슬라이드 넘김으로 취급하지 않는다
+           if (e.target.closest('summary, details, a, button')) return;
+           setI((v) => Math.min(v + 1, slides.length - 1));
+         }}>
       {s.titleSlide ? (
         <div className="pres-title-slide">
           <h1>{page.title}</h1>

@@ -38,6 +38,17 @@ export function makeSlashItems({ openImageDialog }) {
       type: 'date', attrs: { date: new Date().toISOString().slice(0, 10) } }).run() },
     { label: '상태', kw: 'status lozenge', run: (e, r) => del(e, r).insertContent({
       type: 'status', attrs: { text: '진행 중', color: 'blue' } }).run() },
+    { label: '레이아웃 2단', kw: 'layout column 2단 다단', run: (e, r) => del(e, r).insertContent({
+      type: 'layout', content: [{ type: 'layoutSection', attrs: { kind: 'two_equal' },
+        content: [0, 1].map(() => ({ type: 'layoutColumn', content: [{ type: 'paragraph' }] })) }] }).run() },
+    { label: '레이아웃 3단', kw: 'layout column 3단 다단', run: (e, r) => del(e, r).insertContent({
+      type: 'layout', content: [{ type: 'layoutSection', attrs: { kind: 'three_equal' },
+        content: [0, 1, 2].map(() => ({ type: 'layoutColumn', content: [{ type: 'paragraph' }] })) }] }).run() },
+    { label: '링크', kw: 'link url', run: (e, r) => {
+      const url = window.prompt('링크 URL');
+      if (!url) { del(e, r).run(); return; }
+      del(e, r).insertContent([{ type: 'text', text: url, marks: [{ type: 'link', attrs: { href: url } }] }, { type: 'text', text: ' ' }]).run();
+    } },
   ];
 }
 

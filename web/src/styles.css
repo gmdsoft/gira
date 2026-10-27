@@ -41,7 +41,15 @@ body { margin: 0; }
 .tree-icon { margin-right: 4px; }
 
 /* 페이지 */
-.page { max-width: 860px; margin: 0 auto; padding: 40px 32px 80px; }
+/* Confluence 기본 레이아웃: 760px 고정 컬럼. 넓은 표·펼치기는 .breakout으로 중앙 돌출 */
+.page { max-width: 824px; margin: 0 auto; padding: 40px 32px 80px; }
+/* 돌출은 문서 최상위 블록에만 — 중첩(펼치기·스크롤 컨테이너 내부)에서 transform하면
+   보이지 않는 영역이 생기므로, 넓은 표를 품은 펼치기는 박스째 돌출시킨다 */
+.page:not(.page-full) .doc > .ProseMirror > .breakout {
+  width: min(var(--bw), calc(100vw - 380px));
+  margin-left: 50%;
+  transform: translateX(-50%);
+}
 .page-header h1 { font-size: 28px; margin: 0 0 8px; }
 .page-meta { display: flex; gap: 12px; color: var(--muted); font-size: 13px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
 .live-badge, .legacy-badge { font-size: 11px; border-radius: 3px; padding: 1px 6px; margin-right: 8px; vertical-align: middle; }
@@ -81,20 +89,31 @@ body { margin: 0; }
 .task-body p { margin: 0; }
 
 /* 패널 */
-.panel { border-radius: 6px; padding: 10px 14px; margin: 0.8em 0; background: #f0f6ff; border: 1px solid #cce0ff; }
+.panel { border-radius: 6px; padding: 7px 12px; margin: 0.6em 0; background: #f0f6ff; border: 1px solid #cce0ff; }
+.panel-body p { margin: 0.3em 0; }
 .panel-info { background: #e9f2ff; border-color: #cce0ff; }
 .panel-note { background: #f3f0ff; border-color: #dfd8fd; }
 .panel-tip, .panel-success { background: #effaf1; border-color: #bbe3c4; }
 .panel-warning { background: #fff7d6; border-color: #f5e489; }
 .panel-error { background: #ffefeb; border-color: #ffd5d2; }
 .panel-title { font-weight: 700; margin-bottom: 4px; }
-.panel-body > p:first-child { margin-top: 0; }
-.panel-body > p:last-child { margin-bottom: 0; }
+.panel-body > :first-child { margin-top: 0; }
+.panel-body > :last-child { margin-bottom: 0; }
+.panel-body h1, .panel-body h2, .panel-body h3, .panel-body h4 { margin: 0.3em 0; }
 
-/* 펼치기 */
-.expand { border: 1px solid var(--border); border-radius: 6px; margin: 0.8em 0; }
-.expand summary { padding: 8px 12px; cursor: pointer; font-weight: 600; }
-.expand-body { padding: 0 12px 8px; }
+/* 펼치기 — Confluence처럼 접힘: 테두리 없음 / 펼침: 전체 박스 테두리 */
+.expand { margin: 0.4em 0; }
+.expand summary { padding: 4px 8px; cursor: pointer; border-radius: 4px; }
+.expand summary:hover { background: var(--bg-subtle); }
+.expand-body { padding: 0 12px 4px 24px; }
+details.expand[open] { border: 1px solid var(--border); border-radius: 8px; padding: 6px 4px 10px; }
+
+/* 펼치기 편집 NodeView */
+.expand-edit { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px 8px; margin: 0.6em 0; }
+.expand-edit-head { display: flex; gap: 4px; align-items: center; }
+.expand-caret { border: none; background: none; cursor: pointer; font-size: 14px; padding: 2px 6px; color: var(--muted); }
+.expand-title-input { flex: 1; border: none; outline: none; font: inherit; font-weight: 600; padding: 4px; background: transparent; }
+.expand-edit .expand-body { padding: 0 4px 0 24px; overflow-x: auto; }
 
 /* 레이아웃(다단) */
 .layout-section { display: flex; gap: 24px; }
@@ -406,3 +425,28 @@ span.cf-macro-slot { display: inline; margin: 0; }
 
 /* 직접 구현 버블 메뉴 (tippy 미사용) */
 .bubble-floating { position: fixed; transform: translateX(-50%); z-index: 70; }
+
+
+/* 로그인·사용자 표시 */
+.sidebar-user { margin-top: auto; padding: 8px; display: flex; align-items: center; gap: 8px; font-size: 13px; border-top: 1px solid var(--border); }
+.sidebar { display: flex; flex-direction: column; }
+.home-user { text-align: right; }
+.login-list { max-height: 60vh; overflow-y: auto; }
+.btn-xs { font-size: 12px; padding: 2px 8px; }
+
+/* 툴바 팝업: 텍스트 색상 팔레트, 표 그리드 선택기 (editor-spec.md) */
+.tb-color-wrap, .tb-table-wrap { position: relative; display: inline-block; }
+.tb-color-a { border-bottom: 3px solid #172b4d; font-weight: 700; padding: 0 1px; }
+.tb-pop { position: absolute; top: 100%; left: 0; z-index: 60; background: #fff; border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 4px 14px rgba(9,30,66,0.2); padding: 8px; }
+.tb-palette { display: flex; gap: 6px; }
+.tb-swatch { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; }
+.tb-swatch-none { background: #fff; color: var(--muted); font-size: 12px; line-height: 1; }
+.tb-grid { display: flex; flex-direction: column; gap: 3px; }
+.tb-grid-row { display: flex; gap: 3px; }
+.tb-cell { width: 18px; height: 14px; border: 1px solid var(--border); border-radius: 2px; background: #fff; cursor: pointer; padding: 0; }
+.tb-cell.on { background: #cce0ff; border-color: var(--accent); }
+.tb-grid-label { text-align: center; font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+/* 서제스천 항목 설명 (멘션 이메일 등) */
+.slash-desc { margin-left: 8px; color: var(--muted); font-size: 12px; }

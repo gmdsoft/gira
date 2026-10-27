@@ -154,9 +154,12 @@ export function convertStorage(xhtml) {
     const params = macroParams(n);
     const rich = childEl(n, 'ac:rich-text-body');
     switch (name) {
-      case 'code': case 'noformat':
+      case 'code': case 'noformat': {
+        // ProseMirror는 빈 텍스트 노드를 허용하지 않는다 — 빈 코드 블록은 content 생략
+        const code = (plainBody(n) ?? '').replace(/\r\n/g, '\n');
         return { type: 'codeBlock', attrs: { language: params.language ?? null },
-          content: [{ type: 'text', text: (plainBody(n) ?? '').replace(/\r\n/g, '\n') }] };
+          ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
+      }
       case 'info': case 'note': case 'tip': case 'warning': case 'panel':
         return { type: 'panel', attrs: { panelType: PANEL_TYPES[name], title: params.title ?? null, bgColor: params.bgColor ?? null },
           content: ensureBlocks(rich ? blocks(rich.children) : []) };
@@ -304,9 +307,11 @@ export function convertStorage(xhtml) {
         case 'blockquote':
           items.push({ node: { type: 'blockquote', content: ensureBlocks(blocks(n.children)) } });
           break;
-        case 'pre':
-          items.push({ node: { type: 'codeBlock', attrs: { language: null }, content: [{ type: 'text', text: textOf(n) }] } });
+        case 'pre': {
+          const pre = textOf(n);
+          items.push({ node: { type: 'codeBlock', attrs: { language: null }, ...(pre ? { content: [{ type: 'text', text: pre }] } : {}) } });
           break;
+        }
         case 'hr':
           items.push({ node: { type: 'horizontalRule' } });
           break;
