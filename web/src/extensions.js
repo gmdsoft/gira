@@ -493,54 +493,67 @@ export const TrailingNode = Extension.create({
   },
 });
 
-// 패널/펼치기/인용/레이아웃 컬럼 등 컨테이너 안의 "빈 마지막 문단"에서 Enter를 치면
-// 블록을 넓히는 대신 블록 밖으로 빠져나가 그 아래에 새 문단을 만든다.
-export const ExitContainerOnEnter = Extension.create({
-  name: 'exitContainerOnEnter',
+// 블록 핸들로 통째 선택하거나, 그 아래에서 Backspace로 삭제할 수 있는 "블록" 종류.
+const SELECTABLE_BLOCKS = new Set([
+  'panel', 'expand', 'table', 'blockquote', 'codeBlock',
+  'layout', 'jiraTable', 'cfMacro', 'adfNode', 'horizontalRule', 'mermaid',
+]);
+
+// 블록 바로 아래 문단의 맨 앞에서 Backspace:
+//  - 빈 문단이면 앞 블록을 바로 삭제
+//  - 내용이 있으면 앞 블록을 선택(한 번 더 누르면 삭제) — 문단을 블록 안으로 합치지 않는다
+// (기본 동작은 문단을 패널 등 안으로 끌어들여 "안으로 들어간" 것처럼 보였다)
+export const BlockBackspace = Extension.create({
+  name: 'blockBackspace',
   priority: 1000,
   addKeyboardShortcuts() {
-    const EXITABLE = new Set(['panel', 'expand', 'layoutColumn', 'blockquote']);
+    // 선택된 블록(NodeSelection) 삭제 시, 그게 컨테이너의 유일한 자식이면 컨테이너를
+    // 지우지 말고 빈 문단으로 교체한다 (펼치기 안 유일 패널을 지우면 펼치기까지 사라지던 문제).
+    const deleteSelectedBlock = () => {
+      const { state, view } = this.editor;
+      const sel = state.selection;
+      if (!(sel instanceof NodeSelection)) return false;
+      if (sel.$from.parent.childCount !== 1) return false; // 형제가 있으면 기본 삭제로 충분
+      const tr = state.tr.replaceRangeWith(sel.from, sel.to, state.schema.nodes.paragraph.create());
+      tr.setSelection(TextSelection.create(tr.doc, sel.from + 1)).scrollIntoView();
+      view.dispatch(tr);
+      return true;
+    };
+    const backspaceAtBlockStart = () => {
+      const { state, view } = this.editor;
+      const { selection } = state;
+      if (!selection.empty) return false;
+      const { $from } = selection;
+      if ($from.parentOffset !== 0 || !$from.parent.isTextblock) return false;
+      const d = $from.depth;
+      const index = $from.index(d - 1);
+      if (index === 0) return false;
+      const before = $from.node(d - 1).child(index - 1);
+      if (!SELECTABLE_BLOCKS.has(before.type.name)) return false;
+      const beforePos = $from.before(d) - before.nodeSize;
+      if ($from.parent.content.size === 0) {
+        view.dispatch(state.tr.delete(beforePos, beforePos + before.nodeSize).scrollIntoView());
+      } else {
+        view.dispatch(state.tr.setSelection(NodeSelection.create(state.doc, beforePos)).scrollIntoView());
+      }
+      return true;
+    };
     return {
-      Enter: () => {
-        const { state, view } = this.editor;
-        const { selection } = state;
-        if (!selection.empty) return false;
-        const { $from } = selection;
-        const para = $from.parent;
-        if (para.type.name !== 'paragraph' || para.content.size !== 0) return false;
-        if ($from.depth < 2) return false;
-        const cDepth = $from.depth - 1;
-        const container = $from.node(cDepth);
-        if (!EXITABLE.has(container.type.name)) return false;
-        if ($from.index(cDepth) !== container.childCount - 1) return false;
-        // 레이아웃 컬럼은 컬럼이 아니라 레이아웃 전체 밖으로 나가야 한다
-        const exitDepth = container.type.name === 'layoutColumn' ? cDepth - 2 : cDepth;
-        if (exitDepth < 1) return false;
-
-        let tr = state.tr;
-        if (container.childCount > 1) {
-          const from = $from.before();
-          tr = tr.delete(from, from + para.nodeSize);
-        }
-        const at = tr.mapping.map($from.after(exitDepth));
-        tr = tr.insert(at, state.schema.nodes.paragraph.create());
-        tr = tr.setSelection(TextSelection.create(tr.doc, at + 1)).scrollIntoView();
-        view.dispatch(tr);
-        return true;
-      },
+      Backspace: () => deleteSelectedBlock() || backspaceAtBlockStart(),
+      Delete: () => deleteSelectedBlock(),
     };
   },
 });
 
-// 최상위 블록 위에 마우스를 올리면 왼쪽에 핸들(⣿)이 뜨고, 누르면 그 블록을
-// 통째로 선택(NodeSelection)한다 → Delete로 삭제, Ctrl+C/V로 복사·붙여넣기.
+// 블록 위에 마우스를 올리면 왼쪽에 핸들(⣿)이 뜨고, 누르면 그 블록을 통째로
+// 선택(NodeSelection)한다 → Delete로 삭제, Ctrl+C/V로 복사·붙여넣기.
+// 중첩된 경우(펼치기 안 패널 등)엔 포인터 아래의 가장 안쪽 "블록"을 겨냥한다.
 export const BlockHandle = Extension.create({
   name: 'blockHandle',
   addProseMirrorPlugins() {
     const key = new PluginKey('blockHandle');
     let handle = null;
     let hoverPos = null;
-    let overHandle = false;
     const hide = () => { if (handle) handle.style.display = 'none'; hoverPos = null; };
     return [new Plugin({
       key,
@@ -552,8 +565,6 @@ export const BlockHandle = Extension.create({
         handle.textContent = '⣿';
         handle.style.display = 'none';
         document.body.appendChild(handle);
-        handle.addEventListener('mouseenter', () => { overHandle = true; });
-        handle.addEventListener('mouseleave', () => { overHandle = false; });
         handle.addEventListener('mousedown', (e) => {
           e.preventDefault();
           if (hoverPos == null) return;
@@ -561,28 +572,38 @@ export const BlockHandle = Extension.create({
           editorView.dispatch(editorView.state.tr.setSelection(sel).scrollIntoView());
           editorView.focus();
         });
-        return { destroy() { handle?.remove(); handle = null; } };
+        // 핸들로 마우스를 옮기는 도중 사라지지 않도록: 에디터 위이거나 핸들 근처면 유지.
+        const onDocMove = (e) => {
+          if (!handle || handle.style.display === 'none') return;
+          if (handle.contains(e.target) || editorView.dom.contains(e.target)) return;
+          const r = handle.getBoundingClientRect();
+          const near = e.clientX >= r.left - 48 && e.clientX <= r.right + 16
+            && e.clientY >= r.top - 20 && e.clientY <= r.bottom + 20;
+          if (!near) hide();
+        };
+        document.addEventListener('mousemove', onDocMove);
+        return { destroy() { document.removeEventListener('mousemove', onDocMove); handle?.remove(); handle = null; } };
       },
       props: {
         handleDOMEvents: {
           mousemove(view, event) {
-            if (overHandle) return false;
             const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
             if (!at) return false;
-            const $pos = view.state.doc.resolve(at.inside >= 0 ? at.inside : at.pos);
+            const $pos = view.state.doc.resolve(at.pos);
             if ($pos.depth < 1) { hide(); return false; }
-            const topPos = $pos.before(1);
-            const dom = view.nodeDOM(topPos);
+            // 포인터 아래 가장 안쪽의 선택 가능한 블록, 없으면 최상위 블록
+            let targetDepth = 1;
+            for (let depth = $pos.depth; depth >= 1; depth--) {
+              if (SELECTABLE_BLOCKS.has($pos.node(depth).type.name)) { targetDepth = depth; break; }
+            }
+            const blockPos = $pos.before(targetDepth);
+            const dom = view.nodeDOM(blockPos);
             if (!dom || dom.nodeType !== 1) return false;
             const rect = dom.getBoundingClientRect();
-            hoverPos = topPos;
+            hoverPos = blockPos;
             handle.style.display = 'flex';
             handle.style.top = `${rect.top + 2}px`;
             handle.style.left = `${rect.left - 22}px`;
-            return false;
-          },
-          mouseleave() {
-            setTimeout(() => { if (!overHandle) hide(); }, 120);
             return false;
           },
         },
@@ -607,5 +628,5 @@ export const extensions = [StarterKit.configure({ history: false }), ...custom];
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
   StarterKit, ...custom,
-  ConfluenceShortcuts, ExitContainerOnEnter, TrailingNode, BlockHandle,
+  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle,
 ];
