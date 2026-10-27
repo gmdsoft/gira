@@ -49,11 +49,12 @@ function attInfo(ctx, params) {
   return { filename, meta, url: `/api/att/${ctx.page.id}/${encodeURIComponent(filename)}` };
 }
 
-function fileCard(info) {
+function fileCard(info, { open = false } = {}) {
   const a = document.createElement('a');
   a.className = 'file-card';
   a.href = info.url;
-  a.download = info.filename;
+  if (open) { a.target = '_blank'; a.rel = 'noreferrer'; a.title = '새 탭에서 열기'; }
+  else { a.download = info.filename; }
   const ext = info.filename.split('.').pop()?.toLowerCase() ?? '';
   const icon = { pdf: '📕', doc: '📘', docx: '📘', xls: '📗', xlsx: '📗', ppt: '📙', pptx: '📙', zip: '🗜', hwp: '📄' }[ext] ?? '📎';
   a.innerHTML = `<span class="file-card-icon"></span><span class="file-card-name"></span><span class="file-card-size muted"></span>`;
@@ -140,29 +141,12 @@ const HANDLERS = {
     }
   },
 
-  // PDF는 기본 파일 카드, '미리보기' 버튼을 눌렀을 때만 펼친다 (페이지 로드를 가볍게)
+  // PDF는 파일 카드로만 두고, 누르면 새 탭에서 브라우저 내장 뷰어로 연다.
+  // (좁은 표 셀 안에 인라인 iframe/버튼을 두면 레이아웃이 깨져 미리보기가 겹쳐 보였다)
   viewpdf(el, params, ctx) {
     const info = attInfo(ctx, params);
     if (!info) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'macro-pdf';
-    const row = document.createElement('div');
-    row.className = 'macro-pdf-row';
-    const btn = document.createElement('button');
-    btn.className = 'btn-xs';
-    btn.textContent = '미리보기';
-    let frame = null;
-    btn.addEventListener('click', () => {
-      if (frame) { frame.remove(); frame = null; btn.textContent = '미리보기'; return; }
-      frame = document.createElement('iframe');
-      frame.src = info.url;
-      frame.style.height = `${Number(params.height) || 560}px`;
-      wrap.append(frame);
-      btn.textContent = '미리보기 닫기';
-    });
-    row.append(fileCard(info), btn);
-    wrap.append(row);
-    swap(el, wrap);
+    swap(el, fileCard(info, { open: true }));
   },
 
   viewdoc(el, params, ctx) { const i = attInfo(ctx, params); if (i) swap(el, fileCard(i)); },

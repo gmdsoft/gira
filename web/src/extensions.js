@@ -2,6 +2,7 @@
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
+import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
@@ -468,6 +469,128 @@ export const ConfluenceShortcuts = Extension.create({
   },
 });
 
+// 문서 끝 블록(표·패널·펼치기·레이아웃·코드블록·제목 등) 아래에 항상 빈 문단을 둬서
+// 마지막 블록 밑으로 커서를 내릴 수 있게 한다 (Confluence도 본문 끝에 빈 줄 유지).
+function needsTrailing(doc) {
+  const last = doc.lastChild;
+  return !!last && last.type.name !== 'paragraph';
+}
+export const TrailingNode = Extension.create({
+  name: 'trailingNode',
+  addProseMirrorPlugins() {
+    const key = new PluginKey('trailingNode');
+    return [new Plugin({
+      key,
+      appendTransaction: (_tr, _old, state) => {
+        if (!key.getState(state)) return null;
+        return state.tr.insert(state.doc.content.size, state.schema.nodes.paragraph.create());
+      },
+      state: {
+        init: (_, state) => needsTrailing(state.doc),
+        apply: (tr, value) => (tr.docChanged ? needsTrailing(tr.doc) : value),
+      },
+    })];
+  },
+});
+
+// 패널/펼치기/인용/레이아웃 컬럼 등 컨테이너 안의 "빈 마지막 문단"에서 Enter를 치면
+// 블록을 넓히는 대신 블록 밖으로 빠져나가 그 아래에 새 문단을 만든다.
+export const ExitContainerOnEnter = Extension.create({
+  name: 'exitContainerOnEnter',
+  priority: 1000,
+  addKeyboardShortcuts() {
+    const EXITABLE = new Set(['panel', 'expand', 'layoutColumn', 'blockquote']);
+    return {
+      Enter: () => {
+        const { state, view } = this.editor;
+        const { selection } = state;
+        if (!selection.empty) return false;
+        const { $from } = selection;
+        const para = $from.parent;
+        if (para.type.name !== 'paragraph' || para.content.size !== 0) return false;
+        if ($from.depth < 2) return false;
+        const cDepth = $from.depth - 1;
+        const container = $from.node(cDepth);
+        if (!EXITABLE.has(container.type.name)) return false;
+        if ($from.index(cDepth) !== container.childCount - 1) return false;
+        // 레이아웃 컬럼은 컬럼이 아니라 레이아웃 전체 밖으로 나가야 한다
+        const exitDepth = container.type.name === 'layoutColumn' ? cDepth - 2 : cDepth;
+        if (exitDepth < 1) return false;
+
+        let tr = state.tr;
+        if (container.childCount > 1) {
+          const from = $from.before();
+          tr = tr.delete(from, from + para.nodeSize);
+        }
+        const at = tr.mapping.map($from.after(exitDepth));
+        tr = tr.insert(at, state.schema.nodes.paragraph.create());
+        tr = tr.setSelection(TextSelection.create(tr.doc, at + 1)).scrollIntoView();
+        view.dispatch(tr);
+        return true;
+      },
+    };
+  },
+});
+
+// 최상위 블록 위에 마우스를 올리면 왼쪽에 핸들(⣿)이 뜨고, 누르면 그 블록을
+// 통째로 선택(NodeSelection)한다 → Delete로 삭제, Ctrl+C/V로 복사·붙여넣기.
+export const BlockHandle = Extension.create({
+  name: 'blockHandle',
+  addProseMirrorPlugins() {
+    const key = new PluginKey('blockHandle');
+    let handle = null;
+    let hoverPos = null;
+    let overHandle = false;
+    const hide = () => { if (handle) handle.style.display = 'none'; hoverPos = null; };
+    return [new Plugin({
+      key,
+      view(editorView) {
+        handle = document.createElement('div');
+        handle.className = 'block-handle';
+        handle.setAttribute('contenteditable', 'false');
+        handle.title = '블록 선택 (삭제: Delete, 복사: Ctrl+C)';
+        handle.textContent = '⣿';
+        handle.style.display = 'none';
+        document.body.appendChild(handle);
+        handle.addEventListener('mouseenter', () => { overHandle = true; });
+        handle.addEventListener('mouseleave', () => { overHandle = false; });
+        handle.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          if (hoverPos == null) return;
+          const sel = NodeSelection.create(editorView.state.doc, hoverPos);
+          editorView.dispatch(editorView.state.tr.setSelection(sel).scrollIntoView());
+          editorView.focus();
+        });
+        return { destroy() { handle?.remove(); handle = null; } };
+      },
+      props: {
+        handleDOMEvents: {
+          mousemove(view, event) {
+            if (overHandle) return false;
+            const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
+            if (!at) return false;
+            const $pos = view.state.doc.resolve(at.inside >= 0 ? at.inside : at.pos);
+            if ($pos.depth < 1) { hide(); return false; }
+            const topPos = $pos.before(1);
+            const dom = view.nodeDOM(topPos);
+            if (!dom || dom.nodeType !== 1) return false;
+            const rect = dom.getBoundingClientRect();
+            hoverPos = topPos;
+            handle.style.display = 'flex';
+            handle.style.top = `${rect.top + 2}px`;
+            handle.style.left = `${rect.left - 22}px`;
+            return false;
+          },
+          mouseleave() {
+            setTimeout(() => { if (!overHandle) hide(); }, 120);
+            return false;
+          },
+        },
+      },
+    })];
+  },
+});
+
 const custom = [
   Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
@@ -482,4 +605,7 @@ const custom = [
 export const extensions = [StarterKit.configure({ history: false }), ...custom];
 
 // 편집기 용 (undo/redo 포함)
-export const editExtensions = [StarterKit, ...custom, ConfluenceShortcuts];
+export const editExtensions = [
+  StarterKit, ...custom,
+  ConfluenceShortcuts, ExitContainerOnEnter, TrailingNode, BlockHandle,
+];
