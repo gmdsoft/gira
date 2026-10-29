@@ -8,6 +8,7 @@ import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
 import TableCellExt from '@tiptap/extension-table-cell';
 import TableHeaderExt from '@tiptap/extension-table-header';
+import { updateColumnsOnResize } from 'prosemirror-tables';
 
 // ---------- 마크 ----------
 
@@ -47,16 +48,76 @@ const CommentMark = Mark.create({
 // Confluence 고정 폭 컬럼(760px)보다 넓은 블록은 컬럼 밖으로 "돌출(breakout)"시켜 중앙 정렬한다
 const COLUMN_WIDTH = 760;
 
-// 표의 렌더링 폭(px). Confluence는 px 열 너비 합이 tableWidth보다 크면 열 합을 따른다
-// (tableWidth=760은 기본값 표식으로 남는 경우가 있어 열 합이 실제 폭).
-function tableRenderWidth(attrs) {
-  const cols = attrs.colwidths;
+// 첫 행 셀들의 colwidth(px)를 열 순서대로 편 배열. 하나도 없으면 null.
+// (열 리사이즈가 쓰는 표준 prosemirror-tables 모델 — 보기/저장의 1차 소스)
+function cellColwidthsPx(node) {
+  const row = node.firstChild;
+  if (!row) return null;
+  const out = [];
+  let any = false;
+  for (let i = 0; i < row.childCount; i += 1) {
+    const cell = row.child(i);
+    const cw = cell.attrs?.colwidth;
+    const span = cell.attrs?.colspan || 1;
+    for (let j = 0; j < span; j += 1) {
+      const w = cw && cw[j] ? Number(cw[j]) : null;
+      if (w) any = true;
+      out.push(w);
+    }
+  }
+  return any ? out : null;
+}
+
+// 표의 렌더링 폭(px). 셀 colwidth(px)가 있으면 그 합, 없으면 레거시 표 수준 colwidths/tableWidth.
+function tableRenderWidth(node) {
+  const cellPx = cellColwidthsPx(node);
+  if (cellPx) {
+    const sum = cellPx.reduce((a, w) => a + (w || 0), 0);
+    return sum || null;
+  }
+  const cols = node.attrs.colwidths;
   let sum = 0;
   if (cols?.length && cols.some((w) => w) && !cols.some((w) => w?.endsWith?.('%'))) {
     sum = cols.reduce((a, w) => a + (w ? parseFloat(w) : 0), 0);
   }
-  const width = Math.max(attrs.tableWidth ?? 0, sum);
+  const width = Math.max(node.attrs.tableWidth ?? 0, sum);
   return width || null;
+}
+
+// 돌출(.table-wrap breakout)을 유지하면서 열 리사이즈를 지원하는 커스텀 TableView.
+// prosemirror-tables columnResizing이 (node, defaultCellMinWidth, view)로 생성한다.
+class CfTableView {
+  constructor(node, cellMinWidth) {
+    this.node = node;
+    this.cellMinWidth = cellMinWidth;
+    this.dom = document.createElement('div');
+    this.dom.className = 'table-wrap';
+    this.table = this.dom.appendChild(document.createElement('table'));
+    this.colgroup = this.table.appendChild(document.createElement('colgroup'));
+    updateColumnsOnResize(node, this.colgroup, this.table, cellMinWidth);
+    this.contentDOM = this.table.appendChild(document.createElement('tbody'));
+    this.applyBreakout();
+  }
+  update(node) {
+    if (node.type !== this.node.type) return false;
+    this.node = node;
+    updateColumnsOnResize(node, this.colgroup, this.table, this.cellMinWidth);
+    this.applyBreakout();
+    return true;
+  }
+  applyBreakout() {
+    const w = tableRenderWidth(this.node) ?? 0;
+    if (w > COLUMN_WIDTH) {
+      this.dom.classList.add('breakout');
+      this.dom.style.setProperty('--bw', `${Math.round(w)}px`);
+    } else {
+      this.dom.classList.remove('breakout');
+      this.dom.style.removeProperty('--bw');
+    }
+  }
+  ignoreMutation(m) {
+    return m.type === 'attributes' && (m.target === this.table || this.colgroup.contains(m.target));
+  }
 }
 
 // 공식 표 확장 + Confluence 폭 속성(표 전체 폭 px, 레이아웃, colgroup 열 너비) 보존·렌더링
@@ -73,7 +134,10 @@ const Table = TableExt.extend({
     // Confluence와 동일한 동작: 공간이 있으면 지정 폭으로, 좁으면 스크롤 없이
     // 열 비율을 유지한 채 축소. px 열 너비는 합계 대비 %로 환산해야 축소가 된다
     // (table-layout: fixed에서 px 열의 합계는 표 폭의 하한이 되기 때문).
-    const { tableWidth, colwidths } = node.attrs;
+    // 셀 colwidth(리사이즈 결과)가 있으면 그것이 1차 소스, 없으면 레거시 표 수준 colwidths.
+    const cellPx = cellColwidthsPx(node);
+    const colwidths = cellPx ? cellPx.map((w) => (w ? `${w}px` : null)) : node.attrs.colwidths;
+    const tableWidth = cellPx ? cellPx.reduce((a, w) => a + (w || 0), 0) : node.attrs.tableWidth;
     let cols = colwidths?.some((w) => w) ? colwidths : null;
     let width = tableWidth;
     if (cols && !cols.some((w) => w?.endsWith?.('%'))) {
@@ -104,7 +168,7 @@ const Table = TableExt.extend({
     if (width > COLUMN_WIDTH) { wrap.class += ' breakout'; wrap.style = `--bw: ${Math.round(width)}px`; }
     return ['div', wrap, table];
   },
-}).configure({ resizable: false });
+}).configure({ resizable: true, View: CfTableView, cellMinWidth: 48, lastColumnResizable: true });
 const TableRow = TableRowExt;
 const TableHeader = TableHeaderExt;
 const TableCell = TableCellExt;
@@ -163,7 +227,7 @@ const Panel = Node.create({
 // 내부에 컬럼보다 넓은 표가 있으면 펼치기 박스째 돌출시킨다 (Confluence 동일)
 function expandViewAttrs(node) {
   let bw = 0;
-  node.descendants((n) => { if (n.type.name === 'table') bw = Math.max(bw, tableRenderWidth(n.attrs) ?? 0); });
+  node.descendants((n) => { if (n.type.name === 'table') bw = Math.max(bw, tableRenderWidth(n) ?? 0); });
   const attrs = { class: 'expand' };
   if (bw > COLUMN_WIDTH) { attrs.class += ' breakout'; attrs.style = `--bw: ${Math.round(bw) + 26}px`; }
   return attrs;

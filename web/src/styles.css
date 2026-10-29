@@ -77,6 +77,15 @@ body { margin: 0; }
 /* 표 */
 .table-wrap { overflow-x: auto; margin: 0.8em 0; }
 .doc table { border-collapse: collapse; width: 100%; }
+
+/* 열 리사이즈 (편집기) — prosemirror-tables columnResizing */
+.editor-body .ProseMirror td, .editor-body .ProseMirror th { position: relative; }
+.editor-body .ProseMirror .column-resize-handle {
+  position: absolute; right: -2px; top: 0; bottom: -1px; width: 4px;
+  background: var(--accent); pointer-events: none; z-index: 20;
+}
+.editor-body .ProseMirror.resize-cursor { cursor: col-resize; }
+.editor-body .ProseMirror .selectedCell { background: rgba(38, 132, 255, 0.12); }
 .doc th, .doc td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; }
 .doc th { background: var(--bg-subtle); font-weight: 600; }
 .doc th p, .doc td p { margin: 0.2em 0; }
