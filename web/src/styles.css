@@ -86,6 +86,13 @@ body { margin: 0; }
 }
 .editor-body .ProseMirror.resize-cursor { cursor: col-resize; }
 .editor-body .ProseMirror .selectedCell { background: rgba(38, 132, 255, 0.12); }
+
+/* 행 높이 조절 핸들 (편집기) */
+.row-resize-handle {
+  position: fixed; height: 4px; z-index: 50;
+  background: var(--accent); cursor: row-resize; opacity: 0.8;
+}
+body.row-resizing { cursor: row-resize; user-select: none; }
 .doc th, .doc td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; }
 .doc th { background: var(--bg-subtle); font-weight: 600; }
 .doc th p, .doc td p { margin: 0.2em 0; }

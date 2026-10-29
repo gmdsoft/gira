@@ -169,7 +169,21 @@ const Table = TableExt.extend({
     return ['div', wrap, table];
   },
 }).configure({ resizable: true, View: CfTableView, cellMinWidth: 48, lastColumnResizable: true });
-const TableRow = TableRowExt;
+// 행 높이(세로) 조절용 속성. <tr> height는 실질적으로 최소 높이로 동작한다.
+const TableRow = TableRowExt.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      rowHeight: {
+        default: null,
+        parseHTML: (el) => parseInt(el.style?.height || el.getAttribute('data-row-height') || '', 10) || null,
+        renderHTML: (attrs) => (attrs.rowHeight
+          ? { style: `height: ${attrs.rowHeight}px`, 'data-row-height': attrs.rowHeight }
+          : {}),
+      },
+    };
+  },
+});
 const TableHeader = TableHeaderExt;
 const TableCell = TableCellExt;
 
@@ -709,6 +723,103 @@ export const BlockHandle = Extension.create({
   },
 });
 
+// 표 행 높이(세로) 조절: 행의 아래 경계에 마우스를 대면 가로 핸들이 뜨고, 드래그로 rowHeight를 바꾼다.
+// prosemirror-tables에 행 리사이즈는 없어 직접 구현한다 (열은 columnResizing이 담당).
+export const RowResize = Extension.create({
+  name: 'rowResize',
+  addProseMirrorPlugins() {
+    const key = new PluginKey('rowResize');
+    const MIN = 24;
+    let handle = null;
+    let hoverTr = null;
+    let drag = null;
+    const hide = () => { if (handle && !drag) { handle.style.display = 'none'; hoverTr = null; } };
+    const rowPosFromDom = (view, trEl) => {
+      const pos = view.posAtDOM(trEl, 0);
+      const $p = view.state.doc.resolve(pos);
+      for (let d = $p.depth; d > 0; d -= 1) if ($p.node(d).type.name === 'tableRow') return $p.before(d);
+      return null;
+    };
+    return [new Plugin({
+      key,
+      view(view) {
+        handle = document.createElement('div');
+        handle.className = 'row-resize-handle';
+        handle.style.display = 'none';
+        document.body.appendChild(handle);
+
+        const commit = (h, addHist) => {
+          const node = view.state.doc.nodeAt(drag.rowPos);
+          if (!node) return;
+          let t = view.state.tr.setNodeMarkup(drag.rowPos, null, { ...node.attrs, rowHeight: Math.round(h) });
+          if (!addHist) t = t.setMeta('addToHistory', false);
+          view.dispatch(t);
+        };
+        const onMove = (e) => {
+          if (!drag) return;
+          const h = Math.max(MIN, drag.startH + (e.clientY - drag.startY));
+          const rect = drag.trEl.getBoundingClientRect();
+          handle.style.top = `${rect.bottom - 2}px`;
+          if (drag.raf) cancelAnimationFrame(drag.raf);
+          drag.raf = requestAnimationFrame(() => commit(h, false));
+        };
+        const onUp = (e) => {
+          const h = Math.max(MIN, drag.startH + (e.clientY - drag.startY));
+          if (drag.raf) cancelAnimationFrame(drag.raf);
+          commit(drag.startH, false); // 일단 시작값으로 되돌린 뒤
+          commit(h, true);            // 한 번의 undo 스텝으로 최종값 적용
+          document.removeEventListener('mousemove', onMove, true);
+          document.removeEventListener('mouseup', onUp, true);
+          document.body.classList.remove('row-resizing');
+          drag = null;
+          hide();
+        };
+        handle.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          if (!hoverTr) return;
+          const rowPos = rowPosFromDom(view, hoverTr);
+          if (rowPos == null) return;
+          drag = { rowPos, startY: e.clientY, startH: hoverTr.getBoundingClientRect().height, trEl: hoverTr, raf: 0 };
+          document.addEventListener('mousemove', onMove, true);
+          document.addEventListener('mouseup', onUp, true);
+          document.body.classList.add('row-resizing');
+        });
+        return { destroy() { handle?.remove(); handle = null; } };
+      },
+      props: {
+        handleDOMEvents: {
+          mousemove(view, event) {
+            if (drag) return false;
+            const el = event.target?.closest?.('tr');
+            if (!el || !view.dom.contains(el)) { hide(); return false; }
+            const rect = el.getBoundingClientRect();
+            const inX = event.clientX >= rect.left && event.clientX <= rect.right;
+            // 경계는 두 행이 공유 — 아래 경계면 이 행, 윗 경계면 바로 위 행을 대상으로.
+            let target = null;
+            let edgeY = 0;
+            if (inX && Math.abs(event.clientY - rect.bottom) <= 6) { target = el; edgeY = rect.bottom; }
+            else if (inX && Math.abs(event.clientY - rect.top) <= 6) {
+              const prev = el.previousElementSibling;
+              if (prev && prev.tagName === 'TR') { target = prev; edgeY = rect.top; }
+            }
+            if (target) {
+              hoverTr = target;
+              const tr = target.getBoundingClientRect();
+              handle.style.display = 'block';
+              handle.style.top = `${edgeY - 2}px`;
+              handle.style.left = `${tr.left}px`;
+              handle.style.width = `${tr.width}px`;
+            } else {
+              hide();
+            }
+            return false;
+          },
+        },
+      },
+    })];
+  },
+});
+
 const custom = [
   Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
@@ -725,5 +836,5 @@ export const extensions = [StarterKit.configure({ history: false }), ...custom];
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
   StarterKit, ...custom,
-  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle,
+  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize,
 ];

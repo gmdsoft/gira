@@ -86,7 +86,9 @@ Jira 업무 항목—, 펼치기 ✓, 표 ✓, 코드 조각 ✓, 상태 ✓, �
 - **표 열 폭 조절** ✓: 열 경계를 드래그해 조절(prosemirror-tables columnResizing). 셀 `colwidth`(px)가
   보기/저장의 1차 소스이며, 레거시 표(표 수준 colwidths)는 편집기 로드 시 셀 colwidth로 하이드레이션한다.
   넓어지면 `.table-wrap`이 돌출(breakout)된다.
-- **표 행 높이** — 미지원(Confluence 동일): 행 높이는 내용에 따라 자동. 임의 드래그 조절 없음.
+- **표 행 높이 조절** ✓: 행 아래 경계를 드래그(커스텀 `RowResize`). `tableRow.rowHeight`(px)로 저장되고
+  `<tr>` 높이(최소 높이)로 적용. Confluence엔 없는 확장 기능.
+- **셀 병합/분할** ✓: 셀을 드래그로 선택 후 표 툴바의 "셀 병합"/"셀 분할"(prosemirror-tables mergeCells/splitCell).
 - **이미지 크기 변경** — (후속): 이미지 리사이즈 핸들.
 - **드래그 이동** — (후속): 핸들 드래그로 블록 순서 변경.
 

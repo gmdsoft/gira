@@ -426,6 +426,8 @@ function Toolbar({ editor, onImage }) {
           <B title="오른쪽에 열 추가" onClick={() => chain().addColumnAfter().run()}>+열</B>
           <B title="열 삭제" onClick={() => chain().deleteColumn().run()}>−열</B>
           <B title="헤더 행 토글" onClick={() => chain().toggleHeaderRow().run()}>헤더</B>
+          <B title="선택한 셀 병합" onClick={() => chain().mergeCells().run()}>셀 병합</B>
+          <B title="셀 분할" onClick={() => chain().splitCell().run()}>셀 분할</B>
           <B title="표 삭제" onClick={() => chain().deleteTable().run()}>표 삭제</B>
         </span>
       )}
