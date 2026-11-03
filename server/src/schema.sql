@@ -253,3 +253,31 @@ CREATE TABLE IF NOT EXISTS jira_issue_links (
   inward_issue bigint NOT NULL,  -- 링크 양끝이 이관 범위 밖일 수 있어 FK 없이 이슈 id만 저장
   outward_issue bigint NOT NULL
 );
+
+-- Jira PoC 쓰기 기능: 신규 이슈/댓글/첨부는 로컬 DB에만 생성 (원본 Jira Cloud는 읽기 전용 유지)
+CREATE SEQUENCE IF NOT EXISTS jira_issue_id_seq;
+CREATE SEQUENCE IF NOT EXISTS jira_comment_id_seq;
+CREATE SEQUENCE IF NOT EXISTS jira_attachment_id_seq;
+
+-- 스프린트: 이관 데이터에는 없고(클래식 프로젝트, 보드 미사용) 로컬에서만 만든다
+CREATE TABLE IF NOT EXISTS jira_sprints (
+  id bigserial PRIMARY KEY,
+  project_id bigint NOT NULL REFERENCES jira_projects(id),
+  name text NOT NULL,
+  goal text,
+  state text NOT NULL DEFAULT 'future' CHECK (state IN ('future','active','closed')),
+  start_at timestamptz,
+  end_at timestamptz
+);
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS sprint_id bigint REFERENCES jira_sprints(id);
+
+-- 로컬 업로드 첨부: source_url 대신 DATA_DIR 아래 파일 키
+ALTER TABLE jira_attachments ADD COLUMN IF NOT EXISTS local_key text;
+
+-- 저장된 필터 (사용자별)
+CREATE TABLE IF NOT EXISTS jira_filters (
+  id bigserial PRIMARY KEY,
+  owner_id bigint NOT NULL REFERENCES users(id),
+  name text NOT NULL,
+  params jsonb NOT NULL DEFAULT '{}'
+);
