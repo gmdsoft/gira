@@ -1,6 +1,7 @@
 // 뷰 4종: 목록(분할), 전체 목록(표), 보드(칸반), 백로그(스프린트)
 import React, { useEffect, useMemo, useState } from 'react';
 import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, PRIORITY_ORDER } from './util.jsx';
+import { TypeIcon } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
 
@@ -25,6 +26,7 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
         {rows.map((r) => (
           <div className={`row${r.issue_key === selKey ? ' sel' : ''}`} key={r.id} onClick={() => onOpen(r.issue_key)}>
             <div className="top">
+              <TypeIcon name={r.type_name} />
               <span className={`key${r.subtask ? ' sub' : ''}`}>{r.issue_key}</span>
               <span className="sum">{r.summary}</span>
             </div>
@@ -109,7 +111,7 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
           : <tr key={r.id}>
               <td><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></td>
               <td className="c-sum">{r.summary}</td>
-              <td>{r.type_name ?? ''}</td>
+              <td><TypeIcon name={r.type_name} /> {r.type_name ?? ''}</td>
               <td>{r.assignee_name ?? ''}</td>
               <td>{r.reporter_name ?? ''}</td>
               <td><Prio p={r.priority} /> {r.priority ?? ''}</td>
@@ -195,7 +197,10 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
                     <div className="sum">{r.summary}</div>
                     {(r.labels ?? []).length > 0 && <div className="labels">{r.labels.map((l) => <span className="chip" key={l}>{l}</span>)}</div>}
                     <div className="meta">
-                      <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span>
+                      <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+                        <TypeIcon name={r.type_name} />
+                        <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span>
+                      </span>
                       <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
                     </div>
                   </div>))}
@@ -248,6 +253,7 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
     <div className={`srow${child ? ' child' : ''}`}>
       <EpicBar r={r} />
       {twisty}
+      <TypeIcon name={r.type_name} />
       <span className={`key ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span>
       <span className="sum">{r.summary}</span>
       {(r.fix_versions ?? []).map((v) => <span className="chip" key={v}>{v}</span>)}

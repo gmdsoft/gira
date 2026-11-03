@@ -19,15 +19,10 @@ export async function api(path, opts = {}) {
 export const dt = (s) => s ? new Date(s).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '';
 export const fileSize = (n) => n == null ? '' : n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(0) + ' KB' : n + ' B';
 
-// 우선순위 아이콘 (Highest/High 빨강 ↑, Normal 주황 =, Low/Lowest 파랑 ↓)
-const PRIO = { Highest: ['⇈', '#d04437'], High: ['↑', '#d04437'], Normal: ['〓', '#f79232'],
-               Medium: ['〓', '#f79232'], Low: ['↓', '#0747a6'], Lowest: ['⇊', '#0747a6'] };
+// 우선순위 아이콘 (SVG — icons.jsx)
+import { PrioIcon } from './icons.jsx';
 export const PRIORITY_ORDER = { Highest: 0, High: 1, Normal: 2, Medium: 2, Low: 3, Lowest: 4 };
-export function Prio({ p }) {
-  if (!p) return null;
-  const [ch, color] = PRIO[p] ?? ['•', '#6b778c'];
-  return <span className="prio" style={{ color }} title={p}>{ch}</span>;
-}
+export function Prio({ p }) { return <PrioIcon p={p} />; }
 
 const PALETTE = ['#0052cc', '#00875a', '#ff8b00', '#de350b', '#5243aa', '#00a3bf', '#403294', '#e56910', '#216e4e', '#943d73'];
 export const hashColor = (s) => PALETTE[[...String(s ?? '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % PALETTE.length];

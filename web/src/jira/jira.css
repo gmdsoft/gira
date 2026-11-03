@@ -1,15 +1,31 @@
-/* Jira PoC SPA 스타일 (구 jira-viewer.html에서 이식) */
+/* Jira PoC SPA 스타일 — 디자인 토큰(ADS 근사, 자체 정의) */
 :root {
-  --bg: #f7f8fa; --panel: #fff; --line: #dfe1e6; --text: #172b4d; --dim: #6b778c;
-  --accent: #0052cc; --new: #dfe1e6; --doing: #deebff; --done: #e3fcef;
-  --new-t: #42526e; --doing-t: #0747a6; --done-t: #006644;
+  /* 표면·텍스트·테두리 */
+  --bg: #f7f8f9;                /* surface.sunken */
+  --panel: #ffffff;             /* surface */
+  --hover: #f1f2f4;             /* surface.hovered */
+  --line: #dcdfe4;              /* border */
+  --text: #172b4d;              /* text */
+  --dim: #626f86;               /* text.subtle */
+  /* 브랜드·의미 색 */
+  --accent: #0c66e4;            /* brand */
+  --accent-hover: #0055cc;
+  --selected: #e9f2ff;          /* background.selected */
+  --danger: #c9372c; --warning: #e56910; --success: #22a06b; --info: #1d7afc; --purple: #8270db;
+  /* 상태 롯지 (카테고리: 할일/진행/완료) */
+  --new: #dcdfe4;  --new-t: #44546f;
+  --doing: #cce0ff; --doing-t: #0055cc;
+  --done: #dcfff1;  --done-t: #216e4e;
+  /* 형태 */
+  --radius: 4px;
+  --shadow-card: 0 1px 1px rgba(9,30,66,.12), 0 0 1px rgba(9,30,66,.2);
 }
 * { box-sizing: border-box; }
 body { margin: 0; font: 14px/1.5 -apple-system, "Noto Sans KR", "Malgun Gothic", sans-serif; background: var(--bg); color: var(--text); }
-button { font: inherit; border: 1px solid var(--line); background: var(--panel); border-radius: 4px; padding: 5px 10px; cursor: pointer; }
-button:hover { background: #f4f5f7; }
-button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-button.primary:hover { background: #0747a6; }
+button { font: inherit; border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 5px 10px; cursor: pointer; color: var(--text); }
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.primary:hover { background: var(--accent-hover); }
 button.mini { font-size: 12px; padding: 2px 8px; }
 button.plain { border: none; background: none; padding: 0 2px; }
 select, input, textarea { padding: 5px 8px; border: 1px solid var(--line); border-radius: 4px; background: #fff; font: inherit; }
@@ -41,8 +57,8 @@ main { height: calc(100vh - 96px); }
 /* 목록 */
 #list { width: 440px; min-width: 300px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--panel); }
 .row { padding: 8px 12px; border-bottom: 1px solid #f0f1f3; cursor: pointer; }
-.row:hover { background: #f4f5f7; }
-.row.sel { background: #e6effc; }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--selected); }
 .row .top { display: flex; gap: 8px; align-items: baseline; }
 .row .key { color: var(--accent); font-size: 12px; white-space: nowrap; }
 .row .key.sub::before { content: "↳ "; color: var(--dim); }
@@ -54,7 +70,8 @@ main { height: calc(100vh - 96px); }
 section h3 { font-size: 14px; border-bottom: 1px solid var(--line); padding-bottom: 4px; margin: 22px 0 10px; }
 
 /* 공용 표시 */
-.prio { font-weight: 700; display: inline-block; min-width: 14px; text-align: center; }
+.ticon, .picon { vertical-align: -2px; flex: none; }
+.row .top .ticon { margin-top: 2px; }
 .av { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
       border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; vertical-align: middle; flex: none; }
 .chip { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px;
@@ -77,11 +94,18 @@ section h3 { font-size: 14px; border-bottom: 1px solid var(--line); padding-bott
 .dcard select { max-width: 100%; }
 .dtimes { padding: 8px 14px; border-top: 1px solid #f0f1f3; color: var(--dim); font-size: 12px; line-height: 1.7; }
 
+/* 주요 세부 정보 (본문 필드 그리드 — Jira처럼 하위 작업 위) */
+.fields2 { display: grid; grid-template-columns: 130px 1fr; gap: 0; margin: 0; font-size: 13px; max-width: 760px; }
+.fields2 dt { color: var(--dim); padding: 8px 0; }
+.fields2 dd { margin: 0; min-width: 0; padding: 5px 0; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.fieldrow { max-width: 760px; margin-top: 6px; }
+.flabel2 { color: var(--dim); font-size: 13px; font-weight: 600; margin: 10px 0 4px; }
+
 /* 하위 작업 패널 */
 .subpanel { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 .subpanel .phead { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
 .subpanel .pbar { flex: 1; height: 6px; background: #ebecf0; border-radius: 3px; overflow: hidden; }
-.subpanel .pbar > div { height: 100%; background: #36b37e; }
+.subpanel .pbar > div { height: 100%; background: var(--success); }
 .subpanel table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .subpanel th { text-align: left; font-size: 11px; color: var(--dim); padding: 4px 10px; border-top: 1px solid #f0f1f3; border-bottom: 1px solid #f0f1f3; background: #fafbfc; }
 .subpanel td { padding: 5px 10px; border-bottom: 1px solid #f7f8fa; }
@@ -127,7 +151,7 @@ section h3 { font-size: 14px; border-bottom: 1px solid var(--line); padding-bott
 .editor-box .ProseMirror .selectedCell { background: #deebff; }
 .etoolbar { display: flex; gap: 2px; flex-wrap: wrap; border: 1px solid var(--line); border-bottom: none; border-radius: 4px 4px 0 0; background: #fafbfc; padding: 4px 6px; }
 .etoolbar button { border: none; background: none; padding: 3px 8px; border-radius: 3px; font-size: 13px; }
-.etoolbar button:hover { background: #ebecf0; }
+.etoolbar button:hover { background: var(--hover); }
 .etoolbar .sep { width: 1px; background: var(--line); margin: 2px 4px; }
 
 /* 전체 목록 (표) */
@@ -148,7 +172,7 @@ table.issues tr.ghead td { background: #f4f5f7; font-weight: 700; font-size: 12p
 .col h4 { margin: 0; padding: 10px 12px 6px; font-size: 12px; color: var(--dim); text-transform: uppercase; display: flex; gap: 6px; align-items: center; }
 .col .cards { padding: 4px 8px 8px; overflow-y: auto; min-height: 60px; }
 .col.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; }
-.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px 8px 14px; margin-bottom: 6px; cursor: grab; box-shadow: 0 1px 1px rgba(9,30,66,.1); }
+.card { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px 8px 14px; margin-bottom: 6px; cursor: grab; box-shadow: var(--shadow-card); }
 .card .sum { font-size: 13px; margin-bottom: 4px; }
 .card .labels { margin: 2px 0 4px; display: flex; flex-wrap: wrap; gap: 3px; }
 .card .meta { display: flex; gap: 6px; font-size: 11px; color: var(--dim); align-items: center; justify-content: space-between; }

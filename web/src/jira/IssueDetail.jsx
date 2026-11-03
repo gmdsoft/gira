@@ -1,6 +1,7 @@
 // 이슈 상세: Jira식 2단 (본문 가변 + 우측 고정 패널), 하위 작업 패널, 인라인 필드 변경, 편집 모드
 import React, { useEffect, useRef, useState } from 'react';
 import { api, dt, fileSize, Prio, Avatar, StatusSelect } from './util.jsx';
+import { TypeIcon } from './icons.jsx';
 import AdfView from './adf.jsx';
 import DescEditor from './DescEditor.jsx';
 import { tiptapToAdf, hasRichContent } from './adf-convert.js';
@@ -71,13 +72,54 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
           ? <><span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span>
               <button className="plain dim" title="상위 항목 변경" onClick={changeParent}>✎</button> / </>
           : <><button className="mini" onClick={changeParent}>상위 항목 추가</button> / </>}
-        {d.issue_key}
+        <TypeIcon name={d.type_name} /> {d.issue_key}
         <button className="mini" style={{ marginLeft: 8 }} onClick={() => setEditing(true)}>편집</button>
       </div>
       <h2>{d.summary}</h2>
       <div className="dwrap">
         <div className="dmain">
-          <section><h3>설명</h3><AdfView doc={d.description_adf} /></section>
+          <section><h3>주요 세부 정보</h3>
+            <dl className="fields2">
+              <dt>컴포넌트</dt><dd>{d.components?.length ? d.components.map((c) => <span className="chip" key={c}>{c}</span>) : <span className="dim">없음</span>}</dd>
+              <dt>우선 순위</dt><dd><Prio p={d.priority} />{' '}
+                <select value={d.priority ?? ''} onChange={(e) => patch({ priority: e.target.value || null })}>
+                  <option value="">없음</option>
+                  {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select></dd>
+              <dt>상위 항목</dt><dd>
+                {d.parent_key
+                  ? <><span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span> {d.parent_summary ?? ''}{' '}
+                      <button className="plain dim" title="상위 항목 변경" onClick={changeParent}>✎</button></>
+                  : <button className="mini" onClick={changeParent}>상위 항목 추가</button>}</dd>
+              <dt>수정 버전</dt><dd>
+                <select multiple size={Math.min(3, Math.max(2, verNames.length))} title="Ctrl 클릭으로 복수 선택"
+                  value={d.fix_versions ?? []}
+                  onChange={(e) => patch({ fixVersions: [...e.target.selectedOptions].map((o) => o.value) }, false)}>
+                  {verNames.map((v) => <option key={v} value={v}>{v}</option>)}
+                </select></dd>
+              <dt>레이블</dt><dd>{d.labels?.length ? d.labels.map((l) => <span className="chip" key={l}>{l}</span>) : <span className="dim">없음</span>}</dd>
+              <dt>담당자</dt><dd><Avatar name={d.assignee_name} />{' '}
+                <select value={d.assignee_id ?? ''} onChange={(e) => patch({ assigneeId: e.target.value ? Number(e.target.value) : null })}>
+                  <option value="">미지정</option>
+                  {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                </select></dd>
+              <dt>Sprint</dt><dd>
+                <select value={d.sprint_id ?? ''} onChange={(e) => patch({ sprintId: e.target.value ? Number(e.target.value) : null })}>
+                  <option value="">백로그</option>
+                  {openSprints.map((s) => <option key={s.id} value={s.id}>
+                    {s.name}{s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''}</option>)}
+                </select></dd>
+            </dl>
+            <div className="fieldrow"><div className="flabel2">설명</div><AdfView doc={d.description_adf} /></div>
+          </section>
+
+          <section><h3>첨부 파일 ({d.attachments.length})</h3>
+            <ul className="att-list">{d.attachments.map((a) => (
+              <li key={a.id}><a href={`/api/attachment/${a.id}`} target="_blank" rel="noreferrer">{a.filename}</a>
+                <span className="dim">{fileSize(a.file_size)} · {dt(a.created_at)}</span></li>))}
+            </ul>
+            <div className="cform"><input type="file" ref={fileRef} /> <button onClick={upload}>업로드</button></div>
+          </section>
 
           {d.subtasks.length > 0 && (
             <section><h3>하위 작업 ({d.subtasks.length})</h3>
@@ -88,6 +130,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                   <tbody>{d.subtasks.map((s) => (
                     <tr key={s.issue_key}>
                       <td>
+                        <TypeIcon name={s.type_name} />{' '}
                         <span className={`ilink skey${s.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(s.issue_key)}>{s.issue_key}</span>{' '}
                         <span className="ilink" style={{ color: 'inherit' }} onClick={() => onOpen(s.issue_key)}>{s.summary}</span>
                       </td>
@@ -103,14 +146,6 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
             </section>)}
 
           {d.links.length > 0 && <section><h3>연결된 업무 항목 ({d.links.length})</h3><ul className="link-list">{d.links.map(linkRow)}</ul></section>}
-
-          <section><h3>첨부 파일 ({d.attachments.length})</h3>
-            <ul className="att-list">{d.attachments.map((a) => (
-              <li key={a.id}><a href={`/api/attachment/${a.id}`} target="_blank" rel="noreferrer">{a.filename}</a>
-                <span className="dim">{fileSize(a.file_size)} · {dt(a.created_at)}</span></li>))}
-            </ul>
-            <div className="cform"><input type="file" ref={fileRef} /> <button onClick={upload}>업로드</button></div>
-          </section>
 
           <section><h3>댓글 ({d.comments.length})</h3>
             {d.comments.map((c) => (
@@ -134,40 +169,16 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
           <div className="dcard">
             <h4>세부 사항</h4>
             <div className="body"><dl>
-              <dt>담당자</dt><dd>
-                <select value={d.assignee_id ?? ''} onChange={(e) => patch({ assigneeId: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">미지정</option>
-                  {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-                </select></dd>
               <dt>보고자</dt><dd><Avatar name={d.reporter_name} /> {d.reporter_name ?? '-'}</dd>
               <dt>타입</dt><dd>
                 <select value={d.issue_type_id ?? ''} onChange={(e) => patch({ typeId: Number(e.target.value) })}>
                   {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select></dd>
-              <dt>우선순위</dt><dd>
-                <select value={d.priority ?? ''} onChange={(e) => patch({ priority: e.target.value || null })}>
-                  <option value="">없음</option>
-                  {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select></dd>
-              <dt>스프린트</dt><dd>
-                <select value={d.sprint_id ?? ''} onChange={(e) => patch({ sprintId: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">백로그</option>
-                  {openSprints.map((s) => <option key={s.id} value={s.id}>
-                    {s.name}{s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''}</option>)}
                 </select></dd>
               <dt>해결</dt><dd>
                 <select value={d.resolution ?? ''} onChange={(e) => patch({ resolution: e.target.value || null })}>
                   <option value="">미해결</option>
                   {resoList.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select></dd>
-              <dt>수정 버전</dt><dd>
-                <select multiple size={Math.min(4, Math.max(2, verNames.length))} title="Ctrl 클릭으로 복수 선택"
-                  value={d.fix_versions ?? []}
-                  onChange={(e) => patch({ fixVersions: [...e.target.selectedOptions].map((o) => o.value) }, false)}>
-                  {verNames.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select></dd>
-              {d.labels?.length > 0 && <><dt>라벨</dt><dd>{d.labels.map((l) => <span className="chip" key={l}>{l}</span>)}</dd></>}
-              {d.components?.length > 0 && <><dt>컴포넌트</dt><dd>{d.components.map((c) => <span className="chip" key={c}>{c}</span>)}</dd></>}
             </dl></div>
             <div className="dtimes">
               만듦 {dt(d.created_at)}<br />업데이트 {dt(d.updated_at)}
