@@ -111,6 +111,7 @@
   table.issues .tstatus.cat-done { background: var(--done); color: var(--done-t); }
 
   /* 보드 */
+  .bbar { padding: 8px 16px 0; display: flex; gap: 8px; align-items: center; }
   #board { flex: 1; display: flex; gap: 10px; padding: 14px 16px; overflow-x: auto; align-items: flex-start; }
   .col { background: #f1f2f4; border-radius: 6px; min-width: 250px; width: 250px; max-height: 100%; display: flex; flex-direction: column; }
   .col h4 { margin: 0; padding: 10px 12px 6px; font-size: 12px; color: var(--dim); text-transform: uppercase; display: flex; gap: 6px; align-items: center; }
@@ -178,13 +179,33 @@
     <div id="detail"><div class="placeholder">왼쪽 목록에서 이슈를 선택하세요</div></div>
   </div>
   <div class="view" id="view-table"><div id="tablewrap"></div></div>
-  <div class="view" id="view-board"><div id="board"></div></div>
+  <div class="view" id="view-board">
+    <div style="display:flex;flex-direction:column;flex:1;min-width:0">
+      <div class="bbar">
+        <select id="board-sel"><option value="">기본 (모든 상태)</option></select>
+        <button id="board-new">+ 보드 만들기</button>
+        <button id="board-edit">편집</button>
+        <button id="board-del">삭제</button>
+        <span class="dim" id="board-hidden"></span>
+      </div>
+      <div id="board"></div>
+    </div>
+  </div>
   <div class="view" id="view-backlog"><div id="backlog"></div></div>
 </main>
 
 <div class="overlay" id="login"><div class="modal">
   <h2>로그인</h2><div class="dim" style="margin-bottom:10px">계정을 선택하세요 (개발용)</div>
   <div id="login-accounts"></div>
+</div></div>
+
+<div class="overlay" id="board-modal"><div class="modal">
+  <h2 id="bm-title">보드 만들기</h2>
+  <label>보드 이름 *</label><input type="text" id="bm-name">
+  <label>컬럼 구성 * <span class="dim">(각 컬럼에 포함할 상태 선택, 상태는 한 컬럼에만)</span></label>
+  <div id="bm-cols"></div>
+  <button id="bm-add-col" style="margin-top:8px">+ 컬럼 추가</button>
+  <div class="actions"><button id="bm-cancel">취소</button><button id="bm-save" class="primary">저장</button></div>
 </div></div>
 
 <div class="overlay" id="new-issue"><div class="modal">
@@ -292,7 +313,7 @@ const hasRichContent = (node) => {
 };
 
 // ---------- 상태 ----------
-let meta = null, sprints = [], versions = [], savedFilters = [], me = null, selKey = null, curView = 'list';
+let meta = null, sprints = [], versions = [], boards = [], savedFilters = [], me = null, selKey = null, curView = 'list';
 const FILTER_IDS = ['#f-status', '#f-type', '#f-assignee', '#f-priority', '#f-sprint'];
 const filterParams = () => {
   const qs = new URLSearchParams();
@@ -340,7 +361,12 @@ async function init() {
 }
 async function loadSprints() {
   const proj = encodeURIComponent($('#f-project').value);
-  [sprints, versions] = await Promise.all([api('api/sprints?project=' + proj), api('api/versions?project=' + proj)]);
+  [sprints, versions, boards] = await Promise.all([
+    api('api/sprints?project=' + proj), api('api/versions?project=' + proj), api('api/boards?project=' + proj)]);
+  const cur = $('#board-sel').value;
+  $('#board-sel').innerHTML = '<option value="">기본 (모든 상태)</option>' +
+    boards.map((b) => `<option value="${b.id}">${esc(b.name)}</option>`).join('');
+  if (boards.some((b) => String(b.id) === cur)) $('#board-sel').value = cur;
   const open = sprints.filter((s) => s.state !== 'closed');
   const opts = open.map((s) => `<option value="${s.id}">${esc(s.name)}${s.state === 'active' ? ' (활성)' : ''}</option>`).join('');
   $('#f-sprint').innerHTML = '<option value="">스프린트: 전체</option><option value="none">백로그(없음)</option>' + opts;
@@ -613,25 +639,41 @@ function renderTable() {
 }
 
 // ---------- 보드 (칸반) ----------
+function boardColumns() {
+  const b = boards.find((x) => String(x.id) === $('#board-sel').value);
+  if (b) return b.columns.map((c) => ({ name: c.name, statusIds: c.statusIds.map(Number), custom: true }));
+  return meta.statuses.map((s) => ({ name: s.name, statusIds: [Number(s.id)], category: s.category }));
+}
 async function loadBoard() {
   const rows = await api('api/issues?' + filterParams());
+  const cols = boardColumns();
+  const colOf = new Map(); // statusId → column index
+  cols.forEach((c, i) => c.statusIds.forEach((s) => colOf.set(s, i)));
+  const buckets = cols.map(() => []);
+  let hidden = 0;
+  for (const r of rows) {
+    const i = colOf.get(Number(r.status_id));
+    if (i == null) { hidden++; continue; }
+    buckets[i].push(r);
+  }
   $('#count').textContent = `${rows.length}건`;
-  const byStatus = new Map(meta.statuses.map((s) => [String(s.id), []]));
-  for (const r of rows) (byStatus.get(String(r.status_id)) ?? []).push(r);
-  $('#board').innerHTML = meta.statuses.map((s) => `
-    <div class="col" data-status="${s.id}">
-      <h4><span class="badge cat-${esc(s.category)}">${esc(s.name)}</span><span class="dim">${byStatus.get(String(s.id)).length}</span></h4>
-      <div class="cards">${byStatus.get(String(s.id)).map((r) => `
-        <div class="card" draggable="true" data-key="${esc(r.issue_key)}">
+  $('#board-hidden').textContent = hidden ? `컬럼에 없는 상태의 이슈 ${hidden}건 숨김` : '';
+  const statusName = (id) => meta.statuses.find((s) => Number(s.id) === id)?.name ?? id;
+  $('#board').innerHTML = cols.map((c, i) => `
+    <div class="col" data-col="${i}" title="${esc(c.statusIds.map(statusName).join(', '))}">
+      <h4>${c.category ? `<span class="badge cat-${esc(c.category)}">${esc(c.name)}</span>` : `<b>${esc(c.name)}</b>`}
+        <span class="dim">${buckets[i].length}</span></h4>
+      <div class="cards">${buckets[i].map((r) => `
+        <div class="card" draggable="true" data-key="${esc(r.issue_key)}" data-status="${r.status_id}">
           <div class="sum">${esc(r.summary)}</div>
           <div class="meta"><span class="ilink" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span>
             <span>${esc(r.assignee_name ?? '')}</span></div>
         </div>`).join('')}</div>
     </div>`).join('');
 
-  let dragKey = null;
+  let dragKey = null, dragStatus = null;
   $$('#board .card').forEach((c) => {
-    c.addEventListener('dragstart', () => { dragKey = c.dataset.key; c.classList.add('dragging'); });
+    c.addEventListener('dragstart', () => { dragKey = c.dataset.key; dragStatus = Number(c.dataset.status); c.classList.add('dragging'); });
     c.addEventListener('dragend', () => c.classList.remove('dragging'));
   });
   $$('#board .col').forEach((col) => {
@@ -640,11 +682,73 @@ async function loadBoard() {
     col.addEventListener('drop', async (e) => {
       e.preventDefault(); col.classList.remove('dragover');
       if (!dragKey) return;
-      await api('api/issue/' + encodeURIComponent(dragKey), { method: 'PATCH', json: { statusId: Number(col.dataset.status) } });
+      const c = cols[Number(col.dataset.col)];
+      if (c.statusIds.includes(dragStatus)) return; // 같은 컬럼이면 그대로
+      await api('api/issue/' + encodeURIComponent(dragKey), { method: 'PATCH', json: { statusId: c.statusIds[0] } });
       loadBoard();
     });
   });
 }
+
+// ---------- 보드 만들기/편집 ----------
+let editingBoardId = null;
+function colBlock(name = '', statusIds = []) {
+  const id = 'bm' + Math.random().toString(36).slice(2, 8);
+  return `<div class="bm-col" style="border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin-top:8px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <input type="text" class="bm-col-name" placeholder="컬럼 이름" value="${esc(name)}" style="flex:1">
+      <button class="bm-col-del" title="컬럼 삭제">✕</button>
+    </div>
+    <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px 12px">
+      ${meta.statuses.map((s) => `<label style="font-size:12px;margin:0;display:inline-flex;gap:4px;align-items:center">
+        <input type="checkbox" class="bm-st" name="${id}" value="${s.id}"${statusIds.includes(Number(s.id)) ? ' checked' : ''}>
+        <span class="badge cat-${esc(s.category)}">${esc(s.name)}</span></label>`).join('')}
+    </div>
+  </div>`;
+}
+function openBoardModal(board = null) {
+  editingBoardId = board?.id ?? null;
+  $('#bm-title').textContent = board ? '보드 편집' : '보드 만들기';
+  $('#bm-name').value = board?.name ?? '';
+  const cols = board?.columns ?? [{ name: '해야 할 일' }, { name: '대기' }, { name: '진행 중' }, { name: '완료' }];
+  $('#bm-cols').innerHTML = cols.map((c) => colBlock(c.name, (c.statusIds ?? []).map(Number))).join('');
+  $('#board-modal').classList.add('on');
+}
+$('#board-new').addEventListener('click', () => openBoardModal());
+$('#board-edit').addEventListener('click', () => {
+  const b = boards.find((x) => String(x.id) === $('#board-sel').value);
+  if (!b) return alert('편집할 보드를 선택하세요 (기본 보드는 편집 불가)');
+  openBoardModal(b);
+});
+$('#board-del').addEventListener('click', async () => {
+  const b = boards.find((x) => String(x.id) === $('#board-sel').value);
+  if (!b) return alert('삭제할 보드를 선택하세요');
+  if (!confirm(`보드 '${b.name}'을(를) 삭제할까요? (이슈는 삭제되지 않습니다)`)) return;
+  await api('api/boards/' + b.id, { method: 'DELETE' });
+  $('#board-sel').value = '';
+  await loadSprints(); loadBoard();
+});
+$('#bm-add-col').addEventListener('click', () => $('#bm-cols').insertAdjacentHTML('beforeend', colBlock()));
+$('#bm-cols').addEventListener('click', (e) => {
+  if (e.target.closest('.bm-col-del')) e.target.closest('.bm-col').remove();
+});
+$('#bm-cancel').addEventListener('click', () => $('#board-modal').classList.remove('on'));
+$('#bm-save').addEventListener('click', async () => {
+  const name = $('#bm-name').value.trim();
+  if (!name) return alert('보드 이름을 입력하세요');
+  const columns = $$('#bm-cols .bm-col').map((el) => ({
+    name: el.querySelector('.bm-col-name').value.trim(),
+    statusIds: [...el.querySelectorAll('.bm-st:checked')].map((c) => Number(c.value)),
+  })).filter((c) => c.name || c.statusIds.length);
+  const saved = editingBoardId
+    ? await api('api/boards/' + editingBoardId, { method: 'PATCH', json: { name, columns } })
+    : await api('api/boards', { method: 'POST', json: { projectKey: $('#f-project').value, name, columns } });
+  $('#board-modal').classList.remove('on');
+  await loadSprints();
+  $('#board-sel').value = String(saved.id);
+  loadBoard();
+});
+$('#board-sel').addEventListener('change', loadBoard);
 
 // ---------- 백로그 (스프린트) ----------
 async function loadBacklog() {

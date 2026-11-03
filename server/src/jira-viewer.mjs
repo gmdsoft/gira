@@ -323,6 +323,62 @@ app.patch('/api/sprints/:id', async (req, reply) => {
   return rows[0];
 });
 
+// ---------- 사용자 정의 보드 ----------
+
+function validColumns(columns) {
+  if (!Array.isArray(columns) || !columns.length) return '컬럼을 1개 이상 구성하세요';
+  const seen = new Set();
+  for (const c of columns) {
+    if (!c?.name?.trim()) return '컬럼 이름을 입력하세요';
+    if (!Array.isArray(c.statusIds) || !c.statusIds.length) return `'${c.name}' 컬럼에 상태를 1개 이상 지정하세요`;
+    for (const s of c.statusIds) {
+      if (seen.has(s)) return '같은 상태를 두 컬럼에 넣을 수 없습니다';
+      seen.add(s);
+    }
+  }
+  return null;
+}
+
+app.get('/api/boards', async (req) => {
+  const { rows } = await query(
+    `SELECT b.id, b.name, b.columns FROM jira_boards b
+       JOIN jira_projects p ON p.id = b.project_id
+      WHERE p.key = $1 ORDER BY b.id`, [req.query.project]);
+  return rows;
+});
+
+app.post('/api/boards', async (req, reply) => {
+  const { projectKey, name, columns } = req.body ?? {};
+  if (!projectKey || !name?.trim()) return reply.code(400).send({ error: 'projectKey, name은 필수입니다' });
+  const err = validColumns(columns);
+  if (err) return reply.code(400).send({ error: err });
+  const { rows: pr } = await query(`SELECT id FROM jira_projects WHERE key = $1`, [projectKey]);
+  if (!pr.length) return reply.code(404).send({ error: 'project not found' });
+  const { rows } = await query(
+    `INSERT INTO jira_boards (project_id, name, columns) VALUES ($1, $2, $3) RETURNING id, name, columns`,
+    [pr[0].id, name.trim(), JSON.stringify(columns)]);
+  return rows[0];
+});
+
+app.patch('/api/boards/:id', async (req, reply) => {
+  const b = req.body ?? {};
+  if ('columns' in b) {
+    const err = validColumns(b.columns);
+    if (err) return reply.code(400).send({ error: err });
+    await query(`UPDATE jira_boards SET columns = $2 WHERE id = $1`, [req.params.id, JSON.stringify(b.columns)]);
+  }
+  if (b.name?.trim()) await query(`UPDATE jira_boards SET name = $2 WHERE id = $1`, [req.params.id, b.name.trim()]);
+  const { rows } = await query(`SELECT id, name, columns FROM jira_boards WHERE id = $1`, [req.params.id]);
+  if (!rows.length) return reply.code(404).send({ error: 'not found' });
+  return rows[0];
+});
+
+app.delete('/api/boards/:id', async (req, reply) => {
+  const { rowCount } = await query(`DELETE FROM jira_boards WHERE id = $1`, [req.params.id]);
+  if (!rowCount) return reply.code(404).send({ error: 'not found' });
+  return { ok: true };
+});
+
 // ---------- 저장 필터 ----------
 
 app.get('/api/filters', async (req) => {
