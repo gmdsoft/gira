@@ -191,6 +191,12 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if ('assigneeId' in b) sets.push(`assignee_id = ${p(b.assigneeId || null)}`);
   if ('priority' in b) sets.push(`priority = ${p(b.priority || null)}`);
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
+  if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
+  if ('labels' in b) sets.push(`labels = ${p(Array.isArray(b.labels) ? b.labels : [])}`);
+  // 설명은 플레인 텍스트로 받아 최소 ADF로 저장 (PoC — 기존 서식은 대체된다)
+  if ('description' in b) {
+    sets.push(`description_adf = ${p(b.description?.trim() ? JSON.stringify(textToAdf(b.description)) : null)}`);
+  }
   if (!sets.length) return reply.code(400).send({ error: '변경할 필드가 없습니다' });
   sets.push(`updated_at = now()`);
   await query(`UPDATE jira_issues SET ${sets.join(', ')} WHERE id = $1`, params);

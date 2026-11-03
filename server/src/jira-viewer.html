@@ -254,6 +254,31 @@ function adf(node) {
   }
 }
 
+// ADF → 플레인 텍스트 (편집 폼 프리필용. 서식은 보존되지 않는다)
+function adfToText(node, depth = 0) {
+  if (!node) return '';
+  const kids = (d = depth) => (node.content ?? []).map((c) => adfToText(c, d)).join('');
+  switch (node.type) {
+    case 'text': return node.text ?? '';
+    case 'hardBreak': return '\n';
+    case 'mention': return '@' + (node.attrs?.text?.replace(/^@/, '') ?? '');
+    case 'emoji': return node.attrs?.text ?? node.attrs?.shortName ?? '';
+    case 'paragraph': case 'heading': return kids() + '\n';
+    case 'listItem': return '  '.repeat(depth) + '- ' + kids(depth + 1).replace(/\n+$/, '') + '\n';
+    case 'codeBlock': return kids() + '\n';
+    case 'tableRow': return (node.content ?? []).map((c) => adfToText(c, depth).trim()).join(' | ') + '\n';
+    case 'media': return `(첨부: ${node.attrs?.alt ?? '미디어'})\n`;
+    case 'rule': return '---\n';
+    default: return kids();
+  }
+}
+const hasRichContent = (node) => {
+  if (!node) return false;
+  if (['table', 'media', 'panel', 'expand', 'codeBlock', 'status', 'date'].includes(node.type)) return true;
+  if ((node.marks ?? []).length) return true;
+  return (node.content ?? []).some(hasRichContent);
+};
+
 // ---------- 상태 ----------
 let meta = null, sprints = [], savedFilters = [], me = null, selKey = null, curView = 'list';
 const FILTER_IDS = ['#f-status', '#f-type', '#f-assignee', '#f-priority', '#f-sprint'];
@@ -359,7 +384,8 @@ async function openIssue(key, switchTab = false) {
       ${otherKey ? `<span class="ilink" data-key="${esc(otherKey)}">${esc(otherKey)}</span> ${esc(otherSum ?? '')}` : '<span class="dim">(이관 범위 밖 이슈)</span>'}</li>`;
   };
   $('#detail').innerHTML = `
-    <div class="dkey">${d.parent_key ? `<span class="ilink" data-key="${esc(d.parent_key)}">${esc(d.parent_key)}</span> / ` : ''}${esc(d.issue_key)}</div>
+    <div class="dkey">${d.parent_key ? `<span class="ilink" data-key="${esc(d.parent_key)}">${esc(d.parent_key)}</span> / ` : ''}${esc(d.issue_key)}
+      <button id="d-edit" style="margin-left:8px;font-size:12px;padding:2px 8px">편집</button></div>
     <h2>${esc(d.summary)}</h2>
     <dl class="fields">
       <dt>상태</dt><dd><select id="d-status">${statusSel}</select></dd>
@@ -393,6 +419,7 @@ async function openIssue(key, switchTab = false) {
     </section>`;
   $('#detail').scrollTop = 0;
 
+  $('#d-edit').addEventListener('click', () => renderEditForm(d));
   $('#d-status').addEventListener('change', async (e) => {
     await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { statusId: Number(e.target.value) } });
     openIssue(key); loadList();
@@ -417,6 +444,49 @@ async function openIssue(key, switchTab = false) {
     const fd = new FormData(); fd.append('file', f);
     await api('api/issue/' + encodeURIComponent(key) + '/attachments', { method: 'POST', body: fd });
     openIssue(key);
+  });
+}
+
+// ---------- 이슈 편집 ----------
+function renderEditForm(d) {
+  const key = d.issue_key;
+  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(t)}</option>`;
+  const typeSel = meta.types.map((t) => opt(t.id, t.name, t.id === d.issue_type_id)).join('');
+  const prioSel = '<option value="">없음</option>' + meta.priorities.map((p) => opt(p, p, p === d.priority)).join('');
+  const rich = hasRichContent(d.description_adf);
+  $('#detail').innerHTML = `
+    <div class="dkey">${esc(key)} 편집</div>
+    <div style="max-width:760px">
+      <label class="dim" style="display:block;margin:12px 0 3px">요약 *</label>
+      <input type="text" id="e-summary" style="width:100%" value="${esc(d.summary)}">
+      <div style="display:flex;gap:12px">
+        <div style="flex:1"><label class="dim" style="display:block;margin:12px 0 3px">타입</label>
+          <select id="e-type" style="width:100%">${typeSel}</select></div>
+        <div style="flex:1"><label class="dim" style="display:block;margin:12px 0 3px">우선순위</label>
+          <select id="e-priority" style="width:100%">${prioSel}</select></div>
+      </div>
+      <label class="dim" style="display:block;margin:12px 0 3px">라벨 (쉼표 구분)</label>
+      <input type="text" id="e-labels" style="width:100%" value="${esc((d.labels ?? []).join(', '))}">
+      <label class="dim" style="display:block;margin:12px 0 3px">설명 (플레인 텍스트)</label>
+      ${rich ? '<div class="adf"><div class="panel warning" style="font-size:12px">이 설명에는 표·이미지·서식이 있습니다. 저장하면 플레인 텍스트로 대체됩니다. 유지하려면 취소하세요.</div></div>' : ''}
+      <textarea id="e-desc" style="width:100%;min-height:200px;resize:vertical">${esc(adfToText(d.description_adf).replace(/\n+$/, ''))}</textarea>
+      <div style="margin-top:14px;display:flex;gap:8px">
+        <button id="e-save" class="primary">저장</button><button id="e-cancel">취소</button>
+      </div>
+    </div>`;
+  $('#e-cancel').addEventListener('click', () => openIssue(key));
+  $('#e-save').addEventListener('click', async () => {
+    const summary = $('#e-summary').value.trim();
+    if (!summary) return alert('요약을 입력하세요');
+    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: {
+      summary,
+      typeId: Number($('#e-type').value),
+      priority: $('#e-priority').value || null,
+      labels: $('#e-labels').value.split(',').map((s) => s.trim()).filter(Boolean),
+      description: $('#e-desc').value,
+    }});
+    openIssue(key);
+    refresh();
   });
 }
 
