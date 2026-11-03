@@ -80,6 +80,17 @@
   .comment .chead b { color: var(--text); }
   .att-list, .link-list, .sub-list { list-style: none; padding: 0; margin: 0; max-width: 760px; }
   .att-list li, .link-list li, .sub-list li { padding: 5px 0; border-bottom: 1px solid #f0f1f3; display: flex; gap: 8px; align-items: baseline; }
+  /* TipTap 편집기 */
+  .editor-box { border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+  .editor-box .ProseMirror { outline: none; min-height: 200px; padding: 10px 14px; }
+  .editor-box .ProseMirror table td, .editor-box .ProseMirror table th { min-width: 40px; }
+  .editor-box .ProseMirror .selectedCell { background: #deebff; }
+  .etoolbar { display: flex; gap: 2px; flex-wrap: wrap; border: 1px solid var(--line); border-bottom: none; border-radius: 4px 4px 0 0; background: #fafbfc; padding: 4px 6px; }
+  .etoolbar + .editor-box { border-radius: 0 0 4px 4px; }
+  .etoolbar button { border: none; background: none; padding: 3px 8px; border-radius: 3px; font-size: 13px; }
+  .etoolbar button:hover { background: #ebecf0; }
+  .etoolbar .sep { width: 1px; background: var(--line); margin: 2px 4px; }
+  .fields select[multiple] { min-height: 70px; }
   .cform { max-width: 760px; margin-top: 8px; }
   .cform textarea { width: 100%; min-height: 70px; resize: vertical; }
   .cform .actions { margin-top: 6px; display: flex; gap: 8px; align-items: center; }
@@ -189,6 +200,7 @@
   <div class="actions"><button id="n-cancel">취소</button><button id="n-create" class="primary">만들기</button></div>
 </div></div>
 
+<script src="jira-editor.js"></script>
 <script>
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -280,7 +292,7 @@ const hasRichContent = (node) => {
 };
 
 // ---------- 상태 ----------
-let meta = null, sprints = [], savedFilters = [], me = null, selKey = null, curView = 'list';
+let meta = null, sprints = [], versions = [], savedFilters = [], me = null, selKey = null, curView = 'list';
 const FILTER_IDS = ['#f-status', '#f-type', '#f-assignee', '#f-priority', '#f-sprint'];
 const filterParams = () => {
   const qs = new URLSearchParams();
@@ -327,7 +339,8 @@ async function init() {
   refresh();
 }
 async function loadSprints() {
-  sprints = await api('api/sprints?project=' + encodeURIComponent($('#f-project').value));
+  const proj = encodeURIComponent($('#f-project').value);
+  [sprints, versions] = await Promise.all([api('api/sprints?project=' + proj), api('api/versions?project=' + proj)]);
   const open = sprints.filter((s) => s.state !== 'closed');
   const opts = open.map((s) => `<option value="${s.id}">${esc(s.name)}${s.state === 'active' ? ' (활성)' : ''}</option>`).join('');
   $('#f-sprint').innerHTML = '<option value="">스프린트: 전체</option><option value="none">백로그(없음)</option>' + opts;
@@ -376,6 +389,12 @@ async function openIssue(key, switchTab = false) {
   const assigneeSel = '<option value="">미지정</option>' + meta.assignees.map((u) => opt(u.id, u.display_name, u.id === d.assignee_id)).join('');
   const sprintSel = '<option value="">백로그</option>' + sprints.filter((s) => s.state !== 'closed' || s.id === d.sprint_id)
     .map((s) => opt(s.id, s.name + (s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''), s.id === d.sprint_id)).join('');
+  const typeSel = meta.types.map((t) => opt(t.id, t.name, t.id === d.issue_type_id)).join('');
+  const prioSel = '<option value="">없음</option>' + meta.priorities.map((p) => opt(p, p, p === d.priority)).join('');
+  const resoList = [...new Set([...meta.resolutions, ...(d.resolution ? [d.resolution] : [])])];
+  const resoSel = '<option value="">미해결</option>' + resoList.map((r) => opt(r, r, r === d.resolution)).join('');
+  const verNames = [...new Set([...versions.map((v) => v.name), ...(d.fix_versions ?? [])])];
+  const verSel = verNames.map((v) => opt(v, v, (d.fix_versions ?? []).includes(v))).join('');
   const linkRow = (l) => {
     const mine = l.inward_key === key;
     const otherKey = mine ? l.outward_key : l.inward_key;
@@ -391,14 +410,14 @@ async function openIssue(key, switchTab = false) {
       <dt>상태</dt><dd><select id="d-status">${statusSel}</select></dd>
       <dt>담당자</dt><dd><select id="d-assignee">${assigneeSel}</select></dd>
       <dt>스프린트</dt><dd><select id="d-sprint">${sprintSel}</select></dd>
-      <dt>타입</dt><dd>${esc(d.type_name ?? '')}</dd>
-      <dt>우선순위</dt><dd>${esc(d.priority ?? '-')}</dd>
-      <dt>해결</dt><dd>${d.resolved_at ? '해결됨 (' + dt(d.resolved_at) + ')' : esc(d.resolution ?? '미해결')}</dd>
+      <dt>타입</dt><dd><select id="d-type">${typeSel}</select></dd>
+      <dt>우선순위</dt><dd><select id="d-priority">${prioSel}</select></dd>
+      <dt>해결</dt><dd><select id="d-resolution">${resoSel}</select>${d.resolved_at ? ` <span class="dim">${dt(d.resolved_at)}</span>` : ''}</dd>
+      <dt>수정 버전</dt><dd><select id="d-fixver" multiple size="${Math.min(4, Math.max(2, verNames.length))}" title="Ctrl 클릭으로 복수 선택">${verSel}</select></dd>
       <dt>보고자</dt><dd>${esc(d.reporter_name ?? '-')}</dd>
       <dt>생성</dt><dd>${dt(d.created_at)}</dd>
       <dt>수정</dt><dd>${dt(d.updated_at)}</dd>
       ${d.labels?.length ? `<dt>라벨</dt><dd>${d.labels.map(esc).join(', ')}</dd>` : ''}
-      ${d.fix_versions?.length ? `<dt>수정 버전</dt><dd>${d.fix_versions.map(esc).join(', ')}</dd>` : ''}
       ${d.components?.length ? `<dt>구성요소</dt><dd>${d.components.map(esc).join(', ')}</dd>` : ''}
     </dl>
     <section><h3>설명</h3><div class="adf">${d.description_adf ? adf(d.description_adf) : '<span class="dim">없음</span>'}</div></section>
@@ -432,6 +451,22 @@ async function openIssue(key, switchTab = false) {
     await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { sprintId: e.target.value ? Number(e.target.value) : null } });
     openIssue(key);
   });
+  $('#d-type').addEventListener('change', async (e) => {
+    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { typeId: Number(e.target.value) } });
+    openIssue(key); loadList();
+  });
+  $('#d-priority').addEventListener('change', async (e) => {
+    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { priority: e.target.value || null } });
+    openIssue(key);
+  });
+  $('#d-resolution').addEventListener('change', async (e) => {
+    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { resolution: e.target.value || null } });
+    openIssue(key);
+  });
+  $('#d-fixver').addEventListener('change', async (e) => {
+    const sel = [...e.target.selectedOptions].map((o) => o.value);
+    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { fixVersions: sel } });
+  });
   $('#d-comment-add').addEventListener('click', async () => {
     const text = $('#d-comment').value.trim();
     if (!text) return;
@@ -447,44 +482,69 @@ async function openIssue(key, switchTab = false) {
   });
 }
 
-// ---------- 이슈 편집 ----------
+// ---------- 이슈 편집 (TipTap) ----------
+const TOOLBAR = [
+  ['bold', '<b>B</b>'], ['italic', '<i>I</i>'], ['underline', '<u>U</u>'], ['strike', '<s>S</s>'], ['code', '&lt;/&gt;'],
+  ['|'], ['h2', 'H2'], ['h3', 'H3'],
+  ['|'], ['bullet', '• 목록'], ['ordered', '1. 목록'],
+  ['|'], ['quote', '❝ 인용'], ['codeblock', '코드'], ['hr', '―'],
+  ['|'], ['link', '🔗 링크'], ['table', '표'],
+];
+function runEditorCmd(ed, cmd) {
+  const c = ed.chain().focus();
+  switch (cmd) {
+    case 'bold': return c.toggleBold().run();
+    case 'italic': return c.toggleItalic().run();
+    case 'underline': return c.toggleMark('underline').run();
+    case 'strike': return c.toggleStrike().run();
+    case 'code': return c.toggleCode().run();
+    case 'h2': return c.toggleHeading({ level: 2 }).run();
+    case 'h3': return c.toggleHeading({ level: 3 }).run();
+    case 'bullet': return c.toggleBulletList().run();
+    case 'ordered': return c.toggleOrderedList().run();
+    case 'quote': return c.toggleBlockquote().run();
+    case 'codeblock': return c.toggleCodeBlock().run();
+    case 'hr': return c.setHorizontalRule().run();
+    case 'link': {
+      const url = prompt('링크 URL (비우면 제거)');
+      if (url === null) return;
+      return url.trim() ? c.toggleMark('link', { href: url.trim() }).run() : c.unsetMark('link').run();
+    }
+    case 'table': return c.insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  }
+}
 function renderEditForm(d) {
   const key = d.issue_key;
-  const opt = (v, t, sel) => `<option value="${esc(v)}"${sel ? ' selected' : ''}>${esc(t)}</option>`;
-  const typeSel = meta.types.map((t) => opt(t.id, t.name, t.id === d.issue_type_id)).join('');
-  const prioSel = '<option value="">없음</option>' + meta.priorities.map((p) => opt(p, p, p === d.priority)).join('');
-  const rich = hasRichContent(d.description_adf);
+  const simplified = hasRichContent(d.description_adf);
   $('#detail').innerHTML = `
     <div class="dkey">${esc(key)} 편집</div>
     <div style="max-width:760px">
       <label class="dim" style="display:block;margin:12px 0 3px">요약 *</label>
       <input type="text" id="e-summary" style="width:100%" value="${esc(d.summary)}">
-      <div style="display:flex;gap:12px">
-        <div style="flex:1"><label class="dim" style="display:block;margin:12px 0 3px">타입</label>
-          <select id="e-type" style="width:100%">${typeSel}</select></div>
-        <div style="flex:1"><label class="dim" style="display:block;margin:12px 0 3px">우선순위</label>
-          <select id="e-priority" style="width:100%">${prioSel}</select></div>
-      </div>
       <label class="dim" style="display:block;margin:12px 0 3px">라벨 (쉼표 구분)</label>
       <input type="text" id="e-labels" style="width:100%" value="${esc((d.labels ?? []).join(', '))}">
-      <label class="dim" style="display:block;margin:12px 0 3px">설명 (플레인 텍스트)</label>
-      ${rich ? '<div class="adf"><div class="panel warning" style="font-size:12px">이 설명에는 표·이미지·서식이 있습니다. 저장하면 플레인 텍스트로 대체됩니다. 유지하려면 취소하세요.</div></div>' : ''}
-      <textarea id="e-desc" style="width:100%;min-height:200px;resize:vertical">${esc(adfToText(d.description_adf).replace(/\n+$/, ''))}</textarea>
+      <label class="dim" style="display:block;margin:12px 0 3px">설명</label>
+      ${simplified ? '<div class="adf"><div class="panel warning" style="font-size:12px">패널·이미지·멘션 등 일부 요소는 편집기에서 단순화되어 표시됩니다. 저장하면 단순화된 형태로 대체됩니다.</div></div>' : ''}
+      <div class="etoolbar">${TOOLBAR.map(([cmd, label]) =>
+        cmd === '|' ? '<span class="sep"></span>' : `<button data-cmd="${cmd}" title="${cmd}">${label}</button>`).join('')}</div>
+      <div class="editor-box adf" id="e-desc-ed"></div>
       <div style="margin-top:14px;display:flex;gap:8px">
         <button id="e-save" class="primary">저장</button><button id="e-cancel">취소</button>
       </div>
     </div>`;
-  $('#e-cancel').addEventListener('click', () => openIssue(key));
+  const ed = JiraEditor.mount($('#e-desc-ed'), d.description_adf);
+  $$('.etoolbar button').forEach((b) => b.addEventListener('click', (e) => { e.preventDefault(); runEditorCmd(ed.editor, b.dataset.cmd); }));
+  $('#e-cancel').addEventListener('click', () => { ed.destroy(); openIssue(key); });
   $('#e-save').addEventListener('click', async () => {
     const summary = $('#e-summary').value.trim();
     if (!summary) return alert('요약을 입력하세요');
+    const descriptionAdf = ed.getADF();
     await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: {
       summary,
-      typeId: Number($('#e-type').value),
-      priority: $('#e-priority').value || null,
       labels: $('#e-labels').value.split(',').map((s) => s.trim()).filter(Boolean),
-      description: $('#e-desc').value,
+      descriptionAdf,
     }});
+    ed.destroy();
     openIssue(key);
     refresh();
   });

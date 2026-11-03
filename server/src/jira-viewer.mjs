@@ -33,6 +33,10 @@ await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 app.get('/', (req, reply) => {
   reply.type('text/html').send(createReadStream(path.join(here, 'jira-viewer.html')));
 });
+// 설명 편집기 번들 (web/dist-jira — npm --workspace web run build:jira 로 생성)
+app.get('/jira-editor.js', (req, reply) => {
+  reply.type('text/javascript').send(createReadStream(path.join(here, '..', '..', 'web', 'dist-jira', 'jira-editor.js')));
+});
 
 // 플레인 텍스트 → 최소 ADF 문서 (PoC 입력용)
 const textToAdf = (text) => ({
@@ -50,7 +54,7 @@ async function issueByKey(key) {
 // ---------- 메타 ----------
 
 app.get('/api/meta', async () => {
-  const [projects, statuses, types, assignees, priorities] = await Promise.all([
+  const [projects, statuses, types, assignees, priorities, resolutions] = await Promise.all([
     query(`SELECT id, key, name FROM jira_projects ORDER BY key`),
     query(`SELECT id, name, category FROM jira_statuses ORDER BY
              CASE category WHEN 'new' THEN 0 WHEN 'indeterminate' THEN 1 ELSE 2 END, id`),
@@ -59,11 +63,22 @@ app.get('/api/meta', async () => {
     query(`SELECT DISTINCT u.id, u.display_name FROM users u
             JOIN jira_issues i ON i.assignee_id = u.id OR i.reporter_id = u.id ORDER BY u.display_name`),
     query(`SELECT DISTINCT priority FROM jira_issues WHERE priority IS NOT NULL`),
+    query(`SELECT DISTINCT resolution FROM jira_issues WHERE resolution IS NOT NULL`),
   ]);
   return {
     projects: projects.rows, statuses: statuses.rows, types: types.rows,
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
+    resolutions: resolutions.rows.map((r) => r.resolution),
   };
+});
+
+// 프로젝트 버전 목록 (수정 버전 선택용)
+app.get('/api/versions', async (req) => {
+  const { rows } = await query(
+    `SELECT v.id, v.name, v.released FROM jira_versions v
+       JOIN jira_projects p ON p.id = v.project_id
+      WHERE p.key = $1 ORDER BY v.name`, [req.query.project]);
+  return rows;
 });
 
 // ---------- 이슈 목록/상세 ----------
@@ -193,8 +208,14 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
   if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
   if ('labels' in b) sets.push(`labels = ${p(Array.isArray(b.labels) ? b.labels : [])}`);
-  // 설명은 플레인 텍스트로 받아 최소 ADF로 저장 (PoC — 기존 서식은 대체된다)
-  if ('description' in b) {
+  if ('resolution' in b) sets.push(`resolution = ${p(b.resolution || null)}`);
+  if ('fixVersions' in b) sets.push(`fix_versions = ${p(Array.isArray(b.fixVersions) ? b.fixVersions : [])}`);
+  // 설명: ADF 문서(편집기) 또는 플레인 텍스트 (텍스트는 최소 ADF로 변환)
+  if ('descriptionAdf' in b) {
+    const doc = b.descriptionAdf;
+    if (doc != null && doc.type !== 'doc') return reply.code(400).send({ error: 'descriptionAdf는 ADF doc이어야 합니다' });
+    sets.push(`description_adf = ${p(doc ? JSON.stringify(doc) : null)}`);
+  } else if ('description' in b) {
     sets.push(`description_adf = ${p(b.description?.trim() ? JSON.stringify(textToAdf(b.description)) : null)}`);
   }
   if (!sets.length) return reply.code(400).send({ error: '변경할 필드가 없습니다' });
