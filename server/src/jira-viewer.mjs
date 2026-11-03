@@ -82,15 +82,17 @@ app.get('/api/issues', async (req) => {
   else if (sprint) cond.push(`i.sprint_id = ${p(sprint)}`);
   if (q) cond.push(`(i.summary ILIKE ${p('%' + q + '%')} OR i.issue_key ILIKE ${p('%' + q + '%')})`);
   const { rows } = await query(
-    `SELECT i.id, i.issue_key, i.summary, i.priority, i.updated_at, i.sprint_id, i.parent_id,
+    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
+            i.resolved_at, i.sprint_id, i.parent_id,
             t.name AS type_name, t.subtask,
             s.id AS status_id, s.name AS status_name, s.category AS status_category,
-            u.display_name AS assignee_name
+            u.display_name AS assignee_name, ur.display_name AS reporter_name
        FROM jira_issues i
        JOIN jira_projects pr ON pr.id = i.project_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN users u ON u.id = i.assignee_id
+       LEFT JOIN users ur ON ur.id = i.reporter_id
       WHERE ${cond.join(' AND ')}
       ORDER BY i.id DESC LIMIT 1000`, params);
   return rows;

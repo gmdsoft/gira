@@ -84,6 +84,22 @@
   .cform textarea { width: 100%; min-height: 70px; resize: vertical; }
   .cform .actions { margin-top: 6px; display: flex; gap: 8px; align-items: center; }
 
+  /* 전체 목록 (표) */
+  #tablewrap { flex: 1; overflow: auto; background: var(--panel); }
+  table.issues { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.issues th, table.issues td { border-bottom: 1px solid #f0f1f3; border-right: 1px solid #f7f8fa; padding: 7px 10px; text-align: left; white-space: nowrap; }
+  table.issues th { position: sticky; top: 0; background: #fafbfc; border-bottom: 1px solid var(--line); color: var(--dim); font-size: 12px; font-weight: 600; cursor: pointer; user-select: none; z-index: 1; }
+  table.issues th:hover { background: #f0f1f3; }
+  table.issues th .arrow { color: var(--accent); margin-left: 3px; }
+  table.issues td.c-sum { white-space: normal; min-width: 260px; max-width: 480px; }
+  table.issues td.c-sum .key { color: var(--accent); font-size: 12px; margin-right: 8px; }
+  table.issues td.c-sum .key.done { text-decoration: line-through; }
+  table.issues tr:hover td { background: #f7f9fc; }
+  table.issues .tstatus { font-size: 12px; padding: 2px 4px; border-radius: 3px; border-color: transparent; font-weight: 600; cursor: pointer; }
+  table.issues .tstatus.cat-new { background: var(--new); color: var(--new-t); }
+  table.issues .tstatus.cat-indeterminate { background: var(--doing); color: var(--doing-t); }
+  table.issues .tstatus.cat-done { background: var(--done); color: var(--done-t); }
+
   /* 보드 */
   #board { flex: 1; display: flex; gap: 10px; padding: 14px 16px; overflow-x: auto; align-items: flex-start; }
   .col { background: #f1f2f4; border-radius: 6px; min-width: 250px; width: 250px; max-height: 100%; display: flex; flex-direction: column; }
@@ -125,6 +141,7 @@
   <select id="f-project"></select>
   <nav class="tabs">
     <button data-view="list" class="on">목록</button>
+    <button data-view="table">전체 목록</button>
     <button data-view="board">보드</button>
     <button data-view="backlog">백로그</button>
   </nav>
@@ -150,6 +167,7 @@
     <div id="list"></div>
     <div id="detail"><div class="placeholder">왼쪽 목록에서 이슈를 선택하세요</div></div>
   </div>
+  <div class="view" id="view-table"><div id="tablewrap"></div></div>
   <div class="view" id="view-board"><div id="board"></div></div>
   <div class="view" id="view-backlog"><div id="backlog"></div></div>
 </main>
@@ -298,6 +316,7 @@ async function loadSavedFilters() {
 }
 function refresh() {
   if (curView === 'list') loadList();
+  else if (curView === 'table') loadTable();
   else if (curView === 'board') loadBoard();
   else loadBacklog();
 }
@@ -400,6 +419,68 @@ async function openIssue(key, switchTab = false) {
     await api('api/issue/' + encodeURIComponent(key) + '/attachments', { method: 'POST', body: fd });
     openIssue(key);
   });
+}
+
+// ---------- 전체 목록 (표) ----------
+let tableRows = [];
+let tableSort = { field: 'key', dir: -1 };
+const PRIORITY_ORDER = { Highest: 0, High: 1, Normal: 2, Medium: 2, Low: 3, Lowest: 4 };
+const keyNum = (k) => Number(String(k).split('-')[1] ?? 0);
+const SORTERS = {
+  key: (a, b) => keyNum(a.issue_key) - keyNum(b.issue_key),
+  summary: (a, b) => (a.summary ?? '').localeCompare(b.summary ?? '', 'ko'),
+  type: (a, b) => (a.type_name ?? '').localeCompare(b.type_name ?? '', 'ko'),
+  assignee: (a, b) => (a.assignee_name ?? '힣힣').localeCompare(b.assignee_name ?? '힣힣', 'ko'),
+  reporter: (a, b) => (a.reporter_name ?? '힣힣').localeCompare(b.reporter_name ?? '힣힣', 'ko'),
+  priority: (a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9),
+  status: (a, b) => (a.status_name ?? '').localeCompare(b.status_name ?? '', 'ko'),
+  resolution: (a, b) => (a.resolution ?? '힣힣').localeCompare(b.resolution ?? '힣힣', 'ko'),
+  created: (a, b) => new Date(a.created_at ?? 0) - new Date(b.created_at ?? 0),
+  updated: (a, b) => new Date(a.updated_at ?? 0) - new Date(b.updated_at ?? 0),
+};
+const TABLE_COLS = [
+  ['key', '키'], ['summary', '업무'], ['type', '타입'], ['assignee', '담당자'], ['reporter', '보고자'],
+  ['priority', '우선 순위'], ['status', '상태'], ['resolution', '해결'], ['created', '만듦'], ['updated', '업데이트됨'],
+];
+async function loadTable() {
+  tableRows = await api('api/issues?' + filterParams());
+  $('#count').textContent = `${tableRows.length}건`;
+  renderTable();
+}
+function renderTable() {
+  const rows = [...tableRows].sort((a, b) => tableSort.dir * SORTERS[tableSort.field](a, b));
+  const statusOpts = (cur) => meta.statuses.map((s) =>
+    `<option value="${s.id}"${String(s.id) === String(cur) ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+  $('#tablewrap').innerHTML = `<table class="issues">
+    <thead><tr>${TABLE_COLS.map(([f, label]) =>
+      `<th data-field="${f}">${label}${tableSort.field === f ? `<span class="arrow">${tableSort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `
+      <tr>
+        <td><span class="ilink" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span></td>
+        <td class="c-sum"><span class="key${r.status_category === 'done' ? ' done' : ''}">${esc(r.issue_key)}</span>${esc(r.summary)}</td>
+        <td>${esc(r.type_name ?? '')}</td>
+        <td>${esc(r.assignee_name ?? '')}</td>
+        <td>${esc(r.reporter_name ?? '')}</td>
+        <td>${esc(r.priority ?? '')}</td>
+        <td><select class="tstatus cat-${esc(r.status_category)}" data-key="${esc(r.issue_key)}">${statusOpts(r.status_id)}</select></td>
+        <td>${esc(r.resolution ?? (r.resolved_at ? '완료' : ''))}</td>
+        <td>${dt(r.created_at)}</td>
+        <td>${dt(r.updated_at)}</td>
+      </tr>`).join('')}</tbody></table>`;
+
+  $$('#tablewrap th').forEach((th) => th.addEventListener('click', () => {
+    const f = th.dataset.field;
+    if (tableSort.field === f) tableSort.dir *= -1;
+    else tableSort = { field: f, dir: 1 };
+    renderTable();
+  }));
+  $$('#tablewrap .tstatus').forEach((sel) => sel.addEventListener('change', async () => {
+    await api('api/issue/' + encodeURIComponent(sel.dataset.key), { method: 'PATCH', json: { statusId: Number(sel.value) } });
+    const row = tableRows.find((r) => r.issue_key === sel.dataset.key);
+    const st = meta.statuses.find((s) => String(s.id) === sel.value);
+    if (row && st) { row.status_id = st.id; row.status_name = st.name; row.status_category = st.category; }
+    renderTable();
+  }));
 }
 
 // ---------- 보드 (칸반) ----------
