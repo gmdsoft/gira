@@ -1,20 +1,13 @@
-// Jira PoC 설명 편집기 (바닐라 TipTap 번들, React 불필요).
-// ADF ↔ TipTap JSON 변환을 포함한다. window.JiraEditor 로 노출.
-// 빌드: npm --workspace web run build:jira → web/dist-jira/jira-editor.js
-import { Editor, Mark } from '@tiptap/core';
-import StarterKit from '@tiptap/starter-kit';
-import Table from '@tiptap/extension-table';
-import TableRow from '@tiptap/extension-table-row';
-import TableHeader from '@tiptap/extension-table-header';
-import TableCell from '@tiptap/extension-table-cell';
+// ADF ↔ TipTap JSON 변환 + 보조 마크 (StarterKit에 없는 underline/link 최소 구현).
+// 이관 이슈 50건 왕복 검증 통과본 (구 web/src/jira-editor.js에서 추출).
+import { Mark } from '@tiptap/core';
 
-// StarterKit에 없는 마크 2종 (최소 구현)
-const Underline = Mark.create({
+export const Underline = Mark.create({
   name: 'underline',
   parseHTML: () => [{ tag: 'u' }, { style: 'text-decoration=underline' }],
   renderHTML: () => ['u', 0],
 });
-const Link = Mark.create({
+export const LinkMark = Mark.create({
   name: 'link',
   priority: 1000,
   keepOnSplit: false,
@@ -23,21 +16,19 @@ const Link = Mark.create({
   renderHTML({ HTMLAttributes }) { return ['a', { ...HTMLAttributes, target: '_blank', rel: 'noopener' }, 0]; },
 });
 
-// ---------- ADF → TipTap ----------
-// 미지원 요소는 가장 가까운 형태로 단순화한다 (패널→인용, 미디어→자리표시 문단 등).
+// ---------- ADF → TipTap (미지원 요소는 가장 가까운 형태로 단순화) ----------
 const MARKS_IN = { strong: 'bold', em: 'italic', underline: 'underline', strike: 'strike', code: 'code' };
 function marksIn(marks) {
   const out = [];
   for (const m of marks ?? []) {
     if (MARKS_IN[m.type]) out.push({ type: MARKS_IN[m.type] });
     else if (m.type === 'link' && m.attrs?.href) out.push({ type: 'link', attrs: { href: m.attrs.href } });
-    // textColor, subsup 등은 버리고 텍스트만 유지
   }
   return out;
 }
 const textNode = (text, marks = []) => (text ? { type: 'text', text, ...(marks.length ? { marks } : {}) } : null);
 
-function adfToTiptap(n) {
+export function adfToTiptap(n) {
   if (!n) return null;
   const kids = () => (n.content ?? []).map(adfToTiptap).filter(Boolean).flat();
   const cellAttrs = () => ({
@@ -56,7 +47,7 @@ function adfToTiptap(n) {
       content: (n.content ?? []).map((t) => textNode(t.text)).filter(Boolean),
     };
     case 'blockquote': return { type: 'blockquote', content: kids() };
-    case 'panel': return { type: 'blockquote', content: kids() }; // 패널 → 인용으로 단순화
+    case 'panel': return { type: 'blockquote', content: kids() };
     case 'expand': case 'nestedExpand': {
       const title = n.attrs?.title ? [{ type: 'paragraph', content: [textNode(n.attrs.title, [{ type: 'bold' }])] }] : [];
       return { type: 'blockquote', content: [...title, ...kids()] };
@@ -74,7 +65,7 @@ function adfToTiptap(n) {
     case 'status': return textNode(`[${n.attrs?.text ?? ''}]`);
     case 'date': return textNode(n.attrs?.timestamp ? new Date(Number(n.attrs.timestamp)).toLocaleDateString('ko-KR') : '');
     case 'inlineCard': return textNode(n.attrs?.url ?? '', n.attrs?.url ? [{ type: 'link', attrs: { href: n.attrs.url } }] : []);
-    default: { const c = kids(); return c.length ? c : null; } // 알 수 없는 요소는 내용만 유지
+    default: { const c = kids(); return c.length ? c : null; }
   }
 }
 
@@ -88,7 +79,7 @@ function marksOut(marks) {
   }
   return out;
 }
-function tiptapToAdf(n) {
+export function tiptapToAdf(n) {
   if (!n) return null;
   const kids = () => (n.content ?? []).map(tiptapToAdf).filter(Boolean);
   const cellAttrs = () => {
@@ -124,20 +115,10 @@ function tiptapToAdf(n) {
   }
 }
 
-function mount(element, adfDoc) {
-  const editor = new Editor({
-    element,
-    extensions: [
-      StarterKit, Underline, Link,
-      Table.configure({ resizable: false }), TableRow, TableHeader, TableCell,
-    ],
-    content: adfDoc ? adfToTiptap(adfDoc) : '',
-  });
-  return {
-    editor,
-    getADF: () => (editor.isEmpty ? null : tiptapToAdf(editor.getJSON())),
-    destroy: () => editor.destroy(),
-  };
+// 서식 있는 요소 포함 여부 (편집 시 단순화 경고용)
+export function hasRichContent(node) {
+  if (!node) return false;
+  if (['table', 'media', 'panel', 'expand', 'codeBlock', 'status', 'date'].includes(node.type)) return true;
+  if ((node.marks ?? []).length) return true;
+  return (node.content ?? []).some(hasRichContent);
 }
-
-window.JiraEditor = { mount, adfToTiptap, tiptapToAdf };

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:jira": "vite build -c vite.jira-editor.config.mjs",
+    "dev:jira": "vite -c vite.jira-app.config.mjs",
+    "build:jira": "vite build -c vite.jira-app.config.mjs",
     "check": "node scripts/render-check.mjs"
   },
   "dependencies": {

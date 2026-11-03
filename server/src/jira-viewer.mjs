@@ -3,6 +3,7 @@
 // 인증은 Confluence 앱과 동일(auth.mjs, 테스트 계정 로그인) — 같은 DB 세션 쿠키를 공유한다.
 // 실행: node server/src/jira-viewer.mjs  (기본 0.0.0.0:3002)
 import Fastify from 'fastify';
+import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { createReadStream } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -32,14 +33,13 @@ await query(`SELECT setval('jira_sprints_id_seq',
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 
-const page = (req, reply) => reply.type('text/html').send(createReadStream(path.join(here, 'jira-viewer.html')));
+// React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)
+const DIST = path.join(here, '..', '..', 'web', 'dist-jira-app');
+await app.register(fastifyStatic, { root: DIST, wildcard: false });
+const page = (req, reply) => reply.type('text/html').send(createReadStream(path.join(DIST, 'jira.html')));
 app.get('/', page);
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
-// 설명 편집기 번들 (web/dist-jira — npm --workspace web run build:jira 로 생성)
-app.get('/jira-editor.js', (req, reply) => {
-  reply.type('text/javascript').send(createReadStream(path.join(here, '..', '..', 'web', 'dist-jira', 'jira-editor.js')));
-});
 
 // 플레인 텍스트 → 최소 ADF 문서 (PoC 입력용)
 const textToAdf = (text) => ({

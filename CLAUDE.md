@@ -13,5 +13,7 @@
 
 ## 개발 메모
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
+- Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
+  개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).
 - 변환기(scripts/convert-storage.mjs)를 고치면 `node scripts/reconvert.mjs`로 전 버전에 소급 적용 (source_xhtml 보관, API 재호출 불필요).
 - 검증: `npm --workspace web run check` (전 버전 doc 스키마 직렬화 검사).
