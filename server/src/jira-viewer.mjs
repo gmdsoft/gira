@@ -32,9 +32,10 @@ await query(`SELECT setval('jira_sprints_id_seq',
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 
-app.get('/', (req, reply) => {
-  reply.type('text/html').send(createReadStream(path.join(here, 'jira-viewer.html')));
-});
+const page = (req, reply) => reply.type('text/html').send(createReadStream(path.join(here, 'jira-viewer.html')));
+app.get('/', page);
+app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
+app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
 // 설명 편집기 번들 (web/dist-jira — npm --workspace web run build:jira 로 생성)
 app.get('/jira-editor.js', (req, reply) => {
   reply.type('text/javascript').send(createReadStream(path.join(here, '..', '..', 'web', 'dist-jira', 'jira-editor.js')));
