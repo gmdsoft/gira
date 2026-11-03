@@ -80,6 +80,55 @@
   .comment .chead b { color: var(--text); }
   .att-list, .link-list, .sub-list { list-style: none; padding: 0; margin: 0; max-width: 760px; }
   .att-list li, .link-list li, .sub-list li { padding: 5px 0; border-bottom: 1px solid #f0f1f3; display: flex; gap: 8px; align-items: baseline; }
+  /* 공용: 우선순위 아이콘 · 아바타 · 에픽 색 막대 · 칩 */
+  .prio { font-weight: 700; display: inline-block; min-width: 14px; text-align: center; }
+  .av { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+        border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; vertical-align: middle; flex: none; }
+  .chip { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px;
+          font-size: 11px; color: var(--dim); background: #fafbfc; white-space: nowrap; }
+  .epicbar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 4px 0 0 4px; }
+
+  /* 이슈 상세 2단 레이아웃 */
+  .dwrap { display: flex; gap: 24px; align-items: flex-start; }
+  .dmain { flex: 1; min-width: 0; max-width: 860px; }
+  .dside { width: 300px; flex: none; }
+  .dcard { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); margin-bottom: 12px; }
+  .dcard > h4 { margin: 0; padding: 10px 14px; font-size: 13px; border-bottom: 1px solid #f0f1f3; }
+  .dcard .body { padding: 10px 14px; }
+  .dcard dl { display: grid; grid-template-columns: 90px 1fr; gap: 10px 10px; margin: 0; font-size: 13px; align-items: center; }
+  .dcard dt { color: var(--dim); } .dcard dd { margin: 0; min-width: 0; }
+  .dcard select { max-width: 100%; }
+  .dtimes { padding: 8px 14px; border-top: 1px solid #f0f1f3; color: var(--dim); font-size: 12px; line-height: 1.7; }
+  #d-status-top { font-weight: 700; padding: 6px 10px; border-radius: 4px; border: none; cursor: pointer; }
+  #d-status-top.cat-new { background: var(--new); color: var(--new-t); }
+  #d-status-top.cat-indeterminate { background: var(--doing); color: var(--doing-t); }
+  #d-status-top.cat-done { background: var(--done); color: var(--done-t); }
+
+  /* 하위 작업 패널 */
+  .subpanel { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+  .subpanel .phead { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+  .subpanel .pbar { flex: 1; height: 6px; background: #ebecf0; border-radius: 3px; overflow: hidden; }
+  .subpanel .pbar > div { height: 100%; background: #36b37e; }
+  .subpanel table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .subpanel th { text-align: left; font-size: 11px; color: var(--dim); padding: 4px 10px; border-top: 1px solid #f0f1f3; border-bottom: 1px solid #f0f1f3; background: #fafbfc; }
+  .subpanel td { padding: 5px 10px; border-bottom: 1px solid #f7f8fa; }
+  .subpanel .skey.done { text-decoration: line-through; }
+  .subpanel select { font-size: 12px; padding: 2px 4px; }
+
+  /* 백로그 계층 · 상태 요약 칩 */
+  .srow { position: relative; padding-left: 38px; }
+  .srow.child { padding-left: 64px; background: #fbfcfd; }
+  .srow .twisty { position: absolute; left: 14px; width: 18px; border: none; background: none; cursor: pointer; color: var(--dim); padding: 0; font-size: 12px; }
+  .catchips { display: inline-flex; gap: 3px; }
+  .catchips span { min-width: 18px; text-align: center; border-radius: 3px; font-size: 11px; font-weight: 700; padding: 1px 4px; }
+
+  /* 보드 카드 보강 */
+  .card { position: relative; padding-left: 14px; }
+  .card .labels { margin: 2px 0 4px; display: flex; flex-wrap: wrap; gap: 3px; }
+
+  /* 표 그룹화 헤더 */
+  table.issues tr.ghead td { background: #f4f5f7; font-weight: 700; font-size: 12px; color: var(--dim); position: sticky; }
+
   /* TipTap 편집기 */
   .editor-box { border: 1px solid var(--line); border-radius: 4px; background: #fff; }
   .editor-box .ProseMirror { outline: none; min-height: 200px; padding: 10px 14px; }
@@ -103,12 +152,12 @@
   table.issues th:hover { background: #f0f1f3; }
   table.issues th .arrow { color: var(--accent); margin-left: 3px; }
   table.issues td.c-sum { white-space: normal; min-width: 260px; max-width: 480px; }
-  table.issues .ilink.done { text-decoration: line-through; }
+  .ilink.done { text-decoration: line-through; }
   table.issues tr:hover td { background: #f7f9fc; }
-  table.issues .tstatus { font-size: 12px; padding: 2px 4px; border-radius: 3px; border-color: transparent; font-weight: 600; cursor: pointer; }
-  table.issues .tstatus.cat-new { background: var(--new); color: var(--new-t); }
-  table.issues .tstatus.cat-indeterminate { background: var(--doing); color: var(--doing-t); }
-  table.issues .tstatus.cat-done { background: var(--done); color: var(--done-t); }
+  .tstatus { font-size: 12px; padding: 2px 4px; border-radius: 3px; border-color: transparent; font-weight: 600; cursor: pointer; }
+  .tstatus.cat-new { background: var(--new); color: var(--new-t); }
+  .tstatus.cat-indeterminate { background: var(--doing); color: var(--doing-t); }
+  .tstatus.cat-done { background: var(--done); color: var(--done-t); }
 
   /* 보드 */
   .bbar { padding: 8px 16px 0; display: flex; gap: 8px; align-items: center; }
@@ -166,6 +215,14 @@
   <select id="f-priority"><option value="">우선순위: 전체</option></select>
   <select id="f-sprint"><option value="">스프린트: 전체</option><option value="none">백로그(없음)</option></select>
   <input type="search" id="f-q" placeholder="검색 (요약·키)">
+  <select id="f-group" title="전체 목록(표)에서 행을 묶어 보기">
+    <option value="">그룹화: 없음</option>
+    <option value="status">상태</option>
+    <option value="assignee">담당자</option>
+    <option value="type">타입</option>
+    <option value="epic">에픽</option>
+    <option value="priority">우선순위</option>
+  </select>
   <button id="btn-clear">초기화</button>
   <span style="border-left:1px solid var(--line);height:20px"></span>
   <select id="f-saved"><option value="">저장된 필터…</option></select>
@@ -228,6 +285,23 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const dt = (s) => s ? new Date(s).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }) : '';
 const size = (n) => n == null ? '' : n > 1048576 ? (n/1048576).toFixed(1)+' MB' : n > 1024 ? (n/1024).toFixed(0)+' KB' : n+' B';
+
+// 우선순위 아이콘 (Jira 톤: Highest/High 빨강 ↑, Normal 주황 =, Low/Lowest 파랑 ↓)
+const PRIO = { Highest: ['⇈', '#d04437'], High: ['↑', '#d04437'], Normal: ['〓', '#f79232'],
+               Medium: ['〓', '#f79232'], Low: ['↓', '#0747a6'], Lowest: ['⇊', '#0747a6'] };
+const prioIcon = (p) => p ? `<span class="prio" style="color:${PRIO[p]?.[1] ?? '#6b778c'}" title="${esc(p)}">${PRIO[p]?.[0] ?? '•'}</span>` : '';
+// 아바타(이니셜 원) — 이름 해시로 색 고정
+const PALETTE = ['#0052cc','#00875a','#ff8b00','#de350b','#5243aa','#00a3bf','#403294','#e56910','#216e4e','#943d73'];
+const hashColor = (s) => PALETTE[[...String(s ?? '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % PALETTE.length];
+const avatar = (name) => name ? `<span class="av" style="background:${hashColor(name)}" title="${esc(name)}">${esc(String(name).trim()[0] ?? '?')}</span>` : '';
+// 에픽 색 막대 (에픽 id 해시로 색 고정)
+const epicBar = (r) => r.epic_id ? `<span class="epicbar" style="background:${hashColor(r.epic_id)}" title="${esc(r.epic_key)} ${esc(r.epic_summary ?? '')}"></span>` : '';
+// 상태 카테고리별 건수 요약 칩 3개 (회색=할일, 파랑=진행, 초록=완료)
+const catChips = (rows) => {
+  const c = { new: 0, indeterminate: 0, done: 0 };
+  for (const r of rows) c[r.status_category] = (c[r.status_category] ?? 0) + 1;
+  return `<span class="catchips"><span class="cat-new">${c.new}</span><span class="cat-indeterminate">${c.indeterminate}</span><span class="cat-done">${c.done}</span></span>`;
+};
 async function api(url, opts = {}) {
   if (opts.json) { opts.body = JSON.stringify(opts.json); opts.headers = { 'content-type': 'application/json' }; }
   const res = await fetch(url, opts);
@@ -404,7 +478,7 @@ async function loadList() {
     </div>`).join('');
 }
 
-// ---------- 상세 ----------
+// ---------- 상세 (Jira식 2단: 본문 가변 + 우측 고정 패널) ----------
 async function openIssue(key, switchTab = false) {
   if (switchTab && curView !== 'list') { $$('.tabs button').find((b) => b.dataset.view === 'list').click(); }
   selKey = key;
@@ -428,71 +502,96 @@ async function openIssue(key, switchTab = false) {
     return `<li><span class="dim">${esc(l.link_type)}</span>
       ${otherKey ? `<span class="ilink" data-key="${esc(otherKey)}">${esc(otherKey)}</span> ${esc(otherSum ?? '')}` : '<span class="dim">(이관 범위 밖 이슈)</span>'}</li>`;
   };
+
+  // 하위 작업 패널: 진행률(완료 카테고리 비율) + 표(인라인 상태 변경)
+  const doneCnt = d.subtasks.filter((s) => s.status_category === 'done').length;
+  const pct = d.subtasks.length ? Math.round(doneCnt * 100 / d.subtasks.length) : 0;
+  const subPanel = d.subtasks.length ? `
+    <section><h3>하위 작업 (${d.subtasks.length})</h3>
+    <div class="subpanel">
+      <div class="phead"><div class="pbar"><div style="width:${pct}%"></div></div><span class="dim">${pct}% 완료</span></div>
+      <table><thead><tr><th>업무</th><th>타입</th><th>우선 순위</th><th>담당자</th><th>상태</th></tr></thead>
+      <tbody>${d.subtasks.map((s) => `
+        <tr>
+          <td><span class="ilink skey${s.status_category === 'done' ? ' done' : ''}" data-key="${esc(s.issue_key)}">${esc(s.issue_key)}</span>
+              <span class="ilink" data-key="${esc(s.issue_key)}" style="color:inherit">${esc(s.summary)}</span></td>
+          <td class="dim">${esc(s.type_name ?? '')}</td>
+          <td>${prioIcon(s.priority)} ${esc(s.priority ?? '')}</td>
+          <td>${avatar(s.assignee_name)} ${esc(s.assignee_name ?? '')}</td>
+          <td><select class="st-status tstatus cat-${esc(s.status_category)}" data-key="${esc(s.issue_key)}">${
+            meta.statuses.map((st) => opt(st.id, st.name, st.id === s.status_id)).join('')}</select></td>
+        </tr>`).join('')}</tbody></table>
+    </div></section>` : '';
+
+  // 브레드크럼 부모 슬롯: 부모 키 또는 "상위 항목 추가"
+  const parentSlot = d.parent_key
+    ? `<span class="ilink" data-key="${esc(d.parent_key)}" title="${esc(d.parent_summary ?? '')}">${esc(d.parent_key)}</span>
+       <button id="d-parent" class="dim" style="border:none;background:none;cursor:pointer;padding:0 2px" title="상위 항목 변경">✎</button> / `
+    : `<button id="d-parent" style="font-size:12px;padding:1px 6px">상위 항목 추가</button> / `;
+
   $('#detail').innerHTML = `
-    <div class="dkey">${d.parent_key ? `<span class="ilink" data-key="${esc(d.parent_key)}">${esc(d.parent_key)}</span> / ` : ''}${esc(d.issue_key)}
+    <div class="dkey">${parentSlot}${esc(d.issue_key)}
       <button id="d-edit" style="margin-left:8px;font-size:12px;padding:2px 8px">편집</button></div>
     <h2>${esc(d.summary)}</h2>
-    <dl class="fields">
-      <dt>상태</dt><dd><select id="d-status">${statusSel}</select></dd>
-      <dt>담당자</dt><dd><select id="d-assignee">${assigneeSel}</select></dd>
-      <dt>스프린트</dt><dd><select id="d-sprint">${sprintSel}</select></dd>
-      <dt>타입</dt><dd><select id="d-type">${typeSel}</select></dd>
-      <dt>우선순위</dt><dd><select id="d-priority">${prioSel}</select></dd>
-      <dt>해결</dt><dd><select id="d-resolution">${resoSel}</select>${d.resolved_at ? ` <span class="dim">${dt(d.resolved_at)}</span>` : ''}</dd>
-      <dt>수정 버전</dt><dd><select id="d-fixver" multiple size="${Math.min(4, Math.max(2, verNames.length))}" title="Ctrl 클릭으로 복수 선택">${verSel}</select></dd>
-      <dt>보고자</dt><dd>${esc(d.reporter_name ?? '-')}</dd>
-      <dt>생성</dt><dd>${dt(d.created_at)}</dd>
-      <dt>수정</dt><dd>${dt(d.updated_at)}</dd>
-      ${d.labels?.length ? `<dt>라벨</dt><dd>${d.labels.map(esc).join(', ')}</dd>` : ''}
-      ${d.components?.length ? `<dt>구성요소</dt><dd>${d.components.map(esc).join(', ')}</dd>` : ''}
-    </dl>
-    <section><h3>설명</h3><div class="adf">${d.description_adf ? adf(d.description_adf) : '<span class="dim">없음</span>'}</div></section>
-    ${d.subtasks.length ? `<section><h3>하위 이슈 (${d.subtasks.length})</h3><ul class="sub-list">${d.subtasks.map((s) =>
-      `<li><span class="ilink" data-key="${esc(s.issue_key)}">${esc(s.issue_key)}</span><span>${esc(s.summary)}</span>
-       <span class="badge cat-${esc(s.status_category)}">${esc(s.status_name)}</span></li>`).join('')}</ul></section>` : ''}
-    ${d.links.length ? `<section><h3>연결된 이슈 (${d.links.length})</h3><ul class="link-list">${d.links.map(linkRow).join('')}</ul></section>` : ''}
-    <section><h3>첨부 (${d.attachments.length})</h3>
-      <ul class="att-list">${d.attachments.map((a) =>
-        `<li><a href="api/attachment/${a.id}" target="_blank">${esc(a.filename)}</a><span class="dim">${size(a.file_size)} · ${dt(a.created_at)}</span></li>`).join('')}</ul>
-      <div class="cform"><input type="file" id="d-file"> <button id="d-upload">업로드</button></div>
-    </section>
-    <section><h3>댓글 (${d.comments.length})</h3>
-      ${d.comments.map((c) => `<div class="comment"><div class="chead"><b>${esc(c.author_name ?? '?')}</b> · ${dt(c.created_at)}</div>
-        <div class="adf">${c.body_adf ? adf(c.body_adf) : ''}</div></div>`).join('')}
-      <div class="cform"><textarea id="d-comment" placeholder="댓글 입력 (플레인 텍스트)"></textarea>
-        <div class="actions"><button id="d-comment-add" class="primary">댓글 달기</button></div></div>
-    </section>`;
+    <div class="dwrap">
+      <div class="dmain">
+        <section><h3>설명</h3><div class="adf">${d.description_adf ? adf(d.description_adf) : '<span class="dim">없음</span>'}</div></section>
+        ${subPanel}
+        ${d.links.length ? `<section><h3>연결된 업무 항목 (${d.links.length})</h3><ul class="link-list">${d.links.map(linkRow).join('')}</ul></section>` : ''}
+        <section><h3>첨부 파일 (${d.attachments.length})</h3>
+          <ul class="att-list">${d.attachments.map((a) =>
+            `<li><a href="api/attachment/${a.id}" target="_blank">${esc(a.filename)}</a><span class="dim">${size(a.file_size)} · ${dt(a.created_at)}</span></li>`).join('')}</ul>
+          <div class="cform"><input type="file" id="d-file"> <button id="d-upload">업로드</button></div>
+        </section>
+        <section><h3>댓글 (${d.comments.length})</h3>
+          ${d.comments.map((c) => `<div class="comment"><div class="chead">${avatar(c.author_name)} <b>${esc(c.author_name ?? '?')}</b> · ${dt(c.created_at)}</div>
+            <div class="adf">${c.body_adf ? adf(c.body_adf) : ''}</div></div>`).join('')}
+          <div class="cform"><textarea id="d-comment" placeholder="댓글 입력 (플레인 텍스트)"></textarea>
+            <div class="actions"><button id="d-comment-add" class="primary">댓글 달기</button></div></div>
+        </section>
+      </div>
+      <div class="dside">
+        <div style="margin-bottom:12px"><select id="d-status" class="tstatus cat-${esc(d.status_category)}" style="font-size:13px;padding:5px 8px">${statusSel}</select>
+          ${d.resolved_at ? `<span class="dim" style="margin-left:6px">✓ ${esc(d.resolution ?? '해결됨')}</span>` : ''}</div>
+        <div class="dcard"><h4>세부 사항</h4><div class="body"><dl>
+          <dt>담당자</dt><dd><select id="d-assignee">${assigneeSel}</select></dd>
+          <dt>보고자</dt><dd>${avatar(d.reporter_name)} ${esc(d.reporter_name ?? '-')}</dd>
+          <dt>타입</dt><dd><select id="d-type">${typeSel}</select></dd>
+          <dt>우선순위</dt><dd><select id="d-priority">${prioSel}</select></dd>
+          <dt>스프린트</dt><dd><select id="d-sprint">${sprintSel}</select></dd>
+          <dt>해결</dt><dd><select id="d-resolution">${resoSel}</select></dd>
+          <dt>수정 버전</dt><dd><select id="d-fixver" multiple size="${Math.min(4, Math.max(2, verNames.length))}" title="Ctrl 클릭으로 복수 선택">${verSel}</select></dd>
+          ${d.labels?.length ? `<dt>라벨</dt><dd>${d.labels.map((l) => `<span class="chip">${esc(l)}</span>`).join(' ')}</dd>` : ''}
+          ${d.components?.length ? `<dt>컴포넌트</dt><dd>${d.components.map((c) => `<span class="chip">${esc(c)}</span>`).join(' ')}</dd>` : ''}
+        </dl></div>
+        <div class="dtimes">만듦 ${dt(d.created_at)}<br>업데이트 ${dt(d.updated_at)}${d.resolved_at ? `<br>해결됨 ${dt(d.resolved_at)}` : ''}</div>
+        </div>
+      </div>
+    </div>`;
   $('#detail').scrollTop = 0;
 
+  const patch = (json, reload = true) => api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json })
+    .then(() => { if (reload) { openIssue(key); if (curView === 'list') loadList(); } });
   $('#d-edit').addEventListener('click', () => renderEditForm(d));
-  $('#d-status').addEventListener('change', async (e) => {
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { statusId: Number(e.target.value) } });
-    openIssue(key); loadList();
+  $('#d-parent').addEventListener('click', async () => {
+    const v = prompt('상위 이슈 키 (비우면 상위 해제)', d.parent_key ?? '');
+    if (v === null) return;
+    patch({ parentKey: v.trim() });
   });
-  $('#d-assignee').addEventListener('change', async (e) => {
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { assigneeId: e.target.value ? Number(e.target.value) : null } });
-    openIssue(key); loadList();
+  $('#d-status').addEventListener('change', (e) => patch({ statusId: Number(e.target.value) }));
+  $('#d-assignee').addEventListener('change', (e) => patch({ assigneeId: e.target.value ? Number(e.target.value) : null }));
+  $('#d-sprint').addEventListener('change', (e) => patch({ sprintId: e.target.value ? Number(e.target.value) : null }));
+  $('#d-type').addEventListener('change', (e) => patch({ typeId: Number(e.target.value) }));
+  $('#d-priority').addEventListener('change', (e) => patch({ priority: e.target.value || null }));
+  $('#d-resolution').addEventListener('change', (e) => patch({ resolution: e.target.value || null }));
+  $('#d-fixver').addEventListener('change', (e) => {
+    patch({ fixVersions: [...e.target.selectedOptions].map((o) => o.value) }, false);
   });
-  $('#d-sprint').addEventListener('change', async (e) => {
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { sprintId: e.target.value ? Number(e.target.value) : null } });
+  // 하위 작업 인라인 상태 변경
+  $$('#detail .st-status').forEach((sel) => sel.addEventListener('change', async () => {
+    await api('api/issue/' + encodeURIComponent(sel.dataset.key), { method: 'PATCH', json: { statusId: Number(sel.value) } });
     openIssue(key);
-  });
-  $('#d-type').addEventListener('change', async (e) => {
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { typeId: Number(e.target.value) } });
-    openIssue(key); loadList();
-  });
-  $('#d-priority').addEventListener('change', async (e) => {
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { priority: e.target.value || null } });
-    openIssue(key);
-  });
-  $('#d-resolution').addEventListener('change', async (e) => {
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { resolution: e.target.value || null } });
-    openIssue(key);
-  });
-  $('#d-fixver').addEventListener('change', async (e) => {
-    const sel = [...e.target.selectedOptions].map((o) => o.value);
-    await api('api/issue/' + encodeURIComponent(key), { method: 'PATCH', json: { fixVersions: sel } });
-  });
+  }));
   $('#d-comment-add').addEventListener('click', async () => {
     const text = $('#d-comment').value.trim();
     if (!text) return;
@@ -602,14 +701,39 @@ async function loadTable() {
   $('#count').textContent = `${tableRows.length}건`;
   renderTable();
 }
+const GROUPERS = {
+  status: (r) => r.status_name ?? '(없음)',
+  assignee: (r) => r.assignee_name ?? '(미지정)',
+  type: (r) => r.type_name ?? '(없음)',
+  epic: (r) => r.epic_key ? `${r.epic_key} ${r.epic_summary ?? ''}` : '(에픽 없음)',
+  priority: (r) => r.priority ?? '(없음)',
+};
 function renderTable() {
   const rows = [...tableRows].sort((a, b) => tableSort.dir * SORTERS[tableSort.field](a, b));
+  const groupKey = $('#f-group').value;
   const statusOpts = (cur) => meta.statuses.map((s) =>
     `<option value="${s.id}"${String(s.id) === String(cur) ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
+  // 그룹화: 정렬된 행을 그룹 라벨로 묶고 그룹 헤더 행을 끼워 넣는다
+  let ordered = rows;
+  if (groupKey) {
+    const groups = new Map();
+    for (const r of rows) {
+      const g = GROUPERS[groupKey](r);
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g).push(r);
+    }
+    ordered = [];
+    for (const [g, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ko'))) {
+      ordered.push({ __group: g, __count: list.length });
+      ordered.push(...list);
+    }
+  }
   $('#tablewrap').innerHTML = `<table class="issues">
     <thead><tr>${TABLE_COLS.map(([f, label]) =>
       `<th data-field="${f}">${label}${tableSort.field === f ? `<span class="arrow">${tableSort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
-    <tbody>${rows.map((r) => `
+    <tbody>${ordered.map((r) => r.__group !== undefined
+      ? `<tr class="ghead"><td colspan="${TABLE_COLS.length}">${esc(r.__group)} <span class="dim">${r.__count}건</span></td></tr>`
+      : `
       <tr>
         <td><span class="ilink${r.status_category === 'done' ? ' done' : ''}" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span></td>
         <td class="c-sum">${esc(r.summary)}</td>
@@ -665,9 +789,11 @@ async function loadBoard() {
         <span class="dim">${buckets[i].length}</span></h4>
       <div class="cards">${buckets[i].map((r) => `
         <div class="card" draggable="true" data-key="${esc(r.issue_key)}" data-status="${r.status_id}">
+          ${epicBar(r)}
           <div class="sum">${esc(r.summary)}</div>
-          <div class="meta"><span class="ilink" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span>
-            <span>${esc(r.assignee_name ?? '')}</span></div>
+          ${(r.labels ?? []).length ? `<div class="labels">${r.labels.map((l) => `<span class="chip">${esc(l)}</span>`).join('')}</div>` : ''}
+          <div class="meta"><span class="ilink${r.status_category === 'done' ? ' done' : ''}" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span>
+            <span style="display:inline-flex;gap:6px;align-items:center">${prioIcon(r.priority)}${avatar(r.assignee_name)}</span></div>
         </div>`).join('')}</div>
     </div>`).join('');
 
@@ -750,7 +876,7 @@ $('#bm-save').addEventListener('click', async () => {
 });
 $('#board-sel').addEventListener('change', loadBoard);
 
-// ---------- 백로그 (스프린트) ----------
+// ---------- 백로그 (스프린트 + 인라인 계층) ----------
 async function loadBacklog() {
   const qs = filterParams(); qs.delete('sprint');
   const rows = await api('api/issues?' + qs);
@@ -764,14 +890,39 @@ async function loadBacklog() {
   const open = sprints.filter((s) => s.state !== 'closed');
   const sprintOpts = (cur) => '<option value="">백로그</option>' +
     open.map((s) => `<option value="${s.id}"${s.id === cur ? ' selected' : ''}>${esc(s.name)}</option>`).join('');
-  const issueRow = (r) => `
-    <div class="srow">
-      <span class="key ilink" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span>
+  const statusOpts = (cur) => meta.statuses.map((st) =>
+    `<option value="${st.id}"${String(st.id) === String(cur) ? ' selected' : ''}>${esc(st.name)}</option>`).join('');
+  const issueRow = (r, extra = '', cls = '') => `
+    <div class="srow ${cls}" data-id="${r.id}">
+      ${epicBar(r)}${extra}
+      <span class="key ilink${r.status_category === 'done' ? ' done' : ''}" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span>
       <span class="sum">${esc(r.summary)}</span>
-      <span class="badge cat-${esc(r.status_category)}">${esc(r.status_name)}</span>
-      <span class="dim">${esc(r.assignee_name ?? '')}</span>
+      ${(r.fix_versions ?? []).map((v) => `<span class="chip">${esc(v)}</span>`).join('')}
+      <select class="bl-status tstatus cat-${esc(r.status_category)}" data-key="${esc(r.issue_key)}">${statusOpts(r.status_id)}</select>
+      ${prioIcon(r.priority)}
+      ${avatar(r.assignee_name)}
       <select class="mv" data-key="${esc(r.issue_key)}">${sprintOpts(r.sprint_id)}</select>
     </div>`;
+  // 섹션 내 계층: 하위 작업은 부모가 같은 섹션에 있으면 부모 아래 접힌 상태로 들여쓰기
+  const sectionRows = (list) => {
+    const ids = new Set(list.map((r) => r.id));
+    const childrenOf = new Map();
+    for (const r of list) {
+      if (r.subtask && r.parent_id && ids.has(r.parent_id)) {
+        if (!childrenOf.has(r.parent_id)) childrenOf.set(r.parent_id, []);
+        childrenOf.get(r.parent_id).push(r);
+      }
+    }
+    const nested = new Set([...childrenOf.values()].flat().map((r) => r.id));
+    return list.filter((r) => !nested.has(r.id)).map((r) => {
+      const kids = childrenOf.get(r.id) ?? [];
+      const twisty = kids.length
+        ? `<button class="twisty" data-id="${r.id}" title="하위 작업 ${kids.length}개">▸</button>`
+        : '';
+      return issueRow(r, twisty)
+        + kids.map((c) => issueRow(c, '', `child p${r.id}`).replace('class="srow', 'style="display:none" class="srow')).join('');
+    }).join('');
+  };
   const sprintBlock = (s) => {
     const list = bySprint.get(s.id) ?? [];
     const actions = s.state === 'future'
@@ -781,8 +932,8 @@ async function loadBacklog() {
       <div class="shead"><b>${esc(s.name)}</b>
         <span class="badge ${s.state === 'active' ? 'cat-indeterminate' : s.state === 'closed' ? 'cat-done' : 'cat-new'}">${{future:'예정',active:'활성',closed:'완료'}[s.state]}</span>
         <span class="goal">${esc(s.goal ?? '')}${s.start_at ? ` · ${dt(s.start_at)} 시작` : ''}</span>
-        <span class="dim">${list.length}건</span>${actions}</div>
-      ${list.map(issueRow).join('') || '<div class="sempty">이슈 없음 — 아래 백로그에서 이동하세요</div>'}
+        <span class="dim">${list.length}건</span>${catChips(list)}${actions}</div>
+      ${sectionRows(list) || '<div class="sempty">이슈 없음 — 아래 백로그에서 이동하세요</div>'}
     </div>`;
   };
   const backlogList = bySprint.get('none') ?? [];
@@ -790,9 +941,21 @@ async function loadBacklog() {
     <div style="margin-bottom:12px"><button id="sp-new" class="primary">+ 스프린트 만들기</button></div>
     ${sprints.filter((s) => s.state === 'active').map(sprintBlock).join('')}
     ${sprints.filter((s) => s.state === 'future').map(sprintBlock).join('')}
-    <div class="sprint"><div class="shead"><b>백로그</b><span class="dim">${backlogList.length}건</span></div>
-      ${backlogList.map(issueRow).join('') || '<div class="sempty">백로그가 비어 있습니다</div>'}</div>
+    <div class="sprint"><div class="shead"><b>백로그</b><span class="dim">${backlogList.length}건</span>${catChips(backlogList)}</div>
+      ${sectionRows(backlogList) || '<div class="sempty">백로그가 비어 있습니다</div>'}</div>
     ${sprints.filter((s) => s.state === 'closed').map(sprintBlock).join('')}`;
+
+  // 하위 작업 펼침/접기
+  $$('#backlog .twisty').forEach((b) => b.addEventListener('click', () => {
+    const openNow = b.textContent === '▾';
+    b.textContent = openNow ? '▸' : '▾';
+    $$(`#backlog .srow.p${b.dataset.id}`).forEach((el) => { el.style.display = openNow ? 'none' : ''; });
+  }));
+  // 인라인 상태 변경
+  $$('#backlog .bl-status').forEach((sel) => sel.addEventListener('change', async () => {
+    await api('api/issue/' + encodeURIComponent(sel.dataset.key), { method: 'PATCH', json: { statusId: Number(sel.value) } });
+    loadBacklog();
+  }));
 
   $('#sp-new').addEventListener('click', async () => {
     const name = prompt('스프린트 이름'); if (!name?.trim()) return;
@@ -848,9 +1011,10 @@ for (const id of ['#f-project', ...FILTER_IDS]) $(id).addEventListener('change',
   if (id === '#f-project') { loadSprints().then(refresh); } else refresh();
 });
 let qTimer; $('#f-q').addEventListener('input', () => { clearTimeout(qTimer); qTimer = setTimeout(refresh, 250); });
+$('#f-group').addEventListener('change', () => { if (curView === 'table') renderTable(); });
 $('#btn-clear').addEventListener('click', () => {
   for (const id of FILTER_IDS) $(id).value = '';
-  $('#f-q').value = ''; $('#f-saved').value = '';
+  $('#f-q').value = ''; $('#f-saved').value = ''; $('#f-group').value = '';
   refresh();
 });
 $('#btn-save-filter').addEventListener('click', async () => {

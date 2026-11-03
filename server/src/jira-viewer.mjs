@@ -100,16 +100,25 @@ app.get('/api/issues', async (req) => {
   if (q) cond.push(`(i.summary ILIKE ${p('%' + q + '%')} OR i.issue_key ILIKE ${p('%' + q + '%')})`);
   const { rows } = await query(
     `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
-            i.resolved_at, i.sprint_id, i.parent_id,
+            i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions,
             t.name AS type_name, t.subtask,
             s.id AS status_id, s.name AS status_name, s.category AS status_category,
-            u.display_name AS assignee_name, ur.display_name AS reporter_name
+            u.display_name AS assignee_name, ur.display_name AS reporter_name,
+            (SELECT count(*)::int FROM jira_issues c WHERE c.parent_id = i.id) AS children_count,
+            -- 소속 에픽: 부모 또는 조부모가 에픽이면 그 이슈 (에픽→스토리→하위작업 3단계)
+            CASE WHEN pt1.name = '에픽' THEN p1.id WHEN pt2.name = '에픽' THEN p2.id END AS epic_id,
+            CASE WHEN pt1.name = '에픽' THEN p1.issue_key WHEN pt2.name = '에픽' THEN p2.issue_key END AS epic_key,
+            CASE WHEN pt1.name = '에픽' THEN p1.summary WHEN pt2.name = '에픽' THEN p2.summary END AS epic_summary
        FROM jira_issues i
        JOIN jira_projects pr ON pr.id = i.project_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN users u ON u.id = i.assignee_id
        LEFT JOIN users ur ON ur.id = i.reporter_id
+       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
+       LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
+       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
+       LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id
       WHERE ${cond.join(' AND ')}
       ORDER BY i.id DESC LIMIT 1000`, params);
   return rows;
@@ -117,7 +126,7 @@ app.get('/api/issues', async (req) => {
 
 app.get('/api/issue/:key', async (req, reply) => {
   const { rows } = await query(
-    `SELECT i.*, t.name AS type_name, s.name AS status_name, s.category AS status_category,
+    `SELECT i.*, t.name AS type_name, t.subtask, s.name AS status_name, s.category AS status_category,
             ua.display_name AS assignee_name, ur.display_name AS reporter_name,
             pi.issue_key AS parent_key, pi.summary AS parent_summary,
             sp.name AS sprint_name
@@ -146,8 +155,13 @@ app.get('/api/issue/:key', async (req, reply) => {
              LEFT JOIN jira_issues ii ON ii.id = l.inward_issue
              LEFT JOIN jira_issues oi ON oi.id = l.outward_issue
             WHERE l.inward_issue = $1 OR l.outward_issue = $1`, [issue.id]),
-    query(`SELECT i.issue_key, i.summary, s.name AS status_name, s.category AS status_category
-             FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id
+    query(`SELECT i.issue_key, i.summary, i.priority, i.resolved_at,
+                  s.id AS status_id, s.name AS status_name, s.category AS status_category,
+                  t.name AS type_name, u.display_name AS assignee_name
+             FROM jira_issues i
+             LEFT JOIN jira_statuses s ON s.id = i.status_id
+             LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+             LEFT JOIN users u ON u.id = i.assignee_id
             WHERE i.parent_id = $1 ORDER BY i.id`, [issue.id]),
   ]);
   return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows, subtasks: subtasks.rows };
@@ -205,6 +219,16 @@ app.patch('/api/issue/:key', async (req, reply) => {
                                   THEN COALESCE(resolved_at, now()) ELSE NULL END`);
   }
   if ('sprintId' in b) sets.push(`sprint_id = ${p(b.sprintId || null)}`);
+  if ('parentKey' in b) {
+    if (!b.parentKey) sets.push(`parent_id = NULL`);
+    else {
+      const parent = await issueByKey(String(b.parentKey).trim().toUpperCase());
+      if (!parent) return reply.code(400).send({ error: `상위 이슈 ${b.parentKey}를 찾을 수 없습니다` });
+      if (parent.project_id !== issue.project_id) return reply.code(400).send({ error: '상위 이슈는 같은 프로젝트여야 합니다' });
+      if (parent.id === issue.id) return reply.code(400).send({ error: '자기 자신을 상위로 지정할 수 없습니다' });
+      sets.push(`parent_id = ${p(parent.id)}`);
+    }
+  }
   if ('assigneeId' in b) sets.push(`assignee_id = ${p(b.assigneeId || null)}`);
   if ('priority' in b) sets.push(`priority = ${p(b.priority || null)}`);
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
