@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // Jira Cloud → 새 서비스 DB 임포터 (PoC: 프로젝트 단위, 최신 상태만).
 // 읽기 전용 GET 요청만 사용한다. 변경 이력(changelog)·워크로그는 PoC 범위 밖.
+// 대형 프로젝트(1만+ 이슈)를 위해 페이지 단위로 수집·적재한다 (메모리에 전체를 들지 않음).
+// 이슈 필드의 스프린트 배열(gh-sprint)에서 스프린트도 함께 이관한다.
 //
 // 사용법: node scripts/jira-import-project.mjs --project SIMSIM [--wipe]
 
@@ -51,7 +53,7 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-// ---------- 수집 ----------
+// ---------- 프로젝트 메타 ----------
 
 console.log(`프로젝트 ${args.project} 조회...`);
 const project = await get(`/rest/api/3/project/${encodeURIComponent(args.project)}`);
@@ -63,113 +65,35 @@ const [statusesByType, fields, versions] = await Promise.all([
   get(`/rest/api/3/field`),
   get(`/rest/api/3/project/${project.key}/versions`),
 ]);
-const statuses = new Map(); // id → { name, category }
+const statuses = new Map();
 for (const t of statusesByType) {
   for (const s of t.statuses) statuses.set(Number(s.id), { name: s.name, category: s.statusCategory.key });
 }
-console.log(`  상태 ${statuses.size} / 필드 ${fields.length} / 버전 ${versions.length}`);
+// 스프린트 커스텀 필드 id (예: customfield_10020)
+const SPRINT_FIELD = fields.find((f) => f.schema?.custom === 'com.pyxis.greenhopper.jira:gh-sprint')?.id ?? null;
+console.log(`  상태 ${statuses.size} / 필드 ${fields.length} / 버전 ${versions.length} / 스프린트 필드 ${SPRINT_FIELD ?? '없음'}`);
 
-console.log('이슈 수집 (전체 필드 포함)...');
-const issues = [];
-{
-  const jql = encodeURIComponent(`project = ${project.key} ORDER BY created ASC`);
-  let token = null;
-  for (;;) {
-    const qs = `jql=${jql}&maxResults=100&fields=*all${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`;
-    const page = await get(`/rest/api/3/search/jql?${qs}`);
-    issues.push(...(page.issues ?? []));
-    if (page.isLast || !page.nextPageToken) break;
-    token = page.nextPageToken;
-    if (issues.length % 300 < 100) console.log(`  ${issues.length}건...`);
-  }
-  console.log(`  이슈 ${issues.length}건`);
-}
-
-// 댓글: 검색 응답의 comment 는 일부만 담길 수 있어, 모자란 이슈만 별도 페이지네이션으로 수집
-console.log('댓글 수집...');
-const commentsByIssue = new Map(); // issueId → comment[]
-{
-  let fetched = 0;
-  await mapLimit(issues, 6, async (iss) => {
-    const c = iss.fields.comment ?? { comments: [], total: 0 };
-    let list = c.comments ?? [];
-    if ((c.total ?? 0) > list.length) {
-      list = [];
-      let startAt = 0;
-      for (;;) {
-        const page = await get(`/rest/api/3/issue/${iss.id}/comment?startAt=${startAt}&maxResults=100`);
-        list.push(...(page.comments ?? []));
-        startAt += page.comments?.length ?? 0;
-        if (startAt >= (page.total ?? 0) || !(page.comments ?? []).length) break;
-      }
-      fetched++;
-    }
-    if (list.length) commentsByIssue.set(iss.id, list);
-  });
-  const total = [...commentsByIssue.values()].reduce((n, l) => n + l.length, 0);
-  console.log(`  댓글 ${total}건 (추가 조회 ${fetched}이슈)`);
-}
-
-// ---------- 사용자 ----------
-
-const accountIds = new Set();
-const addUser = (u) => { if (u?.accountId) accountIds.add(u.accountId); };
-for (const iss of issues) {
-  const f = iss.fields;
-  addUser(f.assignee); addUser(f.reporter); addUser(f.creator);
-}
-for (const list of commentsByIssue.values()) {
-  for (const c of list) { addUser(c.author); addUser(c.updateAuthor); }
-}
-for (const iss of issues) for (const a of iss.fields.attachment ?? []) addUser(a.author);
-addUser(project.lead);
-
-console.log(`사용자 ${accountIds.size}명 조회...`);
-const users = new Map(); // accountId → { displayName, email }
-{
-  const ids = [...accountIds];
-  for (let i = 0; i < ids.length; i += 90) {
-    const qs = ids.slice(i, i + 90).map((id) => `accountId=${encodeURIComponent(id)}`).join('&');
-    const res = await get(`/rest/api/3/user/bulk?${qs}&maxResults=100`);
-    for (const u of res.values ?? []) {
-      users.set(u.accountId, { displayName: u.displayName ?? u.accountId, email: u.emailAddress || null });
-    }
-  }
-  for (const id of ids) if (!users.has(id)) users.set(id, { displayName: '(알 수 없는 사용자)', email: null });
-}
-
-// ---------- DB 적재 ----------
-
-console.log('DB 적재...');
+// ---------- 사전 적재 (이슈보다 먼저 있어야 하는 것들) ----------
 
 if (args.wipe) {
+  console.log('기존 데이터 삭제...');
   await query(`DELETE FROM jira_issue_links WHERE inward_issue IN (SELECT id FROM jira_issues WHERE project_id = $1)
                   OR outward_issue IN (SELECT id FROM jira_issues WHERE project_id = $1)`, [project.id]);
   await query(`DELETE FROM jira_comments WHERE issue_id IN (SELECT id FROM jira_issues WHERE project_id = $1)`, [project.id]);
   await query(`DELETE FROM jira_attachments WHERE issue_id IN (SELECT id FROM jira_issues WHERE project_id = $1)`, [project.id]);
   await query(`DELETE FROM jira_issues WHERE project_id = $1`, [project.id]);
+  await query(`DELETE FROM jira_sprints WHERE project_id = $1`, [project.id]);
   await query(`DELETE FROM jira_versions WHERE project_id = $1`, [project.id]);
+  await query(`DELETE FROM jira_boards WHERE project_id = $1`, [project.id]);
   await query(`DELETE FROM jira_projects WHERE id = $1`, [project.id]);
 }
 
-// 사용자 upsert (Confluence와 같은 Atlassian accountId 체계 공유)
-const userIdByAccount = new Map();
-for (const [accountId, u] of users) {
-  const { rows } = await query(
-    `INSERT INTO users (email, confluence_account_id, display_name)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (confluence_account_id) DO UPDATE SET display_name = EXCLUDED.display_name
-     RETURNING id`, [u.email, accountId, u.displayName]);
-  userIdByAccount.set(accountId, rows[0].id);
-}
-const uid = (u) => (u?.accountId ? userIdByAccount.get(u.accountId) ?? null : null);
-
 await query(
-  `INSERT INTO jira_projects (id, key, name, project_type, style, lead_id, raw)
-   VALUES ($1, $2, $3, $4, $5, $6, $7)
-   ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, lead_id = EXCLUDED.lead_id, raw = EXCLUDED.raw`,
+  `INSERT INTO jira_projects (id, key, name, project_type, style, raw)
+   VALUES ($1, $2, $3, $4, $5, $6)
+   ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, raw = EXCLUDED.raw`,
   [project.id, project.key, project.name, project.projectTypeKey ?? null, project.style ?? null,
-   uid(project.lead), JSON.stringify({ description: project.description ?? null, avatarUrls: project.avatarUrls ?? null })]);
+   JSON.stringify({ description: project.description ?? null, avatarUrls: project.avatarUrls ?? null })]);
 
 for (const [id, s] of statuses) {
   await query(
@@ -177,21 +101,18 @@ for (const [id, s] of statuses) {
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category`,
     [id, s.name, s.category]);
 }
-
 for (const t of project.issueTypes ?? []) {
   await query(
     `INSERT INTO jira_issue_types (id, name, subtask, description) VALUES ($1, $2, $3, $4)
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, subtask = EXCLUDED.subtask`,
     [t.id, t.name, !!t.subtask, t.description ?? null]);
 }
-
 for (const f of fields) {
   await query(
     `INSERT INTO jira_fields (id, name, custom, schema_type) VALUES ($1, $2, $3, $4)
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
     [f.id, f.name, !!f.custom, f.schema?.type ?? null]);
 }
-
 for (const v of versions) {
   await query(
     `INSERT INTO jira_versions (id, project_id, name, released, release_date) VALUES ($1, $2, $3, $4, $5)
@@ -199,80 +120,190 @@ for (const v of versions) {
     [v.id, project.id, v.name, !!v.released, v.releaseDate ?? null]);
 }
 
-// 이슈 1차 적재 (parent 없이) → 2차 parent 업데이트 (FK 순서 회피)
-const names = (list) => (list ?? []).map((x) => x.name ?? String(x)).filter(Boolean);
-let cnt = 0;
-for (const iss of issues) {
-  const f = iss.fields;
-  // fields_raw: 검색 응답에 부분만 담기는 comment, 별도 테이블로 가는 attachment/issuelinks 는 제외
-  const { comment: _c, attachment: _a, issuelinks: _l, ...rawRest } = f;
-  await query(
-    `INSERT INTO jira_issues
-       (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
-        priority, resolution, assignee_id, reporter_id, labels, fix_versions, components,
-        created_at, updated_at, resolved_at, fields_raw)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-     ON CONFLICT (id) DO UPDATE SET
-       status_id = EXCLUDED.status_id, summary = EXCLUDED.summary,
-       description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
-       resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id,
-       labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
-       updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw`,
-    [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
-     f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
-     f.priority?.name ?? null, f.resolution?.name ?? null,
-     uid(f.assignee), uid(f.reporter),
-     f.labels ?? [], names(f.fixVersions), names(f.components),
-     f.created ?? null, f.updated ?? null, f.resolutiondate ?? null,
-     JSON.stringify(rawRest)]);
-  if (++cnt % 100 === 0) console.log(`  이슈 ${cnt}/${issues.length}`);
+// ---------- 사용자/스프린트 캐시 ----------
+
+const userIdByAccount = new Map(); // accountId → users.id
+async function ensureUsers(accountIds) {
+  const missing = [...accountIds].filter((id) => id && !userIdByAccount.has(id));
+  if (!missing.length) return;
+  const found = new Map();
+  for (let i = 0; i < missing.length; i += 90) {
+    const batch = missing.slice(i, i + 90);
+    const qs = batch.map((id) => `accountId=${encodeURIComponent(id)}`).join('&');
+    const res = await get(`/rest/api/3/user/bulk?${qs}&maxResults=100`);
+    for (const u of res.values ?? []) found.set(u.accountId, { displayName: u.displayName ?? u.accountId, email: u.emailAddress || null });
+  }
+  for (const id of missing) {
+    const u = found.get(id) ?? { displayName: '(알 수 없는 사용자)', email: null };
+    const { rows } = await query(
+      `INSERT INTO users (email, confluence_account_id, display_name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (confluence_account_id) DO UPDATE SET display_name = EXCLUDED.display_name
+       RETURNING id`, [u.email, id, u.displayName]);
+    userIdByAccount.set(id, rows[0].id);
+  }
+}
+const uid = (u) => (u?.accountId ? userIdByAccount.get(u.accountId) ?? null : null);
+
+// 구형 스프린트 직렬화 문자열("...Sprint@..[id=5,name=..,state=..]") 대응
+function parseSprint(s) {
+  if (!s) return null;
+  if (typeof s === 'object') {
+    return { id: Number(s.id), name: s.name ?? `스프린트 ${s.id}`, state: s.state ?? 'closed',
+             start: s.startDate ?? null, end: s.endDate ?? s.completeDate ?? null };
+  }
+  const get1 = (k) => String(s).match(new RegExp(`${k}=([^,\\]]*)`))?.[1];
+  const id = Number(get1('id'));
+  if (!id) return null;
+  return { id, name: get1('name') ?? `스프린트 ${id}`, state: (get1('state') ?? 'closed').toLowerCase(),
+           start: get1('startDate') || null, end: get1('completeDate') || get1('endDate') || null };
+}
+const seenSprints = new Set();
+async function ensureSprints(sprintList) {
+  for (const sp of sprintList) {
+    if (!sp || seenSprints.has(sp.id)) continue;
+    const state = ['future', 'active', 'closed'].includes(sp.state) ? sp.state : 'closed';
+    await query(
+      `INSERT INTO jira_sprints (id, project_id, name, state, start_at, end_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, state = EXCLUDED.state`,
+      [sp.id, project.id, sp.name, state, sp.start, sp.end]);
+    seenSprints.add(sp.id);
+  }
 }
 
-const knownIds = new Set(issues.map((i) => Number(i.id)));
+// ---------- 이슈 스트리밍 수집·적재 ----------
+
+console.log('이슈 수집·적재 (페이지 단위)...');
+const names = (list) => (list ?? []).map((x) => x.name ?? String(x)).filter(Boolean);
+const parentPairs = []; // [issueId, parentId]
+const knownIds = new Set();
+let total = 0, cmtCount = 0, attCount = 0, linkCount = 0, extraCmtFetch = 0;
+const seenLinks = new Set();
+
+const jql = encodeURIComponent(`project = "${project.key}" ORDER BY created ASC`);
+let token = null;
+for (;;) {
+  const qs = `jql=${jql}&maxResults=100&fields=*all${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`;
+  const page = await get(`/rest/api/3/search/jql?${qs}`);
+  const issues = page.issues ?? [];
+  if (!issues.length) break;
+
+  // 이 페이지의 사용자·스프린트 먼저 보장 (FK)
+  const pageAccounts = new Set();
+  const addU = (u) => { if (u?.accountId) pageAccounts.add(u.accountId); };
+  for (const iss of issues) {
+    const f = iss.fields;
+    addU(f.assignee); addU(f.reporter); addU(f.creator);
+    for (const c of f.comment?.comments ?? []) { addU(c.author); addU(c.updateAuthor); }
+    for (const a of f.attachment ?? []) addU(a.author);
+  }
+  await ensureUsers(pageAccounts);
+  if (SPRINT_FIELD) {
+    const sprintObjs = issues.flatMap((iss) => (iss.fields[SPRINT_FIELD] ?? []).map(parseSprint)).filter(Boolean);
+    await ensureSprints(sprintObjs);
+  }
+
+  // 댓글이 잘린 이슈는 추가 조회 (페이지 내 동시 6)
+  const commentsByIssue = new Map();
+  await mapLimit(issues, 6, async (iss) => {
+    const c = iss.fields.comment ?? { comments: [], total: 0 };
+    let list = c.comments ?? [];
+    if ((c.total ?? 0) > list.length) {
+      list = [];
+      let startAt = 0;
+      for (;;) {
+        const cp = await get(`/rest/api/3/issue/${iss.id}/comment?startAt=${startAt}&maxResults=100`);
+        list.push(...(cp.comments ?? []));
+        startAt += cp.comments?.length ?? 0;
+        if (startAt >= (cp.total ?? 0) || !(cp.comments ?? []).length) break;
+      }
+      extraCmtFetch++;
+      const extraAccounts = new Set();
+      for (const cm of list) { if (cm.author?.accountId) extraAccounts.add(cm.author.accountId); }
+      await ensureUsers(extraAccounts);
+    }
+    if (list.length) commentsByIssue.set(iss.id, list);
+  });
+
+  for (const iss of issues) {
+    const f = iss.fields;
+    const sprintArr = SPRINT_FIELD ? (f[SPRINT_FIELD] ?? []).map(parseSprint).filter(Boolean) : [];
+    const sprintId = sprintArr.length ? sprintArr[sprintArr.length - 1].id : null; // 가장 최근 스프린트
+    const { comment: _c, attachment: _a, issuelinks: _l, ...rawRest } = f;
+    await query(
+      `INSERT INTO jira_issues
+         (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
+          priority, resolution, assignee_id, reporter_id, sprint_id, labels, fix_versions, components,
+          created_at, updated_at, resolved_at, fields_raw)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+       ON CONFLICT (id) DO UPDATE SET
+         status_id = EXCLUDED.status_id, summary = EXCLUDED.summary,
+         description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
+         resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id, sprint_id = EXCLUDED.sprint_id,
+         labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
+         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw`,
+      [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
+       f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
+       f.priority?.name ?? null, f.resolution?.name ?? null,
+       uid(f.assignee), uid(f.reporter), sprintId,
+       f.labels ?? [], names(f.fixVersions), names(f.components),
+       f.created ?? null, f.updated ?? null, f.resolutiondate ?? null,
+       JSON.stringify(rawRest)]);
+    knownIds.add(Number(iss.id));
+    if (f.parent?.id) parentPairs.push([Number(iss.id), Number(f.parent.id)]);
+
+    for (const c of commentsByIssue.get(iss.id) ?? []) {
+      await query(
+        `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (id) DO UPDATE SET body_adf = EXCLUDED.body_adf, updated_at = EXCLUDED.updated_at`,
+        [c.id, iss.id, c.body ? JSON.stringify(c.body) : null, uid(c.author), c.created ?? null, c.updated ?? null]);
+      cmtCount++;
+    }
+    for (const a of f.attachment ?? []) {
+      await query(
+        `INSERT INTO jira_attachments (id, issue_id, filename, media_type, file_size, source_url, author_id, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (id) DO UPDATE SET source_url = EXCLUDED.source_url`,
+        [a.id, iss.id, a.filename ?? '(이름 없음)', a.mimeType ?? null, a.size ?? null,
+         a.content ?? null, uid(a.author), a.created ?? null]);
+      attCount++;
+    }
+    for (const l of f.issuelinks ?? []) {
+      if (seenLinks.has(l.id)) continue;
+      seenLinks.add(l.id);
+      const inward = l.outwardIssue ? iss.id : l.inwardIssue?.id;
+      const outward = l.outwardIssue ? l.outwardIssue.id : iss.id;
+      if (!inward || !outward) continue;
+      await query(
+        `INSERT INTO jira_issue_links (id, link_type, inward_issue, outward_issue)
+         VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING`,
+        [l.id, l.type?.name ?? '(링크)', inward, outward]);
+      linkCount++;
+    }
+  }
+
+  total += issues.length;
+  console.log(`  ${total}건 적재...`);
+  if (page.isLast || !page.nextPageToken) break;
+  token = page.nextPageToken;
+}
+
+// 부모 연결 (이관 범위 안의 이슈만)
 let parentCnt = 0;
-for (const iss of issues) {
-  const pid = Number(iss.fields.parent?.id);
-  if (pid && knownIds.has(pid)) {
-    await query(`UPDATE jira_issues SET parent_id = $2 WHERE id = $1`, [iss.id, pid]);
+for (const [id, pid] of parentPairs) {
+  if (knownIds.has(pid)) {
+    await query(`UPDATE jira_issues SET parent_id = $2 WHERE id = $1`, [id, pid]);
     parentCnt++;
   }
 }
 
-// 댓글·첨부·링크
-let cmtCount = 0, attCount = 0, linkCount = 0;
-const seenLinks = new Set();
-for (const iss of issues) {
-  for (const c of commentsByIssue.get(iss.id) ?? []) {
-    await query(
-      `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6)
-       ON CONFLICT (id) DO UPDATE SET body_adf = EXCLUDED.body_adf, updated_at = EXCLUDED.updated_at`,
-      [c.id, iss.id, c.body ? JSON.stringify(c.body) : null, uid(c.author), c.created ?? null, c.updated ?? null]);
-    cmtCount++;
-  }
-  for (const a of iss.fields.attachment ?? []) {
-    await query(
-      `INSERT INTO jira_attachments (id, issue_id, filename, media_type, file_size, source_url, author_id, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (id) DO UPDATE SET source_url = EXCLUDED.source_url`,
-      [a.id, iss.id, a.filename ?? '(이름 없음)', a.mimeType ?? null, a.size ?? null,
-       a.content ?? null, uid(a.author), a.created ?? null]);
-    attCount++;
-  }
-  for (const l of iss.fields.issuelinks ?? []) {
-    if (seenLinks.has(l.id)) continue;
-    seenLinks.add(l.id);
-    // 링크는 한쪽 이슈 기준으로 inward/outward 가 담긴다. outward 가 있으면 자신→상대, inward 면 상대→자신.
-    const inward = l.outwardIssue ? iss.id : l.inwardIssue?.id;
-    const outward = l.outwardIssue ? l.outwardIssue.id : iss.id;
-    if (!inward || !outward) continue;
-    await query(
-      `INSERT INTO jira_issue_links (id, link_type, inward_issue, outward_issue)
-       VALUES ($1,$2,$3,$4) ON CONFLICT (id) DO NOTHING`,
-      [l.id, l.type?.name ?? '(링크)', inward, outward]);
-    linkCount++;
-  }
-}
+// 링크 양끝이 범위 밖(dangling)인 행은 그대로 둔다 — 뷰어가 '이관 범위 밖'으로 표시
+// 신규 생성 ID가 이관 ID와 겹치지 않게 시퀀스 보정 (스프린트 포함)
+await query(`SELECT setval('jira_sprints_id_seq',
+  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
-console.log(`완료: 이슈 ${issues.length} (부모 연결 ${parentCnt}) / 사용자 ${users.size} / 댓글 ${cmtCount} / 첨부 ${attCount} / 링크 ${linkCount} / 버전 ${versions.length}`);
+console.log(`완료: 이슈 ${total} (부모 연결 ${parentCnt}) / 스프린트 ${seenSprints.size} / 사용자 ${userIdByAccount.size}`
+  + ` / 댓글 ${cmtCount} (추가 조회 ${extraCmtFetch}이슈) / 첨부 ${attCount} / 링크 ${linkCount} / 버전 ${versions.length}`);
 await closeDb();

@@ -27,6 +27,8 @@ await query(`SELECT setval('jira_comment_id_seq',
   GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_comments), (SELECT last_value FROM jira_comment_id_seq)))`);
 await query(`SELECT setval('jira_attachment_id_seq',
   GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_attachments), (SELECT last_value FROM jira_attachment_id_seq)))`);
+await query(`SELECT setval('jira_sprints_id_seq',
+  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 
