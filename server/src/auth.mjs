@@ -9,6 +9,8 @@ import { query, DATA_DIR } from './db.mjs';
 import { getAccess } from './perm.mjs';
 
 const COOKIE = 'gmd_sid';
+// 개발 로그인 화면에 노출할 테스트 계정 (이관된 실제 사용자는 목록에서 숨긴다)
+const TEST_ACCOUNT_ID = 'test-login';
 
 export const hashToken = (token) => createHash('sha256').update(token).digest();
 
@@ -40,6 +42,12 @@ export async function registerAuth(app) {
     `UPDATE users SET is_admin = true
       WHERE email = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin)`, [adminEmail]);
 
+  // 테스트 계정 시드: 로그인 화면에는 이 계정 하나만 보인다 (Entra 전환 시 제거)
+  await query(
+    `INSERT INTO users (confluence_account_id, display_name, active, is_admin)
+     VALUES ($1, '테스트', true, true)
+     ON CONFLICT (confluence_account_id) DO NOTHING`, [TEST_ACCOUNT_ID]);
+
   // /api/* 는 로그인 필수 (auth 라우트 제외). req.access에 권한 컨텍스트를 싣는다.
   // 인증 수단: ① 서명 쿠키(웹) ② Authorization: Bearer API 키(외부 연동)
   app.addHook('preHandler', async (req, reply) => {
@@ -62,11 +70,12 @@ export async function registerAuth(app) {
   });
 
   // 로그인 화면용 사용자 목록 (로그인 전 접근 — 개발용. Entra 전환 시 제거)
+  // 이관된 실제 사용자는 노출하지 않고 테스트 계정만 내려준다.
   app.get('/api/auth/users', async () => {
     const { rows } = await query(
       `SELECT id, display_name, email FROM users
-        WHERE active AND display_name IS NOT NULL AND confluence_account_id != 'local-dev'
-        ORDER BY display_name`);
+        WHERE active AND confluence_account_id = $1
+        ORDER BY display_name`, [TEST_ACCOUNT_ID]);
     return rows;
   });
 
