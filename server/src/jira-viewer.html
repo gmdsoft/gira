@@ -92,8 +92,7 @@
   table.issues th:hover { background: #f0f1f3; }
   table.issues th .arrow { color: var(--accent); margin-left: 3px; }
   table.issues td.c-sum { white-space: normal; min-width: 260px; max-width: 480px; }
-  table.issues td.c-sum .key { color: var(--accent); font-size: 12px; margin-right: 8px; }
-  table.issues td.c-sum .key.done { text-decoration: line-through; }
+  table.issues .ilink.done { text-decoration: line-through; }
   table.issues tr:hover td { background: #f7f9fc; }
   table.issues .tstatus { font-size: 12px; padding: 2px 4px; border-radius: 3px; border-color: transparent; font-weight: 600; cursor: pointer; }
   table.issues .tstatus.cat-new { background: var(--new); color: var(--new-t); }
@@ -456,8 +455,8 @@ function renderTable() {
       `<th data-field="${f}">${label}${tableSort.field === f ? `<span class="arrow">${tableSort.dir > 0 ? '▲' : '▼'}</span>` : ''}</th>`).join('')}</tr></thead>
     <tbody>${rows.map((r) => `
       <tr>
-        <td><span class="ilink" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span></td>
-        <td class="c-sum"><span class="key${r.status_category === 'done' ? ' done' : ''}">${esc(r.issue_key)}</span>${esc(r.summary)}</td>
+        <td><span class="ilink${r.status_category === 'done' ? ' done' : ''}" data-key="${esc(r.issue_key)}">${esc(r.issue_key)}</span></td>
+        <td class="c-sum">${esc(r.summary)}</td>
         <td>${esc(r.type_name ?? '')}</td>
         <td>${esc(r.assignee_name ?? '')}</td>
         <td>${esc(r.reporter_name ?? '')}</td>
