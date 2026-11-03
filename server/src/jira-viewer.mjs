@@ -35,7 +35,8 @@ await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 
 // React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)
 const DIST = path.join(here, '..', '..', 'web', 'dist-jira-app');
-await app.register(fastifyStatic, { root: DIST, wildcard: false });
+// wildcard 서빙: 재빌드로 애셋 해시가 바뀌어도 서버 재시작 불필요
+await app.register(fastifyStatic, { root: DIST, index: false });
 const page = (req, reply) => reply.type('text/html').send(createReadStream(path.join(DIST, 'jira.html')));
 app.get('/', page);
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
