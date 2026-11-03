@@ -115,6 +115,23 @@ export function tiptapToAdf(n) {
   }
 }
 
+// ADF → 플레인 텍스트 (댓글 편집 프리필용. 서식은 보존되지 않는다)
+export function adfPlain(node, depth = 0) {
+  if (!node) return '';
+  const kids = (d = depth) => (node.content ?? []).map((c) => adfPlain(c, d)).join('');
+  switch (node.type) {
+    case 'text': return node.text ?? '';
+    case 'hardBreak': return '\n';
+    case 'mention': return '@' + (node.attrs?.text?.replace(/^@/, '') ?? '');
+    case 'emoji': return node.attrs?.text ?? node.attrs?.shortName ?? '';
+    case 'paragraph': case 'heading': return kids() + '\n';
+    case 'listItem': return '  '.repeat(depth) + '- ' + kids(depth + 1).replace(/\n+$/, '') + '\n';
+    case 'codeBlock': return kids() + '\n';
+    case 'rule': return '---\n';
+    default: return kids();
+  }
+}
+
 // 서식 있는 요소 포함 여부 (편집 시 단순화 경고용)
 export function hasRichContent(node) {
   if (!node) return false;

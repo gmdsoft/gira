@@ -267,6 +267,16 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
   return { id: rows[0].id };
 });
 
+app.patch('/api/comments/:id', async (req, reply) => {
+  const text = req.body?.text?.trim();
+  if (!text) return reply.code(400).send({ error: '내용을 입력하세요' });
+  const { rowCount } = await query(
+    `UPDATE jira_comments SET body_adf = $2, updated_at = now() WHERE id = $1`,
+    [req.params.id, JSON.stringify(textToAdf(text))]);
+  if (!rowCount) return reply.code(404).send({ error: 'not found' });
+  return { ok: true };
+});
+
 // ---------- 첨부 ----------
 
 app.post('/api/issue/:key/attachments', async (req, reply) => {

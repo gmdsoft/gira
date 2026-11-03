@@ -4,20 +4,42 @@ import { api, dt, fileSize, Prio, Avatar, StatusSelect } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
 import AdfView from './adf.jsx';
 import DescEditor from './DescEditor.jsx';
-import { tiptapToAdf, hasRichContent } from './adf-convert.js';
+import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
+
+// 클릭하면 제자리에서 입력으로 바뀌는 한 줄 텍스트 (Enter 저장, Esc 취소)
+function InlineText({ value, onSave, as: Tag = 'span', className, placeholder, inputStyle }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value ?? '');
+  useEffect(() => setVal(value ?? ''), [value]);
+  if (!editing) {
+    return <Tag className={`${className ?? ''} inline-edit`} title="클릭하여 편집" onClick={() => setEditing(true)}>
+      {value || <span className="dim">{placeholder}</span>}</Tag>;
+  }
+  const done = (save) => {
+    setEditing(false);
+    if (save && val.trim() !== (value ?? '')) onSave(val);
+    else setVal(value ?? '');
+  };
+  return <input autoFocus value={val} style={{ width: '100%', ...inputStyle }}
+    onChange={(e) => setVal(e.target.value)}
+    onBlur={() => done(true)}
+    onKeyDown={(e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); }} />;
+}
 
 export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, onTitle }) {
   const [d, setD] = useState(null);
-  const [editing, setEditing] = useState(false);
+  const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
+  const [editingComment, setEditingComment] = useState(null); // {id, text}
   const fileRef = useRef(null);
+  const descEditorRef = useRef(null);
 
   const load = async () => {
     const data = await api('/api/issue/' + encodeURIComponent(issueKey));
     setD(data);
     onTitle?.(`[${data.issue_key}] ${data.summary} - Jira PoC`);
   };
-  useEffect(() => { setEditing(false); setComment(''); load(); }, [issueKey]);
+  useEffect(() => { setDescEditing(false); setComment(''); setEditingComment(null); load(); }, [issueKey]);
 
   if (!d) return <div className="placeholder">불러오는 중…</div>;
 
@@ -44,7 +66,17 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
     fileRef.current.value = ''; load();
   };
 
-  if (editing) return <EditForm d={d} onDone={() => { setEditing(false); load(); onChanged?.(); }} onCancel={() => setEditing(false)} />;
+  const saveDesc = async () => {
+    const ed = descEditorRef.current;
+    const descriptionAdf = ed && !ed.isEmpty ? tiptapToAdf(ed.getJSON()) : null;
+    setDescEditing(false);
+    await patch({ descriptionAdf });
+  };
+  const saveComment = async () => {
+    if (!editingComment?.text.trim()) return;
+    await api('/api/comments/' + editingComment.id, { method: 'PATCH', json: { text: editingComment.text } });
+    setEditingComment(null); load();
+  };
 
   const doneCnt = d.subtasks.filter((s) => s.status_category === 'done').length;
   const pct = d.subtasks.length ? Math.round(doneCnt * 100 / d.subtasks.length) : 0;
@@ -73,9 +105,10 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
               <button className="plain dim" title="상위 항목 변경" onClick={changeParent}>✎</button> / </>
           : <><button className="mini" onClick={changeParent}>상위 항목 추가</button> / </>}
         <TypeIcon name={d.type_name} /> {d.issue_key}
-        <button className="mini" style={{ marginLeft: 8 }} onClick={() => setEditing(true)}>편집</button>
       </div>
-      <h2>{d.summary}</h2>
+      <InlineText as="h2" value={d.summary} placeholder="요약 입력"
+        inputStyle={{ fontSize: 20, fontWeight: 700, margin: '4px 0 10px', maxWidth: 860 }}
+        onSave={(v) => patch({ summary: v })} />
       <div className="dwrap">
         <div className="dmain">
           <section><h3>주요 세부 정보</h3>
@@ -97,7 +130,10 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                   onChange={(e) => patch({ fixVersions: [...e.target.selectedOptions].map((o) => o.value) }, false)}>
                   {verNames.map((v) => <option key={v} value={v}>{v}</option>)}
                 </select></dd>
-              <dt>레이블</dt><dd>{d.labels?.length ? d.labels.map((l) => <span className="chip" key={l}>{l}</span>) : <span className="dim">없음</span>}</dd>
+              <dt>레이블</dt><dd style={{ flex: 1 }}>
+                <InlineText value={(d.labels ?? []).join(', ')} placeholder="레이블 추가 (쉼표 구분)"
+                  onSave={(v) => patch({ labels: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
+              </dd>
               <dt>담당자</dt><dd><Avatar name={d.assignee_name} />{' '}
                 <select value={d.assignee_id ?? ''} onChange={(e) => patch({ assigneeId: e.target.value ? Number(e.target.value) : null })}>
                   <option value="">미지정</option>
@@ -110,7 +146,22 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                     {s.name}{s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''}</option>)}
                 </select></dd>
             </dl>
-            <div className="fieldrow"><div className="flabel2">설명</div><AdfView doc={d.description_adf} /></div>
+            <div className="fieldrow"><div className="flabel2">설명</div>
+              {descEditing
+                ? <>
+                    {hasRichContent(d.description_adf) && (
+                      <div className="adf"><div className="panel warning" style={{ fontSize: 12 }}>
+                        패널·이미지·멘션 등 일부 요소는 편집기에서 단순화되어 표시됩니다. 저장하면 단순화된 형태로 대체됩니다.</div></div>)}
+                    <DescEditor initialAdf={d.description_adf} onReady={(ed) => { descEditorRef.current = ed; }} />
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                      <button className="primary mini" onClick={saveDesc}>저장</button>
+                      <button className="mini" onClick={() => setDescEditing(false)}>취소</button>
+                    </div>
+                  </>
+                : <div className="inline-edit" title="클릭하여 편집" onClick={() => setDescEditing(true)}>
+                    <AdfView doc={d.description_adf} />
+                  </div>}
+            </div>
           </section>
 
           <section><h3>첨부 파일 ({d.attachments.length})</h3>
@@ -150,8 +201,21 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
           <section><h3>댓글 ({d.comments.length})</h3>
             {d.comments.map((c) => (
               <div className="comment" key={c.id}>
-                <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {dt(c.created_at)}</div>
-                <AdfView doc={c.body_adf} />
+                <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {dt(c.created_at)}
+                  {editingComment?.id !== c.id &&
+                    <button className="plain dim" style={{ marginLeft: 6 }} title="댓글 편집"
+                      onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
+                </div>
+                {editingComment?.id === c.id
+                  ? <div className="cform">
+                      <textarea autoFocus value={editingComment.text}
+                        onChange={(e) => setEditingComment({ ...editingComment, text: e.target.value })} />
+                      <div className="actions">
+                        <button className="primary mini" onClick={saveComment}>저장</button>
+                        <button className="mini" onClick={() => setEditingComment(null)}>취소</button>
+                      </div>
+                    </div>
+                  : <AdfView doc={c.body_adf} />}
               </div>))}
             <div className="cform">
               <textarea placeholder="댓글 입력 (플레인 텍스트)" value={comment} onChange={(e) => setComment(e.target.value)} />
@@ -191,37 +255,3 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   );
 }
 
-function EditForm({ d, onDone, onCancel }) {
-  const [summary, setSummary] = useState(d.summary);
-  const [labels, setLabels] = useState((d.labels ?? []).join(', '));
-  const editorRef = useRef(null);
-  const save = async () => {
-    if (!summary.trim()) return alert('요약을 입력하세요');
-    const ed = editorRef.current;
-    const descriptionAdf = ed && !ed.isEmpty ? tiptapToAdf(ed.getJSON()) : null;
-    await api('/api/issue/' + encodeURIComponent(d.issue_key), { method: 'PATCH', json: {
-      summary: summary.trim(),
-      labels: labels.split(',').map((s) => s.trim()).filter(Boolean),
-      descriptionAdf,
-    } });
-    onDone();
-  };
-  return (
-    <div style={{ maxWidth: 760 }}>
-      <div className="dkey">{d.issue_key} 편집</div>
-      <label className="flabel">요약 *</label>
-      <input type="text" style={{ width: '100%' }} value={summary} onChange={(e) => setSummary(e.target.value)} />
-      <label className="flabel">라벨 (쉼표 구분)</label>
-      <input type="text" style={{ width: '100%' }} value={labels} onChange={(e) => setLabels(e.target.value)} />
-      <label className="flabel">설명</label>
-      {hasRichContent(d.description_adf) && (
-        <div className="adf"><div className="panel warning" style={{ fontSize: 12 }}>
-          패널·이미지·멘션 등 일부 요소는 편집기에서 단순화되어 표시됩니다. 저장하면 단순화된 형태로 대체됩니다.</div></div>)}
-      <DescEditor initialAdf={d.description_adf} onReady={(ed) => { editorRef.current = ed; }} />
-      <div style={{ marginTop: 14, display: 'flex', gap: 8 }}>
-        <button className="primary" onClick={save}>저장</button>
-        <button onClick={onCancel}>취소</button>
-      </div>
-    </div>
-  );
-}
