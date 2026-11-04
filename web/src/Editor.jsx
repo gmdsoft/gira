@@ -234,7 +234,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         </div>
         <div className="editor-actions">
           <div className="mode-switch" title="문서 형식은 동일 — 편집 UI만 다릅니다">
-            <button className={mode === 'confluence' ? 'on' : ''} onClick={() => switchMode('confluence')}>Confluence</button>
+            <button className={mode === 'confluence' ? 'on' : ''} onClick={() => switchMode('confluence')}>Gonfluence</button>
             <button className={mode === 'notion' ? 'on' : ''} onClick={() => switchMode('notion')}>Notion</button>
           </div>
           <span className="save-state">{saveState}</span>

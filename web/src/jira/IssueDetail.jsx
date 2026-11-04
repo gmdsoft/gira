@@ -175,7 +175,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const load = async () => {
     const data = await api('/api/issue/' + encodeURIComponent(issueKey));
     setD(data);
-    onTitle?.(`[${data.issue_key}] ${data.summary} - Jira PoC`);
+    onTitle?.(`[${data.issue_key}] ${data.summary} - Gira`);
     onSeen?.(data.issue_key, data.summary);
   };
   useEffect(() => { setDescEditing(false); setComment(''); setEditingComment(null); load(); }, [issueKey]);

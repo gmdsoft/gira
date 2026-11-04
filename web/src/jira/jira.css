@@ -124,6 +124,7 @@ a:hover { text-decoration: underline; }
   background: linear-gradient(135deg, #0c66e4, #0747a6); color: #fff; font-size: 13px; font-weight: 800;
 }
 .brand-word { color: var(--text); }
+.brand .poc-badge { font-size: 11px; background: var(--accent); color: var(--on-accent); border-radius: 4px; padding: 2px 6px; font-weight: 600; margin-left: 2px; }
 .navtgl { color: var(--dim); }
 .tb-search {
   position: absolute; left: 50%; transform: translateX(-50%);
