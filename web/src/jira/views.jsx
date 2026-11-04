@@ -106,13 +106,74 @@ const GROUPERS = {
   priority: (r) => r.priority ?? '(없음)',
 };
 
+// 열 폭: 사용자가 머리글 경계를 드래그해 조절한다. 업무(요약) 열은 최소 폭을 크게 잡아
+// 창이 좁아져도 내용이 잘리지 않고 표가 가로 스크롤되도록 한다.
+const CHECKBOX_WIDTH = 40;
+const SUMMARY_MIN = 480;
+const DEFAULT_COL_WIDTHS = { key: 110, type: 90, assignee: 135, reporter: 135, priority: 100, status: 120, resolution: 80, created: 145, updated: 145 };
+const MIN_COL_WIDTHS = { key: 70, type: 55, assignee: 80, reporter: 80, priority: 70, status: 80, resolution: 55, created: 95, updated: 95 };
+const readLS = (key, fallback) => {
+  try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
+};
+
 export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew, boardJql }) {
   const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
   const [selected, setSelected] = useState(() => new Set());
+  const [widths, setWidths] = useState(() => ({ ...DEFAULT_COL_WIDTHS, ...(readLS('jira.tableWidths.v3', {}) ?? {}) }));
+  const [summaryWidth, setSummaryWidth] = useState(() => Math.max(SUMMARY_MIN, Number(readLS('jira.summaryWidth', SUMMARY_MIN)) || SUMMARY_MIN));
+  const [summaryManual, setSummaryManual] = useState(() => readLS('jira.summaryManual', false) === true);
+  const [resizing, setResizing] = useState(null);
+  const wrapRef = useRef(null);
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump,
     { pageSize: 100, sort: sort ? (sort.dir < 0 ? '-' : '') + sort.field : null, extraJql: [boardJql] }); // 정렬은 서버에서 전체 기준으로
   useEffect(() => onCount(total), [total]);
   useEffect(() => { setSelected((cur) => new Set([...cur].filter((id) => rows.some((r) => r.id === id)))); }, [rows]);
+
+  const fixedSum = CHECKBOX_WIDTH + TABLE_COLS
+    .filter(([f]) => f !== 'summary')
+    .reduce((sum, [f]) => sum + (widths[f] ?? DEFAULT_COL_WIDTHS[f]), 0);
+  useEffect(() => { try { localStorage.setItem('jira.tableWidths.v3', JSON.stringify(widths)); } catch { /* 무시 */ } }, [widths]);
+  useEffect(() => { try { localStorage.setItem('jira.summaryWidth', String(summaryWidth)); localStorage.setItem('jira.summaryManual', summaryManual ? 'true' : 'false'); } catch { /* 무시 */ } }, [summaryWidth, summaryManual]);
+  // 업무 열은 창 폭에 맞춰 남는 공간을 차지한다. 사용자가 직접 조절한 뒤에는 그 폭을 유지한다.
+  useEffect(() => {
+    if (summaryManual) return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const fit = () => setSummaryWidth(Math.max(SUMMARY_MIN, el.clientWidth - fixedSum));
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fixedSum, summaryManual]);
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e) => {
+      const delta = e.clientX - resizing.startX;
+      if (resizing.field === 'summary') {
+        setSummaryWidth(Math.max(SUMMARY_MIN, resizing.startW + delta));
+        setSummaryManual(true);
+      } else {
+        setWidths((w) => ({ ...w, [resizing.field]: Math.max(MIN_COL_WIDTHS[resizing.field] ?? 50, resizing.startW + delta) }));
+      }
+    };
+    const onUp = () => setResizing(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.classList.add('col-resizing');
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('col-resizing');
+    };
+  }, [resizing]);
+  const startResize = (e, field) => {
+    e.preventDefault(); e.stopPropagation();
+    setResizing({ field, startX: e.clientX, startW: field === 'summary' ? summaryWidth : (widths[field] ?? DEFAULT_COL_WIDTHS[field]) });
+  };
+  const resetCol = (field) => {
+    if (field === 'summary') setSummaryManual(false);
+    else setWidths((w) => ({ ...w, [field]: DEFAULT_COL_WIDTHS[field] }));
+  };
 
   const ordered = useMemo(() => {
     if (!filters.group) return rows;
@@ -143,13 +204,20 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
   return (
     <div className="view on" id="view-table">
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-    <div id="tablewrap" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
-      <table className="issues">
+    <div id="tablewrap" ref={wrapRef} onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
+      <table className="issues" style={{ width: fixedSum + summaryWidth, minWidth: '100%' }}>
+        <colgroup>
+          <col style={{ width: CHECKBOX_WIDTH }} />
+          {TABLE_COLS.map(([f]) => <col key={f} style={{ width: f === 'summary' ? summaryWidth : widths[f] }} />)}
+        </colgroup>
         <thead><tr>
           <th className="c-check"><input type="checkbox" checked={allOn} onChange={toggleAll} aria-label="전체 선택" /></th>
           {TABLE_COLS.map(([f, label]) => (
             <th key={f} className={`c-${f}`} onClick={() => clickSort(f)}>{label}
-              {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
+              {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}
+              <span className="col-resizer" title="드래그하여 열 폭 조절 (더블클릭: 초기화)"
+                onMouseDown={(e) => startResize(e, f)} onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => { e.stopPropagation(); resetCol(f); }} /></th>))}
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
           ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
