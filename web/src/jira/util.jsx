@@ -10,8 +10,8 @@ export async function api(path, opts = {}) {
   if (!res.ok) {
     const e = await res.json().catch(() => ({}));
     const msg = e.error ?? `오류 (${res.status})`;
-    alert(msg);
-    throw new Error(msg);
+    if (!opts.quiet) alert(msg); // quiet: 호출자가 직접 표시 (JQL 문법 오류 등)
+    throw Object.assign(new Error(msg), { body: e });
   }
   return res.json();
 }

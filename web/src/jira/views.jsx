@@ -1,28 +1,68 @@
 // 뷰 4종: 목록(분할), 전체 목록(표), 보드(칸반), 백로그(스프린트)
-import React, { useEffect, useMemo, useState } from 'react';
-import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, PRIORITY_ORDER } from './util.jsx';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
 
-function useIssues(project, filters, bump, extraDep = null) {
-  const [rows, setRows] = useState([]);
+// 이슈 목록 훅. pageSize를 주면 스크롤 추가 로드(fetchMore), 없으면 한 번에 최대 1000건.
+function useIssues(project, filters, bump, { sort = null, pageSize = 0 } = {}) {
+  const [data, setData] = useState({ total: 0, rows: [] });
+  const [loading, setLoading] = useState(false);
+  const seq = useRef(0); // 필터/정렬 변경 후 도착하는 이전 요청 응답 무시용
+  const qs = (offset, limit) => {
+    const u = new URLSearchParams({ project, offset, limit });
+    if (filters.jql) u.set('jql', filters.jql); // 고급(JQL) 모드 — 기본 필터와 병행하지 않음
+    else for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+    if (sort) u.set('sort', sort);
+    return u;
+  };
   useEffect(() => {
     if (!project) return;
-    const qs = new URLSearchParams({ project });
-    for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) qs.set(k, filters[k]);
-    api('/api/issues?' + qs).then(setRows);
-  }, [project, JSON.stringify(filters), bump, extraDep]);
-  return rows;
+    const my = ++seq.current;
+    setLoading(true);
+    api('/api/issues?' + qs(0, pageSize || 1000)).then((d) => {
+      if (seq.current !== my) return;
+      setData(d); setLoading(false);
+    });
+  }, [project, JSON.stringify(filters), bump, sort]);
+  const fetchMore = () => {
+    if (!pageSize || loading || data.rows.length >= data.total) return;
+    const my = seq.current;
+    setLoading(true);
+    api('/api/issues?' + qs(data.rows.length, pageSize)).then((d) => {
+      if (seq.current !== my) return;
+      setData((cur) => ({ total: d.total, rows: [...cur.rows, ...d.rows] }));
+      setLoading(false);
+    });
+  };
+  return { rows: data.rows, total: data.total, loading, fetchMore };
+}
+
+// 스크롤이 바닥 근처에 오면 fetchMore 호출
+const nearBottom = (el, px = 400) => el.scrollTop + el.clientHeight >= el.scrollHeight - px;
+
+// 목록 하단 고정 푸터 (Jira 목록 뷰의 '+ 만들기 / N 중 M / 새로고침')
+function ListFoot({ total, shown, loading, onNew, onRefresh }) {
+  return (
+    <div className="lfoot">
+      <button className="plain" onClick={onNew}>+ 만들기</button>
+      <span className="dim" style={{ marginLeft: 'auto' }}>
+        {total ? `${total.toLocaleString()} 중 ${shown.toLocaleString()}` : '0건'}{loading ? ' · 불러오는 중…' : ''}
+      </span>
+      <button className="plain" title="새로고침" onClick={onRefresh}>⟳</button>
+    </div>
+  );
 }
 
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
-export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen }) {
-  const rows = useIssues(project, { ...filters, sprintOnly: undefined }, bump);
-  useEffect(() => onCount(rows.length), [rows]);
+export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew }) {
+  const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100 });
+  useEffect(() => onCount(total), [total]);
   return (
     <div className="view on" id="view-list">
-      <div id="list">
+      <div className="lpane">
+      <div id="list" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
         {rows.map((r) => (
           <div className={`row${r.issue_key === selKey ? ' sel' : ''}`} key={r.id} onClick={() => onOpen(r.issue_key)}>
             <div className="top">
@@ -35,6 +75,8 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
               <span>{r.type_name ?? ''}</span><span>{r.assignee_name ?? '미지정'}</span><span>{dt(r.updated_at)}</span>
             </div>
           </div>))}
+      </div>
+      <ListFoot total={total} shown={rows.length} loading={loading} onNew={onNew} onRefresh={onChanged} />
       </div>
       <div id="detail">
         {selKey
@@ -50,19 +92,6 @@ const TABLE_COLS = [
   ['key', '키'], ['summary', '업무'], ['type', '타입'], ['assignee', '담당자'], ['reporter', '보고자'],
   ['priority', '우선 순위'], ['status', '상태'], ['resolution', '해결'], ['created', '만듦'], ['updated', '업데이트됨'],
 ];
-const keyNum = (k) => Number(String(k).split('-')[1] ?? 0);
-const SORTERS = {
-  key: (a, b) => keyNum(a.issue_key) - keyNum(b.issue_key),
-  summary: (a, b) => (a.summary ?? '').localeCompare(b.summary ?? '', 'ko'),
-  type: (a, b) => (a.type_name ?? '').localeCompare(b.type_name ?? '', 'ko'),
-  assignee: (a, b) => (a.assignee_name ?? '힣힣').localeCompare(b.assignee_name ?? '힣힣', 'ko'),
-  reporter: (a, b) => (a.reporter_name ?? '힣힣').localeCompare(b.reporter_name ?? '힣힣', 'ko'),
-  priority: (a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9),
-  status: (a, b) => (a.status_name ?? '').localeCompare(b.status_name ?? '', 'ko'),
-  resolution: (a, b) => (a.resolution ?? '힣힣').localeCompare(b.resolution ?? '힣힣', 'ko'),
-  created: (a, b) => new Date(a.created_at ?? 0) - new Date(b.created_at ?? 0),
-  updated: (a, b) => new Date(a.updated_at ?? 0) - new Date(b.updated_at ?? 0),
-};
 const GROUPERS = {
   status: (r) => r.status_name ?? '(없음)',
   assignee: (r) => r.assignee_name ?? '(미지정)',
@@ -71,16 +100,17 @@ const GROUPERS = {
   priority: (r) => r.priority ?? '(없음)',
 };
 
-export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount }) {
-  const rows = useIssues(project, filters, bump);
-  const [sort, setSort] = useState({ field: 'key', dir: -1 });
-  useEffect(() => onCount(rows.length), [rows]);
+export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew }) {
+  const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
+  const { rows, total, loading, fetchMore } = useIssues(project, filters, bump,
+    { pageSize: 100, sort: sort ? (sort.dir < 0 ? '-' : '') + sort.field : null }); // 정렬은 서버에서 전체 기준으로
+  useEffect(() => onCount(total), [total]);
 
   const ordered = useMemo(() => {
-    const sorted = [...rows].sort((a, b) => sort.dir * SORTERS[sort.field](a, b));
-    if (!filters.group) return sorted;
+    if (!filters.group) return rows;
+    // 그룹화는 로드된 범위 안에서만 (스크롤로 더 불러오면 그룹이 늘어난다)
     const groups = new Map();
-    for (const r of sorted) {
+    for (const r of rows) {
       const g = GROUPERS[filters.group](r);
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(r);
@@ -91,20 +121,22 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
       out.push(...list);
     }
     return out;
-  }, [rows, sort, filters.group]);
+  }, [rows, filters.group]);
 
-  const clickSort = (f) => setSort((s) => s.field === f ? { ...s, dir: -s.dir } : { field: f, dir: 1 });
+  const clickSort = (f) => setSort((s) => s?.field === f ? { ...s, dir: -s.dir } : { field: f, dir: 1 });
   const changeStatus = async (r, id) => {
     await api('/api/issue/' + encodeURIComponent(r.issue_key), { method: 'PATCH', json: { statusId: id } });
     onChanged();
   };
 
   return (
-    <div className="view on" id="view-table"><div id="tablewrap">
+    <div className="view on" id="view-table">
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+    <div id="tablewrap" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
       <table className="issues">
         <thead><tr>{TABLE_COLS.map(([f, label]) => (
           <th key={f} onClick={() => clickSort(f)}>{label}
-            {sort.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
+            {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
           ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length}>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
@@ -123,17 +155,19 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
             </tr>)}
         </tbody>
       </table>
+    </div>
+    <ListFoot total={total} shown={rows.length} loading={loading} onNew={onNew} onRefresh={onChanged} />
     </div></div>
   );
 }
 
 // ---------- 보드 (칸반) ----------
 export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
-  const rows = useIssues(project, filters, bump);
+  const { rows, total } = useIssues(project, filters, bump); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
   const [overCol, setOverCol] = useState(null);
-  useEffect(() => onCount(rows.length), [rows]);
+  useEffect(() => onCount(total), [total]);
   // 보드 목록이 로드된 뒤에만 유효성 검사 (로드 전 빈 배열로 ?b= 딥링크를 지우지 않도록)
   useEffect(() => { if (boardId && pdata.boards.length && !pdata.boards.some((b) => String(b.id) === boardId)) onBoard(''); }, [pdata.boards]);
 
@@ -215,11 +249,53 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
   );
 }
 
+// 완료 스프린트 한 개: 펼칠 때 이슈를 지연 로드, 행은 읽기 전용 (보관 성격)
+function ClosedSprint({ project, s, onOpen }) {
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState(null);
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next && list === null) {
+      const qs = new URLSearchParams({ project, sprint: s.id, limit: 1000, offset: 0 });
+      setList((await api('/api/issues?' + qs)).rows);
+    }
+  };
+  return (
+    <div className="csprint">
+      <div className="cshead" onClick={toggle}>
+        <span className="dim" style={{ width: 14 }}>{open ? '▾' : '▸'}</span>
+        <b>{s.name}</b>
+        <span className="badge cat-done">완료</span>
+        <span className="goal">{s.goal ?? ''}{s.end_at ? ` · ${dt(s.end_at)} 종료` : ''}</span>
+        {list !== null && <><span className="dim">{list.length}건</span><CatChips rows={list} /></>}
+      </div>
+      {open && (list === null
+        ? <div className="sempty">불러오는 중…</div>
+        : !list.length
+          ? <div className="sempty">이슈 없음</div>
+          : list.map((r) => (
+            <div className="srow" key={r.id}>
+              <EpicBar r={r} />
+              <TypeIcon name={r.type_name} />
+              <span className={`key ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span>
+              <span className="sum">{r.summary}</span>
+              <span className={`badge cat-${r.status_category}`}>{r.status_name ?? '?'}</span>
+              <Prio p={r.priority} />
+              <Avatar name={r.assignee_name} />
+            </div>)))}
+    </div>
+  );
+}
+
 // ---------- 백로그 (스프린트 + 인라인 계층) ----------
 export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata }) {
-  const rows = useIssues(project, { ...filters, sprint: '' }, bump);
+  // 완료 스프린트 소속 이슈는 제외하고 로드 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
+  // JQL은 백로그에 적용하지 않는다 (실제 Jira 백로그도 JQL 미지원)
+  const { rows, total } = useIssues(project, { ...filters, sprint: 'open', jql: '' }, bump);
   const [expanded, setExpanded] = useState(() => new Set());
-  useEffect(() => onCount(rows.length), [rows]);
+  const [showClosed, setShowClosed] = useState(false);
+  useEffect(() => onCount(total), [total]);
 
   const bySprint = new Map();
   for (const r of rows) {
@@ -315,6 +391,8 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
   };
 
   const backlogList = bySprint.get('none') ?? [];
+  const closedSprints = pdata.sprints.filter((s) => s.state === 'closed')
+    .sort((a, b) => new Date(b.end_at ?? b.start_at ?? 0) - new Date(a.end_at ?? a.start_at ?? 0)); // 최근 완료 먼저
   return (
     <div className="view on" id="view-backlog"><div id="backlog">
       <div style={{ marginBottom: 12 }}><button className="primary" onClick={newSprint}>+ 스프린트 만들기</button></div>
@@ -324,7 +402,16 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
         <div className="shead"><b>백로그</b><span className="dim">{backlogList.length}건</span><CatChips rows={backlogList} /></div>
         {backlogList.length ? sectionRows(backlogList) : <div className="sempty">백로그가 비어 있습니다</div>}
       </div>
-      {pdata.sprints.filter((s) => s.state === 'closed').map((s) => <SprintBlock s={s} key={s.id} />)}
+      {closedSprints.length > 0 && (
+        <div className="sprint">
+          <div className="shead" style={{ cursor: 'pointer' }} onClick={() => setShowClosed((v) => !v)}>
+            <span className="dim" style={{ width: 14 }}>{showClosed ? '▾' : '▸'}</span>
+            <b>완료된 스프린트</b>
+            <span className="dim">{closedSprints.length}개 — 펼쳐서 확인 (이슈는 펼칠 때 로드)</span>
+          </div>
+          {showClosed && closedSprints.map((s) => <ClosedSprint project={project} s={s} onOpen={onOpen} key={s.id} />)}
+        </div>
+      )}
     </div></div>
   );
 }
