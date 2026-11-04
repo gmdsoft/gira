@@ -5,7 +5,7 @@ import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
-import { IconGrid, IconSearch, IconPlus, IconSparkle, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconBolt, IconExpand, IconMore, IconRefresh } from './icons.jsx';
+import { IconGrid, IconSearch, IconPlus, IconSparkle, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconBolt, IconExpand, IconRefresh } from './icons.jsx';
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
@@ -275,7 +275,6 @@ export default function JiraApp() {
                 <button className="iconbtn" title="공유 (PoC 미지원)"><IconShare size={17} /></button>
                 <button className="iconbtn" title="자동화 (PoC 미지원)"><IconBolt size={17} /></button>
                 <button className="iconbtn" title="전체 화면 (PoC 미지원)"><IconExpand size={17} /></button>
-                <button className="iconbtn" title="더 보기 (PoC 미지원)"><IconMore size={17} /></button>
               </div>
             </div>
             <div className="chead-title">
@@ -351,7 +350,6 @@ export default function JiraApp() {
             <span className="fbar-spacer" />
             <span id="count">{count.toLocaleString()}건</span>
             <button className="iconbtn" title="새로고침" onClick={refresh}><IconRefresh size={17} /></button>
-            <button className="iconbtn" title="더 보기 (PoC 미지원)"><IconMore size={17} /></button>
             {fmode === 'jql' && jqlErr && <div className="jqlerr">{jqlErr}</div>}
           </div>
           <main>
