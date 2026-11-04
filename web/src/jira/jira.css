@@ -221,7 +221,8 @@ table.issues tbody tr:hover td { background: var(--bg); }
 table.issues tbody tr.selected td { background: var(--selected); }
 table.issues .c-check { width: 40px; text-align: center; cursor: default; }
 table.issues .c-check input { width: 14px; height: 14px; accent-color: var(--accent); }
-table.issues .c-key { width: 95px; }
+table.issues .c-key { width: 110px; }
+table.issues .key-wrap { display: inline-flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; }
 table.issues .c-summary, table.issues .c-sum { width: auto; min-width: 300px; }
 table.issues .c-type { width: 90px; }
 table.issues .c-assignee, table.issues .c-reporter { width: 135px; }

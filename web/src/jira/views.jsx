@@ -155,9 +155,9 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
           ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
           : <tr key={r.id} className={selected.has(r.id) ? 'selected' : ''} onClick={() => onOpen(r.issue_key)}>
               <td className="c-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.issue_key} 선택`} /></td>
-              <td className="c-key"><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></td>
+              <td className="c-key"><span className="key-wrap"><TypeIcon name={r.type_name} /><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></span></td>
               <td className="c-sum"><span className="cell-sum" onClick={() => onOpen(r.issue_key)}>{r.summary}</span></td>
-              <td className="c-type"><TypeIcon name={r.type_name} /> <span>{r.type_name ?? ''}</span></td>
+              <td className="c-type"><span>{r.type_name ?? ''}</span></td>
               <td className="c-assignee"><span className="person"><Avatar name={r.assignee_name} /><span>{r.assignee_name ?? ''}</span></span></td>
               <td className="c-reporter"><span className="person"><Avatar name={r.reporter_name} /><span>{r.reporter_name ?? ''}</span></span></td>
               <td className="c-priority"><span className="person"><Prio p={r.priority} /><span>{r.priority ?? ''}</span></span></td>
