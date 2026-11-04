@@ -166,7 +166,7 @@ export default function JiraApp() {
   const viewProps = {
     project, meta, pdata, filters, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
-    onTitle: (t) => { document.title = t; }, onSeen: noteSeen,
+    onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true),
   };
 
   return (

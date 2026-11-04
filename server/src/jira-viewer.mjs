@@ -89,6 +89,21 @@ app.get('/api/versions', async (req) => {
 
 // ---------- 이슈 목록/상세 ----------
 
+// 정렬 가능 컬럼 (화이트리스트 — 쿼리 문자열이 SQL에 직접 들어가지 않도록)
+const ISSUE_SORT_COLS = {
+  key: `(split_part(i.issue_key, '-', 2))::bigint`,
+  summary: 'i.summary',
+  type: 't.name',
+  assignee: 'u.display_name',
+  reporter: 'ur.display_name',
+  priority: `CASE i.priority WHEN 'Highest' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2
+             WHEN 'Medium' THEN 2 WHEN 'Low' THEN 3 WHEN 'Lowest' THEN 4 ELSE 9 END`,
+  status: 's.name',
+  resolution: 'i.resolution',
+  created: 'i.created_at',
+  updated: 'i.updated_at',
+};
+
 app.get('/api/issues', async (req) => {
   const { project, status, type, assignee, priority, sprint, q } = req.query;
   const cond = ['1=1'];
@@ -100,8 +115,19 @@ app.get('/api/issues', async (req) => {
   if (assignee) cond.push(`i.assignee_id = ${p(assignee)}`);
   if (priority) cond.push(`i.priority = ${p(priority)}`);
   if (sprint === 'none') cond.push(`i.sprint_id IS NULL`);
+  else if (sprint === 'open') cond.push(`(i.sprint_id IS NULL OR i.sprint_id IN (SELECT id FROM jira_sprints WHERE state <> 'closed'))`);
   else if (sprint) cond.push(`i.sprint_id = ${p(sprint)}`);
   if (q) cond.push(`(i.summary ILIKE ${p('%' + q + '%')} OR i.issue_key ILIKE ${p('%' + q + '%')})`);
+
+  const sortRaw = String(req.query.sort ?? '-key');
+  const dir = sortRaw.startsWith('-') ? 'DESC' : 'ASC';
+  const col = ISSUE_SORT_COLS[sortRaw.replace(/^-/, '')] ?? ISSUE_SORT_COLS.key;
+  const limit = Math.min(Math.max(Number(req.query.limit) || 1000, 1), 1000);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+  const total = (await query(
+    `SELECT count(*)::int AS n FROM jira_issues i JOIN jira_projects pr ON pr.id = i.project_id
+      WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
   const { rows } = await query(
     `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
             i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions,
@@ -124,8 +150,9 @@ app.get('/api/issues', async (req) => {
        LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
        LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id
       WHERE ${cond.join(' AND ')}
-      ORDER BY i.id DESC LIMIT 1000`, params);
-  return rows;
+      ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
+      OFFSET ${offset} LIMIT ${limit}`, params);
+  return { total, rows };
 });
 
 app.get('/api/issue/:key', async (req, reply) => {
