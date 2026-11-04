@@ -54,7 +54,9 @@ export default function JiraApp() {
   const qTimer = useRef(null);
   const [qInput, setQInput] = useState('');
   const [fmode, setFmode] = useState(() => { try { return localStorage.getItem('jira.fmode') === 'jql' ? 'jql' : 'basic'; } catch { return 'basic'; } });
-  const [jqlInput, setJqlInput] = useState('');
+  // JQL 입력은 새로고침·모드 전환에도 유지 (localStorage)
+  const [jqlInput, setJqlInputRaw] = useState(() => { try { return localStorage.getItem('jira.jql') ?? ''; } catch { return ''; } });
+  const setJqlInput = (v) => { setJqlInputRaw(v); try { localStorage.setItem('jira.jql', v); } catch { /* 무시 */ } };
   const [jqlErr, setJqlErr] = useState(null);
   const [globalQ, setGlobalQ] = useState('');
 
@@ -86,6 +88,14 @@ export default function JiraApp() {
     setPdata({ sprints, versions, boards, ...tags });
   };
   useEffect(() => { if (authed) reloadPdata(); }, [project, authed]);
+
+  // 새로고침 후에도 JQL 모드면 보존된 쿼리를 한 번 재적용
+  const bootJql = useRef(false);
+  useEffect(() => {
+    if (!authed || !project || bootJql.current) return;
+    bootJql.current = true;
+    if (fmode === 'jql' && jqlInput.trim()) applyJql(jqlInput);
+  }, [authed, project]);
 
   // URL 동기화 (Jira처럼 주소창 반영)
   const nav = (path, title) => {
@@ -204,7 +214,8 @@ export default function JiraApp() {
     // 저장된 필터가 JQL이면 고급 모드로, 아니면 기본 모드로 맞춘다
     const m = next.jql ? 'jql' : 'basic';
     if (m !== fmode) { try { localStorage.setItem('jira.fmode', m); } catch { /* 무시 */ } setFmode(m); }
-    setJqlInput(next.jql); setJqlErr(null);
+    if (next.jql) setJqlInput(next.jql); // 기본형 저장 필터가 작성 중인 JQL을 지우지 않도록
+    setJqlErr(null);
     setFilters(next);
   };
   const saveFilter = async () => {
