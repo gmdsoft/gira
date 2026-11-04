@@ -67,7 +67,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   useEffect(() => {
     setPage(null); setComments(null); setError(null); setPresent(false); setMoveOpen(false);
     api(`/api/content/${pageId}`)
-      .then((p) => { setPage(p); document.title = `${p.title} - GMD Docs`; })
+      .then((p) => { setPage(p); document.title = `${p.title} - Gonfluence`; })
       .catch((e) => setError(String(e)));
     loadComments();
   }, [pageId, loadComments]);

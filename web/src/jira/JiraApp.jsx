@@ -126,17 +126,17 @@ export default function JiraApp() {
   const gotoView = (v) => {
     const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
     setView(v); setSelKey(null);
-    nav(`/projects/${encodeURIComponent(project)}/${v}${q}`, `${project} ${VIEW_NAMES[v]} - Jira PoC`);
+    nav(`/projects/${encodeURIComponent(project)}/${v}${q}`, `${project} ${VIEW_NAMES[v]} - Gira PoC`);
   };
   const gotoProjView = (pkey, v) => {
     switchProject(pkey);
     setView(v); setSelKey(null); setBoardId(''); // 프로젝트 수준 이동은 보드 컨텍스트 해제
-    nav(`/projects/${encodeURIComponent(pkey)}/${v}`, `${pkey} ${VIEW_NAMES[v]} - Jira PoC`);
+    nav(`/projects/${encodeURIComponent(pkey)}/${v}`, `${pkey} ${VIEW_NAMES[v]} - Gira PoC`);
   };
   const gotoBoard = (pkey, bid) => {
     switchProject(pkey);
     setView('board'); setSelKey(null); setBoardId(bid);
-    nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Jira PoC`);
+    nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Gira PoC`);
   };
   // 사이드바 '보드' 클릭: 칸반 보드를 기본 선택 (이름 '칸반' > kanban 유형 > 첫 보드 > 기본)
   const gotoBoardsDefault = async (pkey) => {
@@ -323,7 +323,7 @@ export default function JiraApp() {
     const q = globalQ.trim();
     if (!q) return;
     setView('list'); setSelKey(null); setF('q', q); setQInput(q);
-    nav(`/projects/${encodeURIComponent(project)}/list`, `${project} 목록 - Jira`);
+    nav(`/projects/${encodeURIComponent(project)}/list`, `${project} 목록 - Gira`);
   };
 
   const projName = meta.projects.find((p) => p.key === project)?.name ?? project;
@@ -342,7 +342,7 @@ export default function JiraApp() {
       <header className="topbar">
         <div className="tb-left">
           <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
-          <span className="brand"><span className="brand-mark">J</span><span className="brand-word">Jira</span></span>
+          <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span></span>
         </div>
         <form className="tb-search" onSubmit={submitGlobal}>
           <IconSearch size={17} />

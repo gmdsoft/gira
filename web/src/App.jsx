@@ -202,7 +202,7 @@ function Login({ onLogin }) {
 
   return (
     <div className="home login">
-      <h1>GMD Docs <span className="poc-badge">PoC</span></h1>
+      <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
       <p className="muted">로그인할 사용자를 선택하세요. (개발용 — Entra ID 연동 시 회사 계정 로그인으로 교체됩니다)</p>
       <input className="search-input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름 또는 이메일 검색" />
       {!users ? <p>불러오는 중…</p> : (
@@ -278,7 +278,7 @@ function Home({ navigate, me, logout }) {
   return (
     <div className="home">
       <div className="home-user muted">👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button></div>
-      <h1>GMD Docs <span className="poc-badge">PoC</span></h1>
+      <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`); }}>
         <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="문서 검색 (한국어 형태소 분석)" />
         <button className="btn btn-primary" type="submit">검색</button>
