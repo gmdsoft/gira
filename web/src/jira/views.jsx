@@ -299,10 +299,11 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
   // 사용자 JQL은 백로그에 적용하지 않지만(실제 Jira 백로그도 JQL 미지원), 보드 컨텍스트 필터는 적용한다.
   // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 최신순 1,000건
   //   — 보드 필터의 ORDER BY가 로드 윈도우를 바꿔 스프린트 이슈가 빠지는 문제 방지 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
+  // 실제 Jira 백로그처럼 완료(done) 이슈는 어디에도 표시하지 않는다 (완료분은 보드/목록·완료 스프린트 그룹에서)
   const { rows: sprRows } = useIssues(project, { ...filters, sprint: '', jql: '' }, bump,
-    { extraJql: [boardJql, 'sprint IN openSprints()'] });
+    { extraJql: [boardJql, 'sprint IN openSprints()', 'statusCategory != done'] });
   const { rows: backRows, total: backTotal } = useIssues(project, { ...filters, sprint: 'none', jql: '' }, bump,
-    { extraJql: [boardJql], sort: '-key' });
+    { extraJql: [boardJql, 'statusCategory != done'], sort: '-key' });
   const [expanded, setExpanded] = useState(() => new Set());
   const [showClosed, setShowClosed] = useState(false);
   useEffect(() => onCount(sprRows.length + backTotal), [sprRows.length, backTotal]);
@@ -393,7 +394,7 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
             {s.start_at ? `${dt(s.start_at)} ~ ${s.end_at ? dt(s.end_at) : ''}` : ''}
             {s.goal ? `${s.start_at ? ' · ' : ''}${s.goal}` : ''}
           </span>
-          <span className="dim">{list.length}건</span>
+          <span className="dim">{list.filter((r) => !r.subtask).length}개의 업무 항목</span>{/* Jira처럼 하위 작업 제외 건수 */}
           <CatChips rows={list} />
           {s.state === 'future' && <button onClick={() => sprintState(s.id, 'active')}>스프린트 시작</button>}
           {s.state === 'active' && <button onClick={() => sprintState(s.id, 'closed', '스프린트를 완료할까요? 미완료 이슈는 백로그로 돌아갑니다.')}>스프린트 완료</button>}

@@ -43,6 +43,7 @@ const FIELDS = {
   summary: { kind: 'text', col: 'i.summary', like: true, label: 'summary' },
   text: { kind: 'search', label: 'text' },
   status: { kind: 'text', col: 's.name', label: 'status' },
+  statuscategory: { kind: 'text', col: 's.category', label: 'statusCategory' }, // new|indeterminate|done
   type: { kind: 'text', col: 't.name', label: 'type' },
   issuetype: { kind: 'text', col: 't.name', label: 'type' },
   assignee: { kind: 'user', col: 'u.display_name', id: 'i.assignee_id', label: 'assignee' },
