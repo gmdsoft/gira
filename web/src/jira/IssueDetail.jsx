@@ -2,6 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, dt, fileSize, Prio, Avatar, StatusSelect } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
+import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck, IconBolt, IconSparkle } from './icons.jsx';
 import AdfView from './adf.jsx';
 import DescEditor from './DescEditor.jsx';
 import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
@@ -31,7 +32,8 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
   const [editingComment, setEditingComment] = useState(null); // {id, text}
-  const [actTab, setActTab] = useState('comments'); // all | comments | history
+  const [actTab, setActTab] = useState('all'); // all | comments | history
+  const [fieldTab, setFieldTab] = useState('basic');
   const fileRef = useRef(null);
   const descEditorRef = useRef(null);
 
@@ -85,6 +87,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const verNames = [...new Set([...pdata.versions.map((v) => v.name), ...(d.fix_versions ?? [])])];
   const resoList = [...new Set([...meta.resolutions, ...(d.resolution ? [d.resolution] : [])])];
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed' || s.id === d.sprint_id);
+  const proj = meta.projects.find((p) => p.key === issueKey.split('-')[0]);
 
   // ---------- 활동 (전체/댓글/기록) ----------
   const history = d.history ?? [];
@@ -152,21 +155,39 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   };
 
   return (
-    <>
-      <div className="dkey">
+    <div className="issue-view">
+      <div className="issue-crumb">
+        <span>스페이스</span><span className="crumb-sep">/</span>
+        <span className="crumb-cur">{proj?.name ?? issueKey.split('-')[0]}</span><span className="crumb-sep">/</span>
         {d.parent_key
           ? <><span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span>
-              <button className="plain dim" title="상위 항목 변경" onClick={changeParent}>✎</button> / </>
-          : <><button className="mini" onClick={changeParent}>상위 항목 추가</button> / </>}
-        <TypeIcon name={d.type_name} /> {d.issue_key}
+              <button className="plain dim crumb-edit" title="상위 항목 변경" onClick={changeParent}>✎</button><span className="crumb-sep">/</span></>
+          : <><button className="crumb-add" onClick={changeParent}>상위 항목 추가</button><span className="crumb-sep">/</span></>}
+        <TypeIcon name={d.type_name} /><span className="crumb-key">{d.issue_key}</span>
       </div>
-      <InlineText as="h2" value={d.summary} placeholder="요약 입력"
-        inputStyle={{ fontSize: 20, fontWeight: 700, margin: '4px 0 10px', maxWidth: 860 }}
-        onSave={(v) => patch({ summary: v })} />
+      <div className="issue-title-row">
+        <InlineText as="h1" value={d.summary} placeholder="요약 입력"
+          inputStyle={{ fontSize: 26, fontWeight: 600, margin: '4px 0 10px', maxWidth: 860 }}
+          onSave={(v) => patch({ summary: v })} />
+        <div className="issue-actions">
+          <button className="iconbtn" title="하위 작업 만들기" onClick={() => onNew?.()}><IconPlus size={17} /></button>
+          <button className="iconbtn" title="더 보기"><IconMore size={17} /></button>
+        </div>
+      </div>
+      <div className="issue-meta-row">
+        <span className="issue-meta-pill"><IconLock size={14} /> 제한됨</span>
+        <span className="issue-meta-pill"><IconEye size={14} /> 1</span>
+        <button className="toolbtn"><IconShare size={14} /> 공유</button>
+      </div>
       <div className="dwrap">
         <div className="dmain">
-          <section><h3>주요 세부 정보</h3>
-            <dl className="fields2">
+          <section className="issue-section">
+            <div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>주요 세부 정보</h3></div>
+            <div className="field-tabs">
+              {[['basic', '기본 입력'], ['more', '추가 정보'], ['qa', 'QA'], ['hubspot', 'HubSpot']].map(([k, label]) => (
+                <button key={k} className={fieldTab === k ? 'on' : ''} onClick={() => setFieldTab(k)}>{label}</button>))}
+            </div>
+            {fieldTab === 'basic' ? <dl className="fields2">
               <dt>컴포넌트</dt><dd>{d.components?.length ? d.components.map((c) => <span className="chip" key={c}>{c}</span>) : <span className="dim">없음</span>}</dd>
               <dt>우선 순위</dt><dd><Prio p={d.priority} />{' '}
                 <select value={d.priority ?? ''} onChange={(e) => patch({ priority: e.target.value || null })}>
@@ -199,7 +220,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                   {openSprints.map((s) => <option key={s.id} value={s.id}>
                     {s.name}{s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''}</option>)}
                 </select></dd>
-            </dl>
+            </dl> : <div className="empty-fields">이 탭에 표시할 추가 필드가 없습니다.</div>}
             <div className="fieldrow"><div className="flabel2">설명</div>
               {descEditing
                 ? <>
@@ -218,7 +239,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
             </div>
           </section>
 
-          <section><h3>첨부 파일 ({d.attachments.length})</h3>
+          <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>첨부 파일 ({d.attachments.length})</h3></div>
             <ul className="att-list">{d.attachments.map((a) => (
               <li key={a.id}><a href={`/api/attachment/${a.id}`} target="_blank" rel="noreferrer">{a.filename}</a>
                 <span className="dim">{fileSize(a.file_size)} · {dt(a.created_at)}</span></li>))}
@@ -227,7 +248,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
           </section>
 
           {d.subtasks.length > 0 && (
-            <section><h3>하위 작업 ({d.subtasks.length})</h3>
+            <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>하위 작업 ({d.subtasks.length})</h3></div>
               <div className="subpanel">
                 <div className="phead"><div className="pbar"><div style={{ width: `${pct}%` }} /></div><span className="dim">{pct}% 완료</span></div>
                 <table>
@@ -250,9 +271,9 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
               </div>
             </section>)}
 
-          {d.links.length > 0 && <section><h3>연결된 업무 항목 ({d.links.length})</h3><ul className="link-list">{d.links.map(linkRow)}</ul></section>}
+          {d.links.length > 0 && <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>연결된 업무 항목 ({d.links.length})</h3></div><ul className="link-list">{d.links.map(linkRow)}</ul></section>}
 
-          <section><h3>활동</h3>
+          <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>활동</h3></div>
             <div className="acttabs">
               {[['all', '전체'], ['comments', `댓글 (${d.comments.length})`], ['history', `기록 (${(d.history ?? []).length})`]]
                 .map(([k, label]) => (
@@ -268,15 +289,22 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
         </div>
 
         <div className="dside">
-          <div style={{ marginBottom: 12 }}>
+          <div className="side-status">
             <StatusSelect statuses={meta.statuses} value={d.status_id} category={d.status_category}
               onChange={(id) => patch({ statusId: id })} />
-            {d.resolved_at && <span className="dim" style={{ marginLeft: 6 }}>✓ {d.resolution ?? '해결됨'}</span>}
+            <span className="agent-pill"><IconSparkle size={13} /> 에이전트</span>
+            {d.resolved_at && <span className="done-mark"><IconCheck size={14} /> {d.resolution ?? '해결됨'}</span>}
           </div>
           <div className="dcard">
-            <h4>세부 사항</h4>
+            <div className="dcard-head"><IconChevronDown size={16} /><span>세부 사항</span></div>
             <div className="body"><dl>
-              <dt>보고자</dt><dd><Avatar name={d.reporter_name} /> {d.reporter_name ?? '-'}</dd>
+              <dt>Story point estimate</dt><dd><span className="add-link">스토리 포인트 추가</span></dd>
+              <dt>보고자</dt><dd><span className="person"><Avatar name={d.reporter_name} /><span>{d.reporter_name ?? '-'}</span></span></dd>
+            </dl></div>
+          </div>
+          <div className="dcard">
+            <div className="dcard-head"><IconChevronRight size={16} /><span>더 많은 필드</span></div>
+            <div className="body"><dl>
               <dt>타입</dt><dd>
                 <select value={d.issue_type_id ?? ''} onChange={(e) => patch({ typeId: Number(e.target.value) })}>
                   {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -287,14 +315,18 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                   {resoList.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select></dd>
             </dl></div>
-            <div className="dtimes">
-              만듦 {dt(d.created_at)}<br />업데이트 {dt(d.updated_at)}
-              {d.resolved_at && <><br />해결됨 {dt(d.resolved_at)}</>}
-            </div>
+          </div>
+          <div className="dcard">
+            <div className="dcard-head"><IconChevronRight size={16} /><span>자동화</span><IconBolt size={14} className="dcard-icon" /></div>
+            <div className="body dim">규칙 실행</div>
+          </div>
+          <div className="dtimes">
+            만듦 {dt(d.created_at)}<br />업데이트 {dt(d.updated_at)}
+            {d.resolved_at && <><br />해결됨 {dt(d.resolved_at)}</>}
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
