@@ -54,6 +54,7 @@ header .poc { color: var(--dim); font-weight: normal; font-size: 12px; }
 .sitem.child { padding-left: 52px; }
 .sitem .twisty2 { border: none; background: none; cursor: pointer; color: var(--dim); padding: 0; width: 16px; font-size: 11px; flex: none; }
 .pavatar { width: 20px; height: 20px; border-radius: 4px; color: #fff; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.sitem.curproj { font-weight: 600; }
 .strunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .skey2 { color: var(--accent); font-size: 12px; white-space: nowrap; }
 

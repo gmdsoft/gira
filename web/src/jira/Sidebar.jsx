@@ -33,10 +33,9 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         const cur = p.key === project;
         return (
           <React.Fragment key={p.key}>
-            <div className={`sitem${cur && (view === 'list' || view === 'table') ? ' on' : ''}`}
-              onClick={() => onProjView(p.key, 'list')}>
-              <button className="twisty2" title={opened ? '접기' : '펼치기'}
-                onClick={(e) => { e.stopPropagation(); toggle(p.key); }}>{opened ? '▾' : '▸'}</button>
+            {/* 프로젝트 행은 링크가 아니라 펼침 토글 (실제 Jira와 동일) */}
+            <div className={`sitem phead2${cur ? ' curproj' : ''}`} onClick={() => toggle(p.key)}>
+              <button className="twisty2" title={opened ? '접기' : '펼치기'}>{opened ? '▾' : '▸'}</button>
               <span className="pavatar" style={{ background: hashColor(p.key) }}>{p.key[0]}</span>
               <span className="strunc" title={`${p.name} (${p.key})`}>{p.name}</span>
             </div>
@@ -44,11 +43,11 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
               <div className={`sitem child${cur && view === 'board' && !boardId ? ' on' : ''}`}
                 onClick={() => onBoard(p.key, '')}>기본 보드</div>
               {boardsOf(p.key).map((b) => (
-                <div className={`sitem child${cur && view === 'board' && boardId === String(b.id) ? ' on' : ''}`}
+                <div className={`sitem child${cur && boardId === String(b.id) ? ' on' : ''}`}
                   key={b.id} onClick={() => onBoard(p.key, String(b.id))}>
                   <span className="strunc" title={b.name}>{b.name}</span>
                 </div>))}
-              <div className={`sitem child${cur && view === 'backlog' ? ' on' : ''}`}
+              <div className={`sitem child${cur && view === 'backlog' && !boardId ? ' on' : ''}`}
                 onClick={() => onProjView(p.key, 'backlog')}>백로그</div>
             </>}
           </React.Fragment>

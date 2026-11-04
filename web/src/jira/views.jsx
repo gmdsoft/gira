@@ -57,8 +57,8 @@ function ListFoot({ total, shown, loading, onNew, onRefresh }) {
 }
 
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
-export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew }) {
-  const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100 });
+export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, boardJql }) {
+  const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100, extraJql: [boardJql] });
   useEffect(() => onCount(total), [total]);
   return (
     <div className="view on" id="view-list">
@@ -101,10 +101,10 @@ const GROUPERS = {
   priority: (r) => r.priority ?? '(없음)',
 };
 
-export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew }) {
+export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew, boardJql }) {
   const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump,
-    { pageSize: 100, sort: sort ? (sort.dir < 0 ? '-' : '') + sort.field : null }); // 정렬은 서버에서 전체 기준으로
+    { pageSize: 100, sort: sort ? (sort.dir < 0 ? '-' : '') + sort.field : null, extraJql: [boardJql] }); // 정렬은 서버에서 전체 기준으로
   useEffect(() => onCount(total), [total]);
 
   const ordered = useMemo(() => {
@@ -295,16 +295,20 @@ function ClosedSprint({ project, s, onOpen }) {
 }
 
 // ---------- 백로그 (스프린트 + 인라인 계층) ----------
-export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata }) {
-  // 완료 스프린트 소속 이슈는 제외하고 로드 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
-  // JQL은 백로그에 적용하지 않는다 (실제 Jira 백로그도 JQL 미지원)
-  const { rows, total } = useIssues(project, { ...filters, sprint: 'open', jql: '' }, bump);
+export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardJql }) {
+  // 사용자 JQL은 백로그에 적용하지 않지만(실제 Jira 백로그도 JQL 미지원), 보드 컨텍스트 필터는 적용한다.
+  // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 최신순 1,000건
+  //   — 보드 필터의 ORDER BY가 로드 윈도우를 바꿔 스프린트 이슈가 빠지는 문제 방지 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
+  const { rows: sprRows } = useIssues(project, { ...filters, sprint: '', jql: '' }, bump,
+    { extraJql: [boardJql, 'sprint IN openSprints()'] });
+  const { rows: backRows, total: backTotal } = useIssues(project, { ...filters, sprint: 'none', jql: '' }, bump,
+    { extraJql: [boardJql], sort: '-key' });
   const [expanded, setExpanded] = useState(() => new Set());
   const [showClosed, setShowClosed] = useState(false);
-  useEffect(() => onCount(total), [total]);
+  useEffect(() => onCount(sprRows.length + backTotal), [sprRows.length, backTotal]);
 
   const bySprint = new Map();
-  for (const r of rows) {
+  for (const r of [...sprRows, ...backRows]) {
     const k = r.sprint_id ?? 'none';
     if (!bySprint.has(k)) bySprint.set(k, []);
     bySprint.get(k).push(r);
@@ -385,7 +389,10 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
           <b>{s.name}</b>
           <span className={`badge ${s.state === 'active' ? 'cat-indeterminate' : s.state === 'closed' ? 'cat-done' : 'cat-new'}`}>
             {{ future: '예정', active: '활성', closed: '완료' }[s.state]}</span>
-          <span className="goal">{s.goal ?? ''}{s.start_at ? ` · ${dt(s.start_at)} 시작` : ''}</span>
+          <span className="goal">
+            {s.start_at ? `${dt(s.start_at)} ~ ${s.end_at ? dt(s.end_at) : ''}` : ''}
+            {s.goal ? `${s.start_at ? ' · ' : ''}${s.goal}` : ''}
+          </span>
           <span className="dim">{list.length}건</span>
           <CatChips rows={list} />
           {s.state === 'future' && <button onClick={() => sprintState(s.id, 'active')}>스프린트 시작</button>}
@@ -405,7 +412,9 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
       {pdata.sprints.filter((s) => s.state === 'active').map((s) => <SprintBlock s={s} key={s.id} />)}
       {pdata.sprints.filter((s) => s.state === 'future').map((s) => <SprintBlock s={s} key={s.id} />)}
       <div className="sprint">
-        <div className="shead"><b>백로그</b><span className="dim">{backlogList.length}건</span><CatChips rows={backlogList} /></div>
+        <div className="shead"><b>백로그</b>
+          <span className="dim">{backTotal.toLocaleString()}건{backlogList.length < backTotal ? ` (최신 ${backlogList.length.toLocaleString()}건 표시)` : ''}</span>
+          <CatChips rows={backlogList} /></div>
         {backlogList.length ? sectionRows(backlogList) : <div className="sempty">백로그가 비어 있습니다</div>}
       </div>
       {closedSprints.length > 0 && (
