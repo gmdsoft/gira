@@ -14,7 +14,10 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
   const qs = (offset, limit) => {
     const u = new URLSearchParams({ project, offset, limit });
     if (filters.jql) u.append('jql', filters.jql); // 고급(JQL) 모드 — 기본 필터와 병행하지 않음
-    else for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+    else {
+      for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+      if (filters.xjql) u.append('jql', filters.xjql); // 기본 모드로 못 옮긴 잔여 JQL — AND 결합
+    }
     for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;
@@ -403,8 +406,33 @@ function ClosedSprint({ project, s, onOpen }) {
   );
 }
 
+// 스프린트/백로그 섹션 하단 인라인 이슈 만들기 (Jira 백로그의 '+ 만들기')
+function QuickCreate({ meta, project, sprintId, open, onToggle, onCreated }) {
+  const [text, setText] = useState('');
+  const types = meta.types.filter((t) => !t.subtask);
+  const [typeId, setTypeId] = useState(() => (types.find((t) => /작업|task/i.test(t.name)) ?? types[0])?.id);
+  const create = async () => {
+    const s = text.trim(); if (!s) return;
+    await api('/api/issues', { method: 'POST', json: { projectKey: project, typeId: Number(typeId), summary: s, description: '', sprintId } });
+    setText('');
+    onCreated(); // 목록 재조회 — 입력 폼은 열린 채 유지 (Jira처럼 연속 입력)
+  };
+  if (!open) return <button className="plain screate" onClick={() => onToggle(true)}>+ 만들기</button>;
+  return (
+    <div className="screate-row">
+      <select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
+        {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+      </select>
+      <input autoFocus placeholder="무엇을 완료해야 합니까?" value={text} onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') create(); else if (e.key === 'Escape') { setText(''); onToggle(false); } }} />
+      <button className="primary" onClick={create}>만들기</button>
+      <button onClick={() => { setText(''); onToggle(false); }}>취소</button>
+    </div>
+  );
+}
+
 // ---------- 백로그 (스프린트 + 인라인 계층) ----------
-export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardJql }) {
+export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardJql, board }) {
   // 사용자 JQL은 백로그에 적용하지 않지만(실제 Jira 백로그도 JQL 미지원), 보드 컨텍스트 필터는 적용한다.
   // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 최신순 1,000건
   //   — 보드 필터의 ORDER BY가 로드 윈도우를 바꿔 스프린트 이슈가 빠지는 문제 방지 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
@@ -415,7 +443,21 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
     { extraJql: [boardJql, 'statusCategory != done'], sort: '-key' });
   const [expanded, setExpanded] = useState(() => new Set());
   const [showClosed, setShowClosed] = useState(false);
-  useEffect(() => onCount(sprRows.length + backTotal), [sprRows.length, backTotal]);
+  const [qc, setQc] = useState(() => new Set()); // 인라인 '+ 만들기'가 열린 섹션 (스프린트 id | 'none')
+  const toggleQc = (k, v) => setQc((prev) => { const n = new Set(prev); v ? n.add(k) : n.delete(k); return n; });
+  const countItems = (rows) => rows.filter((r) => !r.subtask).length;
+  useEffect(() => onCount(countItems(sprRows) + countItems(backRows)), [sprRows, backRows]);
+
+  // 요약 칩 분류: 보드 컨텍스트가 있으면 실제 Jira처럼 보드 컬럼 위치 기준(첫 컬럼=회색, 마지막=초록, 중간=파랑),
+  // 없으면 상태 카테고리 기준
+  const colGroup = {};
+  if (board?.columns?.length > 1) {
+    board.columns.forEach((c, i) => {
+      const g = i === 0 ? 'new' : i === board.columns.length - 1 ? 'done' : 'indeterminate';
+      for (const sid of c.statusIds ?? []) colGroup[String(sid)] = g;
+    });
+  }
+  const chipCat = (r) => colGroup[String(r.status_id)] ?? r.status_category;
 
   const bySprint = new Map();
   for (const r of [...sprRows, ...backRows]) {
@@ -464,17 +506,17 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
     </div>
   );
 
+  // Jira 백로그처럼 하위 작업은 카드로 세지 않는다 — 부모 행의 ▸로만 펼쳐 보이고,
+  // 부모가 이 화면에 없는 하위 작업은 표시하지 않는다 (헤더 건수·칩·카드 수가 모두 같은 기준이 된다)
   const sectionRows = (list) => {
-    const ids = new Set(list.map((r) => r.id));
     const childrenOf = new Map();
     for (const r of list) {
-      if (r.subtask && r.parent_id && ids.has(r.parent_id)) {
+      if (r.subtask && r.parent_id) {
         if (!childrenOf.has(r.parent_id)) childrenOf.set(r.parent_id, []);
         childrenOf.get(r.parent_id).push(r);
       }
     }
-    const nested = new Set([...childrenOf.values()].flat().map((r) => r.id));
-    return list.filter((r) => !nested.has(r.id)).map((r) => {
+    return list.filter((r) => !r.subtask).map((r) => {
       const kids = childrenOf.get(r.id) ?? [];
       const isOpen = expanded.has(r.id);
       const twisty = kids.length > 0 && (
@@ -493,6 +535,7 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
 
   const SprintBlock = ({ s }) => {
     const list = bySprint.get(s.id) ?? [];
+    const items = list.filter((r) => !r.subtask); // 헤더 건수·칩·카드 모두 같은 기준(하위 작업 제외)
     return (
       <div className="sprint">
         <div className="shead">
@@ -500,20 +543,22 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
           <span className={`badge ${s.state === 'active' ? 'cat-indeterminate' : s.state === 'closed' ? 'cat-done' : 'cat-new'}`}>
             {{ future: '예정', active: '활성', closed: '완료' }[s.state]}</span>
           <span className="goal">
-            {s.start_at ? `${dt(s.start_at)} ~ ${s.end_at ? dt(s.end_at) : ''}` : ''}
-            {s.goal ? `${s.start_at ? ' · ' : ''}${s.goal}` : ''}
+            {s.start_at ? `${dt(s.start_at)} ~ ${s.end_at ? dt(s.end_at) : ''} ` : ''}
+            ({items.length}개의 업무 항목){s.goal ? ` · ${s.goal}` : ''}
           </span>
-          <span className="dim">{list.filter((r) => !r.subtask).length}개의 업무 항목</span>{/* Jira처럼 하위 작업 제외 건수 */}
-          <CatChips rows={list} />
+          <CatChips rows={items} catOf={chipCat} />
           {s.state === 'future' && <button onClick={() => sprintState(s.id, 'active')}>스프린트 시작</button>}
           {s.state === 'active' && <button onClick={() => sprintState(s.id, 'closed', '스프린트를 완료할까요? 미완료 이슈는 백로그로 돌아갑니다.')}>스프린트 완료</button>}
         </div>
-        {list.length ? sectionRows(list) : <div className="sempty">이슈 없음 — 아래 백로그에서 이동하세요</div>}
+        {items.length ? sectionRows(list) : <div className="sempty">이슈 없음 — 아래 백로그에서 이동하세요</div>}
+        <QuickCreate meta={meta} project={project} sprintId={s.id}
+          open={qc.has(s.id)} onToggle={(v) => toggleQc(s.id, v)} onCreated={onChanged} />
       </div>
     );
   };
 
   const backlogList = bySprint.get('none') ?? [];
+  const backItems = backlogList.filter((r) => !r.subtask);
   const closedSprints = pdata.sprints.filter((s) => s.state === 'closed')
     .sort((a, b) => new Date(b.end_at ?? b.start_at ?? 0) - new Date(a.end_at ?? a.start_at ?? 0)); // 최근 완료 먼저
   return (
@@ -523,9 +568,11 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
       {pdata.sprints.filter((s) => s.state === 'future').map((s) => <SprintBlock s={s} key={s.id} />)}
       <div className="sprint">
         <div className="shead"><b>백로그</b>
-          <span className="dim">{backTotal.toLocaleString()}건{backlogList.length < backTotal ? ` (최신 ${backlogList.length.toLocaleString()}건 표시)` : ''}</span>
-          <CatChips rows={backlogList} /></div>
-        {backlogList.length ? sectionRows(backlogList) : <div className="sempty">백로그가 비어 있습니다</div>}
+          <span className="goal">({backItems.length.toLocaleString()}개의 업무 항목{backlogList.length < backTotal ? ` — 최신 ${backlogList.length.toLocaleString()}건 로드 기준` : ''})</span>
+          <CatChips rows={backItems} catOf={chipCat} /></div>
+        {backItems.length ? sectionRows(backlogList) : <div className="sempty">백로그가 비어 있습니다</div>}
+        <QuickCreate meta={meta} project={project} sprintId={null}
+          open={qc.has('none')} onToggle={(v) => toggleQc('none', v)} onCreated={onChanged} />
       </div>
       {closedSprints.length > 0 && (
         <div className="sprint">

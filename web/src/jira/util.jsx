@@ -38,9 +38,10 @@ export function EpicBar({ r }) {
 }
 
 // 상태 카테고리별 건수 요약 칩 (회색=할일, 파랑=진행, 초록=완료)
-export function CatChips({ rows }) {
+// catOf: 행 → 'new'|'indeterminate'|'done' (기본은 상태 카테고리; 백로그는 보드 컬럼 위치 기준으로 센다 — 실제 Jira와 동일)
+export function CatChips({ rows, catOf = (r) => r.status_category }) {
   const c = { new: 0, indeterminate: 0, done: 0 };
-  for (const r of rows) c[r.status_category] = (c[r.status_category] ?? 0) + 1;
+  for (const r of rows) { const k = catOf(r); c[k] = (c[k] ?? 0) + 1; }
   return (
     <span className="catchips" title={`해야 할 일 ${c.new} · 진행 중 ${c.indeterminate} · 완료 ${c.done}`}>
       <span className="cat-new">{c.new}</span>
@@ -50,11 +51,12 @@ export function CatChips({ rows }) {
   );
 }
 
-// 상태 변경 드롭다운 (색상 롯지)
+// 상태 변경 드롭다운 (색상 롯지) — 변경 후 blur: Windows Chrome이 포커스 유지 중 옵션 하이라이트(파란 칠)를 박스에 그대로 보여주는 것 방지
 export function StatusSelect({ statuses, value, category, onChange, small }) {
   return (
-    <select className={`tstatus cat-${category}`} style={small ? undefined : { fontSize: 13, padding: '5px 8px' }}
-      value={value ?? ''} onClick={(e) => e.stopPropagation()} onChange={(e) => onChange(Number(e.target.value))}>
+    <select className={`tstatus cat-${category}${small ? '' : ' lg'}`}
+      value={value ?? ''} onClick={(e) => e.stopPropagation()}
+      onChange={(e) => { const id = Number(e.target.value); e.currentTarget.blur(); onChange(id); }}>
       {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
     </select>
   );

@@ -233,7 +233,8 @@ app.get('/api/issue/:key', async (req, reply) => {
 // ---------- 이슈 생성/수정 ----------
 
 app.post('/api/issues', async (req, reply) => {
-  const { projectKey, typeId, summary, description, assigneeId, priority, parentKey, sprintId } = req.body ?? {};
+  const { projectKey, typeId, summary, description, assigneeId, reporterId, priority, parentKey, sprintId,
+    labels, components, fixVersions } = req.body ?? {};
   if (!projectKey || !typeId || !summary?.trim()) {
     return reply.code(400).send({ error: 'projectKey, typeId, summary는 필수입니다' });
   }
@@ -256,15 +257,18 @@ app.post('/api/issues', async (req, reply) => {
   const { rows: st } = await query(
     `SELECT id FROM jira_statuses WHERE category = 'new' ORDER BY id LIMIT 1`);
   const userId = req.access.userId;
+  const arr = (v) => Array.isArray(v) ? [...new Set(v.map((x) => String(x).trim()).filter(Boolean))] : [];
   const { rows } = await query(
     `INSERT INTO jira_issues
        (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
-        priority, assignee_id, reporter_id, parent_id, sprint_id, created_at, updated_at, fields_raw)
-     VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now(), '{}')
+        priority, assignee_id, reporter_id, parent_id, sprint_id, labels, components, fix_versions,
+        created_at, updated_at, fields_raw)
+     VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now(), '{}')
      RETURNING id, issue_key`,
     [project.id, issueKey, typeId, st[0]?.id ?? null, summary.trim(),
      description?.trim() ? JSON.stringify(textToAdf(description)) : null,
-     priority || null, assigneeId || null, userId, parentId, sprintId || null]);
+     priority || null, assigneeId || null, reporterId || userId, parentId, sprintId || null,
+     arr(labels), arr(components), arr(fixVersions)]);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
 

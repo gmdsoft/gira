@@ -88,7 +88,8 @@ class Parser {
   fail(t, msg) { throw new JqlError(msg, t.pos); }
 
   parse() {
-    const where = this.orExpr();
+    // ORDER BY만 있는 쿼리 허용 (기본 모드 전환 시 정렬만 잔여 조건으로 남는 경우)
+    const where = this.isKw(this.peek(), 'order') ? 'TRUE' : this.orExpr();
     let order = null;
     if (this.isKw(this.peek(), 'order')) {
       this.next();
