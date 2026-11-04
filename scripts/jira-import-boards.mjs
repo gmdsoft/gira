@@ -55,6 +55,18 @@ for (const b of boards) {
        name = EXCLUDED.name, columns = EXCLUDED.columns, type = EXCLUDED.type, jql = EXCLUDED.jql`,
     [projectId, b.name, JSON.stringify(columns), b.type ?? null, jql, b.id]);
   console.log(`  ✓ ${b.name} (${b.type}) — 컬럼 ${columns.length}개${jql ? `, 필터: ${jql}` : ''}`);
+
+  // 스크럼 보드의 스프린트 표시 순서(백로그 정렬) 반영
+  if (b.type === 'scrum') {
+    try {
+      const sp = await get(`/rest/agile/1.0/board/${b.id}/sprint?state=active,future&maxResults=50`);
+      let pos = 0;
+      for (const s of sp.values ?? []) {
+        await query(`UPDATE jira_sprints SET position = $2 WHERE id = $1`, [s.id, pos++]);
+      }
+      console.log(`    스프린트 순서 ${pos}개 반영`);
+    } catch (e) { console.warn(`    스프린트 순서 조회 실패: ${e.message}`); }
+  }
   ok++;
 }
 console.log(`완료: ${ok}/${boards.length}`);

@@ -415,7 +415,8 @@ app.get('/api/sprints', async (req) => {
     `SELECT s.*, (SELECT count(*) FROM jira_issues i WHERE i.sprint_id = s.id) AS issue_count
        FROM jira_sprints s JOIN jira_projects p ON p.id = s.project_id
       WHERE p.key = $1
-      ORDER BY CASE s.state WHEN 'active' THEN 0 WHEN 'future' THEN 1 ELSE 2 END, s.id`,
+      ORDER BY CASE s.state WHEN 'active' THEN 0 WHEN 'future' THEN 1 ELSE 2 END,
+               s.position ASC NULLS LAST, s.id`,
     [req.query.project]);
   return rows;
 });
