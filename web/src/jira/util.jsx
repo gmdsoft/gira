@@ -38,9 +38,10 @@ export function EpicBar({ r }) {
 }
 
 // 상태 카테고리별 건수 요약 칩 (회색=할일, 파랑=진행, 초록=완료)
-export function CatChips({ rows }) {
+// catOf: 행 → 'new'|'indeterminate'|'done' (기본은 상태 카테고리; 백로그는 보드 컬럼 위치 기준으로 센다 — 실제 Jira와 동일)
+export function CatChips({ rows, catOf = (r) => r.status_category }) {
   const c = { new: 0, indeterminate: 0, done: 0 };
-  for (const r of rows) c[r.status_category] = (c[r.status_category] ?? 0) + 1;
+  for (const r of rows) { const k = catOf(r); c[k] = (c[k] ?? 0) + 1; }
   return (
     <span className="catchips" title={`해야 할 일 ${c.new} · 진행 중 ${c.indeterminate} · 완료 ${c.done}`}>
       <span className="cat-new">{c.new}</span>
