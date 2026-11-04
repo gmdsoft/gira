@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from './api.js';
 import Tree from './Tree.jsx';
 import PageView from './PageView.jsx';
@@ -27,6 +27,28 @@ export default function App() {
   const [space, setSpace] = useState(null);
   const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
   const [me, setMe] = useState(undefined); // undefined=확인 중, null=로그인 필요
+  const dragStart = useRef(null);
+
+  // 마우스 드래그(텍스트 선택) 후 click이 링크 탐색으로 이어지지 않게 한다.
+  // Confluence와 동일하게, 드래그가 4px 이상 움직이면 click을 취소한다.
+  useEffect(() => {
+    const onDown = (e) => { if (e.button === 0) dragStart.current = { x: e.clientX, y: e.clientY }; };
+    const onClickCapture = (e) => {
+      const d = dragStart.current;
+      // e.detail === 0 은 키보드로 발생한 click — 드래그 판정에서 제외한다.
+      if (!d || e.detail === 0) return;
+      if (Math.abs(e.clientX - d.x) > 4 || Math.abs(e.clientY - d.y) > 4) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('click', onClickCapture, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('click', onClickCapture, true);
+    };
+  }, []);
 
   useEffect(() => {
     api('/api/auth/me').then(setMe).catch(() => setMe(null));
@@ -105,6 +127,12 @@ export default function App() {
 
   // 본문 내 페이지 링크(제목 기반) 클릭 처리
   const onContentClick = useCallback(async (e) => {
+    const sl = e.target.closest('a.space-link');
+    if (sl) {
+      e.preventDefault();
+      if (sl.dataset.space) navigate(`/s/${sl.dataset.space}`);
+      return;
+    }
     const a = e.target.closest('a.page-link');
     if (!a) return;
     e.preventDefault();
