@@ -7,7 +7,7 @@ import Sidebar from './Sidebar.jsx';
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
-const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '' };
+const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '' };
 
 function parseRoute(projects) {
   const m1 = location.pathname.match(/^\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)$/);
@@ -50,6 +50,9 @@ export default function JiraApp() {
   const [recent, setRecent] = useState(loadRecent);
   const qTimer = useRef(null);
   const [qInput, setQInput] = useState('');
+  const [fmode, setFmode] = useState(() => { try { return localStorage.getItem('jira.fmode') === 'jql' ? 'jql' : 'basic'; } catch { return 'basic'; } });
+  const [jqlInput, setJqlInput] = useState('');
+  const [jqlErr, setJqlErr] = useState(null);
 
   const boot = async () => {
     try {
@@ -131,6 +134,47 @@ export default function JiraApp() {
     try { localStorage.setItem('jira.recent', JSON.stringify(next)); } catch { /* 무시 */ }
     return next;
   });
+  // 현재 기본 필터를 동등한 JQL로 변환 (기본 → 고급 전환 시 프리필)
+  const buildJql = () => {
+    const parts = [];
+    const nameOf = (list, id, idKey = 'id', out = 'name') => list.find((x) => String(x[idKey]) === String(id))?.[out];
+    const quote = (s) => `"${String(s ?? '').replace(/"/g, '')}"`;
+    if (filters.status) parts.push(`status = ${quote(nameOf(meta.statuses, filters.status))}`);
+    if (filters.type) parts.push(`type = ${quote(nameOf(meta.types, filters.type))}`);
+    if (filters.assignee) parts.push(`assignee = ${quote(nameOf(meta.assignees, filters.assignee, 'id', 'display_name'))}`);
+    if (filters.priority) parts.push(`priority = ${filters.priority}`);
+    if (filters.sprint === 'none') parts.push('sprint IS EMPTY');
+    else if (filters.sprint) parts.push(`sprint = ${quote(nameOf(pdata.sprints, filters.sprint))}`);
+    if (filters.q) parts.push(`text ~ ${quote(filters.q)}`);
+    return parts.join(' AND ');
+  };
+  const applyJql = async (text) => {
+    const t = text.trim();
+    if (!t) { setJqlErr(null); setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group })); setSavedSel(''); return; }
+    try {
+      // limit=1로 서버 파서에 문법 검증만 받고, 통과하면 필터로 적용
+      await api(`/api/issues?project=${encodeURIComponent(project)}&limit=1&jql=${encodeURIComponent(t)}`, { quiet: true });
+      setJqlErr(null);
+      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, jql: t }));
+      setSavedSel('');
+    } catch (e) {
+      if (e instanceof AuthError) throw e;
+      setJqlErr(e.message);
+    }
+  };
+  const switchMode = (m) => {
+    if (m === fmode) return;
+    try { localStorage.setItem('jira.fmode', m); } catch { /* 무시 */ }
+    setFmode(m); setSavedSel('');
+    if (m === 'jql') {
+      const pre = buildJql(); // 기본 필터 상태를 JQL로 이어받는다
+      setJqlInput(pre);
+      applyJql(pre);
+    } else {
+      setJqlErr(null); setQInput('');
+      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group }));
+    }
+  };
   const applySaved = (id) => {
     setSavedSel(id);
     const f = savedFilters.find((x) => String(x.id) === id);
@@ -142,6 +186,10 @@ export default function JiraApp() {
       if (key in next) next[key] = v;
       if (key === 'q') setQInput(v);
     }
+    // 저장된 필터가 JQL이면 고급 모드로, 아니면 기본 모드로 맞춘다
+    const m = next.jql ? 'jql' : 'basic';
+    if (m !== fmode) { try { localStorage.setItem('jira.fmode', m); } catch { /* 무시 */ } setFmode(m); }
+    setJqlInput(next.jql); setJqlErr(null);
     setFilters(next);
   };
   const saveFilter = async () => {
@@ -190,33 +238,45 @@ export default function JiraApp() {
             </nav>
           </div>
           <div className="fbar">
-            <select value={filters.status} onChange={(e) => setF('status', e.target.value)}>
-              <option value="">상태: 전체</option>
-              {meta.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-            <select value={filters.type} onChange={(e) => setF('type', e.target.value)}>
-              <option value="">타입: 전체</option>
-              {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-            </select>
-            <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
-              <option value="">담당자: 전체</option>
-              {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-            </select>
-            <select value={filters.priority} onChange={(e) => setF('priority', e.target.value)}>
-              <option value="">우선순위: 전체</option>
-              {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
-            </select>
-            <select value={filters.sprint} onChange={(e) => setF('sprint', e.target.value)}>
-              <option value="">스프린트: 전체</option>
-              <option value="none">백로그(없음)</option>
-              {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
-            </select>
-            <input type="search" placeholder="검색 (요약·키)" value={qInput}
-              onChange={(e) => {
-                const v = e.target.value; setQInput(v);
-                clearTimeout(qTimer.current);
-                qTimer.current = setTimeout(() => setF('q', v), 250);
-              }} />
+            <span className="fmode">
+              <button className={fmode === 'basic' ? 'on' : ''} onClick={() => switchMode('basic')}>기본</button>
+              <button className={fmode === 'jql' ? 'on' : ''} onClick={() => switchMode('jql')}>JQL</button>
+            </span>
+            {fmode === 'basic' ? <>
+              <select value={filters.status} onChange={(e) => setF('status', e.target.value)}>
+                <option value="">상태: 전체</option>
+                {meta.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select value={filters.type} onChange={(e) => setF('type', e.target.value)}>
+                <option value="">타입: 전체</option>
+                {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
+                <option value="">담당자: 전체</option>
+                {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+              </select>
+              <select value={filters.priority} onChange={(e) => setF('priority', e.target.value)}>
+                <option value="">우선순위: 전체</option>
+                {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <select value={filters.sprint} onChange={(e) => setF('sprint', e.target.value)}>
+                <option value="">스프린트: 전체</option>
+                <option value="none">백로그(없음)</option>
+                {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
+              </select>
+              <input type="search" placeholder="검색 (요약·키)" value={qInput}
+                onChange={(e) => {
+                  const v = e.target.value; setQInput(v);
+                  clearTimeout(qTimer.current);
+                  qTimer.current = setTimeout(() => setF('q', v), 250);
+                }} />
+            </> : <>
+              <input className="jqlinput" spellCheck={false} value={jqlInput}
+                placeholder='JQL — 예: status != "완료" AND assignee = currentUser() ORDER BY updated DESC'
+                onChange={(e) => setJqlInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') applyJql(jqlInput); }} />
+              <button className="primary" onClick={() => applyJql(jqlInput)}>적용</button>
+            </>}
             <select value={filters.group} onChange={(e) => setF('group', e.target.value)} title="전체 목록(표)에서 행을 묶어 보기">
               <option value="">그룹화: 없음</option>
               <option value="status">상태</option>
@@ -225,11 +285,12 @@ export default function JiraApp() {
               <option value="epic">에픽</option>
               <option value="priority">우선순위</option>
             </select>
-            <button onClick={() => { setFilters(EMPTY_FILTERS); setQInput(''); setSavedSel(''); }}>초기화</button>
+            <button onClick={() => { setFilters(EMPTY_FILTERS); setQInput(''); setJqlInput(''); setJqlErr(null); setSavedSel(''); }}>초기화</button>
             <span style={{ borderLeft: '1px solid var(--line)', height: 20 }} />
             <button onClick={saveFilter}>현재 필터 저장</button>
             {savedSel && <button onClick={deleteFilter} title="적용 중인 저장 필터 삭제">필터 삭제</button>}
             <span id="count">{count}건</span>
+            {fmode === 'jql' && jqlErr && <div className="jqlerr">{jqlErr}</div>}
           </div>
           <main>
             {view === 'list' && <ListView {...viewProps} selKey={selKey} />}

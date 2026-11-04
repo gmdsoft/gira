@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, DATA_DIR } from './db.mjs';
 import { registerAuth } from './auth.mjs';
+import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 try { process.loadEnvFile(path.join(here, '..', '..', '.env')); } catch { /* 환경변수 직접 지정 가능 */ }
@@ -104,12 +105,23 @@ const ISSUE_SORT_COLS = {
   updated: 'i.updated_at',
 };
 
-app.get('/api/issues', async (req) => {
+app.get('/api/issues', async (req, reply) => {
   const { project, status, type, assignee, priority, sprint, q } = req.query;
   const cond = ['1=1'];
   const params = [];
   const p = (v) => { params.push(v); return `$${params.length}`; };
   if (project) cond.push(`pr.key = ${p(project)}`);
+  let jqlOrder = null;
+  if (req.query.jql?.trim()) {
+    try {
+      const r = parseJql(req.query.jql, { p, userId: req.access.userId });
+      cond.push(r.where);
+      jqlOrder = r.order;
+    } catch (e) {
+      if (e instanceof JqlError) return reply.code(400).send({ error: `JQL 오류: ${e.message}`, pos: e.pos });
+      throw e;
+    }
+  }
   if (status) cond.push(`i.status_id = ${p(status)}`);
   if (type) cond.push(`i.issue_type_id = ${p(type)}`);
   if (assignee) cond.push(`i.assignee_id = ${p(assignee)}`);
@@ -119,15 +131,28 @@ app.get('/api/issues', async (req) => {
   else if (sprint) cond.push(`i.sprint_id = ${p(sprint)}`);
   if (q) cond.push(`(i.summary ILIKE ${p('%' + q + '%')} OR i.issue_key ILIKE ${p('%' + q + '%')})`);
 
-  const sortRaw = String(req.query.sort ?? '-key');
+  // 정렬 우선순위: 명시된 sort 파라미터(표 머리글 클릭) > JQL ORDER BY > 기본(-key)
+  const sortRaw = String(req.query.sort ?? jqlOrder ?? '-key');
   const dir = sortRaw.startsWith('-') ? 'DESC' : 'ASC';
   const col = ISSUE_SORT_COLS[sortRaw.replace(/^-/, '')] ?? ISSUE_SORT_COLS.key;
   const limit = Math.min(Math.max(Number(req.query.limit) || 1000, 1), 1000);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
 
+  // count에도 본 쿼리와 같은 조인 세트 사용 (JQL 조건이 조인 별칭을 참조)
+  const JOINS = `
+       FROM jira_issues i
+       JOIN jira_projects pr ON pr.id = i.project_id
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN jira_statuses s ON s.id = i.status_id
+       LEFT JOIN users u ON u.id = i.assignee_id
+       LEFT JOIN users ur ON ur.id = i.reporter_id
+       LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
+       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
+       LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
+       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
+       LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
   const total = (await query(
-    `SELECT count(*)::int AS n FROM jira_issues i JOIN jira_projects pr ON pr.id = i.project_id
-      WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
+    `SELECT count(*)::int AS n ${JOINS} WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
   const { rows } = await query(
     `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
             i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions,
@@ -139,16 +164,7 @@ app.get('/api/issues', async (req) => {
             CASE WHEN pt1.name = '에픽' THEN p1.id WHEN pt2.name = '에픽' THEN p2.id END AS epic_id,
             CASE WHEN pt1.name = '에픽' THEN p1.issue_key WHEN pt2.name = '에픽' THEN p2.issue_key END AS epic_key,
             CASE WHEN pt1.name = '에픽' THEN p1.summary WHEN pt2.name = '에픽' THEN p2.summary END AS epic_summary
-       FROM jira_issues i
-       JOIN jira_projects pr ON pr.id = i.project_id
-       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
-       LEFT JOIN jira_statuses s ON s.id = i.status_id
-       LEFT JOIN users u ON u.id = i.assignee_id
-       LEFT JOIN users ur ON ur.id = i.reporter_id
-       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
-       LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
-       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
-       LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id
+       ${JOINS}
       WHERE ${cond.join(' AND ')}
       ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
       OFFSET ${offset} LIMIT ${limit}`, params);

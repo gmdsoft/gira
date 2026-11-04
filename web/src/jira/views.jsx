@@ -12,7 +12,8 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0 } = {}) {
   const seq = useRef(0); // 필터/정렬 변경 후 도착하는 이전 요청 응답 무시용
   const qs = (offset, limit) => {
     const u = new URLSearchParams({ project, offset, limit });
-    for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+    if (filters.jql) u.set('jql', filters.jql); // 고급(JQL) 모드 — 기본 필터와 병행하지 않음
+    else for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
     if (sort) u.set('sort', sort);
     return u;
   };
@@ -100,9 +101,9 @@ const GROUPERS = {
 };
 
 export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew }) {
-  const [sort, setSort] = useState({ field: 'key', dir: -1 });
+  const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump,
-    { pageSize: 100, sort: (sort.dir < 0 ? '-' : '') + sort.field }); // 정렬은 서버에서 전체 기준으로
+    { pageSize: 100, sort: sort ? (sort.dir < 0 ? '-' : '') + sort.field : null }); // 정렬은 서버에서 전체 기준으로
   useEffect(() => onCount(total), [total]);
 
   const ordered = useMemo(() => {
@@ -122,7 +123,7 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
     return out;
   }, [rows, filters.group]);
 
-  const clickSort = (f) => setSort((s) => s.field === f ? { ...s, dir: -s.dir } : { field: f, dir: 1 });
+  const clickSort = (f) => setSort((s) => s?.field === f ? { ...s, dir: -s.dir } : { field: f, dir: 1 });
   const changeStatus = async (r, id) => {
     await api('/api/issue/' + encodeURIComponent(r.issue_key), { method: 'PATCH', json: { statusId: id } });
     onChanged();
@@ -135,7 +136,7 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
       <table className="issues">
         <thead><tr>{TABLE_COLS.map(([f, label]) => (
           <th key={f} onClick={() => clickSort(f)}>{label}
-            {sort.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
+            {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
           ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length}>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
@@ -290,7 +291,8 @@ function ClosedSprint({ project, s, onOpen }) {
 // ---------- 백로그 (스프린트 + 인라인 계층) ----------
 export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata }) {
   // 완료 스프린트 소속 이슈는 제외하고 로드 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
-  const { rows, total } = useIssues(project, { ...filters, sprint: 'open' }, bump);
+  // JQL은 백로그에 적용하지 않는다 (실제 Jira 백로그도 JQL 미지원)
+  const { rows, total } = useIssues(project, { ...filters, sprint: 'open', jql: '' }, bump);
   const [expanded, setExpanded] = useState(() => new Set());
   const [showClosed, setShowClosed] = useState(false);
   useEffect(() => onCount(total), [total]);
