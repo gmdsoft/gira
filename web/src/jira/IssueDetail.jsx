@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
-import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck, IconBolt, IconSparkle } from './icons.jsx';
+import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
 import AdfView from './adf.jsx';
 import DescEditor from './DescEditor.jsx';
 import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
@@ -169,7 +169,6 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const [comment, setComment] = useState('');
   const [editingComment, setEditingComment] = useState(null); // {id, text}
   const [actTab, setActTab] = useState('comments'); // all | comments | history | worklog
-  const [fieldTab, setFieldTab] = useState('basic');
   const fileRef = useRef(null);
   const descEditorRef = useRef(null);
 
@@ -216,7 +215,6 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const doneCnt = d.subtasks.filter((s) => s.status_category === 'done').length;
   const pct = d.subtasks.length ? Math.round(doneCnt * 100 / d.subtasks.length) : 0;
   const verNames = [...new Set([...pdata.versions.map((v) => v.name), ...(d.fix_versions ?? [])])];
-  const resoList = [...new Set([...meta.resolutions, ...(d.resolution ? [d.resolution] : [])])];
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed' || s.id === d.sprint_id);
   const proj = meta.projects.find((p) => p.key === issueKey.split('-')[0]);
   const priorityItems = [
@@ -340,11 +338,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
         <div className="dmain">
           <section className="issue-section">
             <div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>주요 세부 정보</h3></div>
-            <div className="field-tabs">
-              {[['basic', '기본 입력'], ['more', '추가 정보'], ['qa', 'QA'], ['hubspot', 'HubSpot']].map(([k, label]) => (
-                <button key={k} className={fieldTab === k ? 'on' : ''} onClick={() => setFieldTab(k)}>{label}</button>))}
-            </div>
-            {fieldTab === 'basic' ? <dl className="fields2">
+            <dl className="fields2">
               <dt>컴포넌트</dt><dd>
                 <MultiPicker values={d.components ?? []} options={pdata.components ?? []}
                   emptyLabel="컴포넌트 추가" addLabel="컴포넌트 추가" searchPlaceholder="컴포넌트 검색"
@@ -372,7 +366,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                 <SelectPicker value={d.sprint_id == null ? '' : String(d.sprint_id)} items={sprintItems} width={280}
                   display={<span>{d.sprint_name ?? '백로그'}</span>}
                   onSelect={(v) => patch({ sprintId: v ? Number(v) : null })} /></dd>
-            </dl> : <div className="empty-fields">이 탭에 표시할 추가 필드가 없습니다.</div>}
+            </dl>
             <div className="fieldrow"><div className="flabel2">설명</div>
               {descEditing
                 ? <>
@@ -445,7 +439,6 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
           <div className="side-status">
             <StatusSelect statuses={meta.statuses} value={d.status_id} category={d.status_category}
               onChange={(id) => patch({ statusId: id })} />
-            <span className="agent-pill"><IconSparkle size={13} /> 에이전트</span>
             {d.resolved_at && <span className="done-mark"><IconCheck size={14} /> {d.resolution ?? '해결됨'}</span>}
           </div>
           <div className="dcard">
@@ -462,16 +455,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                 <select value={d.issue_type_id ?? ''} onChange={(e) => patch({ typeId: Number(e.target.value) })}>
                   {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select></dd>
-              <dt>해결</dt><dd>
-                <select value={d.resolution ?? ''} onChange={(e) => patch({ resolution: e.target.value || null })}>
-                  <option value="">미해결</option>
-                  {resoList.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select></dd>
             </dl></div>
-          </div>
-          <div className="dcard">
-            <div className="dcard-head"><IconChevronRight size={16} /><span>자동화</span><IconBolt size={14} className="dcard-icon" /></div>
-            <div className="body dim">규칙 실행</div>
           </div>
           <div className="dtimes">
             만듦 {dt(d.created_at)}<br />업데이트 {dt(d.updated_at)}

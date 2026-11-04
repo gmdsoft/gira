@@ -5,7 +5,7 @@ import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
-import { IconGrid, IconSearch, IconPlus, IconSparkle, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconBolt, IconExpand, IconRefresh } from './icons.jsx';
+import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
@@ -351,7 +351,6 @@ export default function JiraApp() {
         </form>
         <div className="tb-right">
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
-          <button className="toolbtn ai" title="PoC에서는 미지원"><IconSparkle size={15} /> Rovo에 질문하기</button>
           <button className="iconbtn bell" title="알림 (PoC 미지원)"><IconBell size={18} /><span className="bell-dot" /></button>
           <button className="iconbtn" title="도움말 (PoC 미지원)"><IconHelp size={18} /></button>
           <span className="settings-wrap">
@@ -382,7 +381,6 @@ export default function JiraApp() {
               <div className="crumb"><span>스페이스</span><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
               <div className="chead-actions">
                 <button className="iconbtn" title="공유 (PoC 미지원)"><IconShare size={17} /></button>
-                <button className="iconbtn" title="자동화 (PoC 미지원)"><IconBolt size={17} /></button>
                 <button className="iconbtn" title="전체 화면 (PoC 미지원)"><IconExpand size={17} /></button>
               </div>
             </div>

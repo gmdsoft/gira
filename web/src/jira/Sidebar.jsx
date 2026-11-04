@@ -60,7 +60,6 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         <a className="sitem snav-top" href="http://172.21.1.1:3001" target="_blank" rel="noreferrer" title="Confluence 열기">
           <IconSpace size={16} /><span className="strunc">Confluence</span><span className="sext">↗</span>
         </a>
-        <div className="sitem snav-top"><IconProject size={16} /><span className="strunc">자산</span></div>
       </div>
     </nav>
   );
