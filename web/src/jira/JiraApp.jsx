@@ -342,7 +342,7 @@ export default function JiraApp() {
       <header className="topbar">
         <div className="tb-left">
           <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
-          <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span></span>
+          <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">PoC</span></span>
         </div>
         <form className="tb-search" onSubmit={submitGlobal}>
           <IconSearch size={17} />
