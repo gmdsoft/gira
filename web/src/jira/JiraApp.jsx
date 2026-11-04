@@ -1,10 +1,11 @@
 // Jira PoC SPA 셸: 인증 게이트 → 상단 바 + 좌측 사이드바 + 콘텐츠(브레드크럼·탭·필터바·뷰) + URL 라우팅
 import React, { useEffect, useRef, useState } from 'react';
-import { api, AuthError } from './util.jsx';
+import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
+import { IconGrid, IconSearch, IconPlus, IconSparkle, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconBolt, IconExpand, IconMore, IconRefresh } from './icons.jsx';
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
@@ -55,6 +56,7 @@ export default function JiraApp() {
   const [fmode, setFmode] = useState(() => { try { return localStorage.getItem('jira.fmode') === 'jql' ? 'jql' : 'basic'; } catch { return 'basic'; } });
   const [jqlInput, setJqlInput] = useState('');
   const [jqlErr, setJqlErr] = useState(null);
+  const [globalQ, setGlobalQ] = useState('');
 
   const boot = async () => {
     try {
@@ -220,6 +222,13 @@ export default function JiraApp() {
     setSavedFilters(await api('/api/filters'));
   };
   const logout = async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/'; };
+  const submitGlobal = (e) => {
+    e?.preventDefault();
+    const q = globalQ.trim();
+    if (!q) return;
+    setView('list'); setSelKey(null); setF('q', q); setQInput(q);
+    nav(`/projects/${encodeURIComponent(project)}/list`, `${project} 목록 - Jira`);
+  };
 
   const projName = meta.projects.find((p) => p.key === project)?.name ?? project;
   const curBoard = pdata.boards.find((b) => String(b.id) === boardId);
@@ -234,10 +243,25 @@ export default function JiraApp() {
   return (
     <>
       <header className="topbar">
-        <button className="plain navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}>☰</button>
-        <h1>Jira <span className="poc">PoC</span></h1>
-        <button className="primary" onClick={() => setShowNew(true)}>+ 만들기</button>
-        <span id="who"><span>{me.display_name}</span><button onClick={logout}>로그아웃</button></span>
+        <div className="tb-left">
+          <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
+          <span className="brand"><span className="brand-mark">J</span><span className="brand-word">Jira</span></span>
+        </div>
+        <form className="tb-search" onSubmit={submitGlobal}>
+          <IconSearch size={17} />
+          <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
+          <kbd>/</kbd>
+        </form>
+        <div className="tb-right">
+          <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
+          <button className="toolbtn ai" title="PoC에서는 미지원"><IconSparkle size={15} /> Rovo에 질문하기</button>
+          <button className="iconbtn bell" title="알림 (PoC 미지원)"><IconBell size={18} /><span className="bell-dot" /></button>
+          <button className="iconbtn" title="도움말 (PoC 미지원)"><IconHelp size={18} /></button>
+          <button className="iconbtn" title="설정 (PoC 미지원)"><IconSettings size={18} /></button>
+          <span className="tb-sep" />
+          <span className="tb-user" title={me.display_name}><Avatar name={me.display_name} /></span>
+          <button className="plain logout" onClick={logout}>로그아웃</button>
+        </div>
       </header>
       <div className="shell">
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
@@ -245,10 +269,25 @@ export default function JiraApp() {
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved} />}
         <div className="content">
           <div className="chead">
-            <div className="crumb">프로젝트 / {projName} ({project})</div>
-            <h2>{curBoard ? curBoard.name : projName}</h2>
+            <div className="chead-top">
+              <div className="crumb"><span>스페이스</span><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
+              <div className="chead-actions">
+                <button className="iconbtn" title="공유 (PoC 미지원)"><IconShare size={17} /></button>
+                <button className="iconbtn" title="자동화 (PoC 미지원)"><IconBolt size={17} /></button>
+                <button className="iconbtn" title="전체 화면 (PoC 미지원)"><IconExpand size={17} /></button>
+                <button className="iconbtn" title="더 보기 (PoC 미지원)"><IconMore size={17} /></button>
+              </div>
+            </div>
+            <div className="chead-title">
+              <span className="proj-mark" style={{ background: hashColor(project) }}>{project[0]}</span>
+              <h2>{curBoard ? curBoard.name : projName}</h2>
+              <span className="chead-key">{project}</span>
+            </div>
             <nav className="tabs">
-              {VIEWS.map((v) => <button key={v} className={view === v ? 'on' : ''} onClick={() => gotoView(v)}>{VIEW_NAMES[v]}</button>)}
+              {VIEWS.map((v) => {
+                const Icon = v === 'list' ? IconList : v === 'table' ? IconTable : v === 'board' ? IconBoard : IconBacklog;
+                return <button key={v} className={view === v ? 'on' : ''} onClick={() => gotoView(v)}><Icon size={16} /> {VIEW_NAMES[v]}</button>;
+              })}
             </nav>
           </div>
           <div className="fbar">
@@ -278,7 +317,7 @@ export default function JiraApp() {
                 <option value="none">백로그(없음)</option>
                 {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
               </select>
-              <input type="search" placeholder="검색 (요약·키)" value={qInput}
+              <input type="search" placeholder="업무 검색" value={qInput}
                 onChange={(e) => {
                   const v = e.target.value; setQInput(v);
                   clearTimeout(qTimer.current);
@@ -289,7 +328,15 @@ export default function JiraApp() {
                 placeholder='JQL — 예: status != "완료" AND assignee = currentUser() ORDER BY updated DESC' />
               <button className="primary" onClick={() => applyJql(jqlInput)}>적용</button>
             </>}
-            <select value={filters.group} onChange={(e) => setF('group', e.target.value)} title="전체 목록(표)에서 행을 묶어 보기">
+            <span className="avstack" title="담당자로 빠르게 필터">
+              {meta.assignees.slice(0, 6).map((u) => (
+                <button key={u.id} className={`avbtn${String(filters.assignee) === String(u.id) ? ' on' : ''}`}
+                  onClick={() => setF('assignee', String(filters.assignee) === String(u.id) ? '' : u.id)} title={u.display_name}>
+                  <Avatar name={u.display_name} />
+                </button>))}
+              {meta.assignees.length > 6 && <span className="avmore" title={`담당자 ${meta.assignees.length}명`}>+{meta.assignees.length - 6}</span>}
+            </span>
+            <select className={`filter-select${filters.group ? ' active' : ''}`} value={filters.group} onChange={(e) => setF('group', e.target.value)} title="행을 묶어 보기">
               <option value="">그룹화: 없음</option>
               <option value="status">상태</option>
               <option value="assignee">담당자</option>
@@ -301,7 +348,10 @@ export default function JiraApp() {
             <span style={{ borderLeft: '1px solid var(--line)', height: 20 }} />
             <button onClick={saveFilter}>현재 필터 저장</button>
             {savedSel && <button onClick={deleteFilter} title="적용 중인 저장 필터 삭제">필터 삭제</button>}
-            <span id="count">{count}건</span>
+            <span className="fbar-spacer" />
+            <span id="count">{count.toLocaleString()}건</span>
+            <button className="iconbtn" title="새로고침" onClick={refresh}><IconRefresh size={17} /></button>
+            <button className="iconbtn" title="더 보기 (PoC 미지원)"><IconMore size={17} /></button>
             {fmode === 'jql' && jqlErr && <div className="jqlerr">{jqlErr}</div>}
           </div>
           <main>

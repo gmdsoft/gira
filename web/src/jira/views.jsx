@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
+import { IconCheck, IconMore, IconSettings } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
 
@@ -73,7 +74,11 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
             </div>
             <div className="meta">
               <span className={`badge cat-${r.status_category}`}>{r.status_name ?? '?'}</span>
-              <span>{r.type_name ?? ''}</span><span>{r.assignee_name ?? '미지정'}</span><span>{dt(r.updated_at)}</span>
+              <Prio p={r.priority} />
+              <span className="meta-type">{r.type_name ?? ''}</span>
+              <span className="meta-spacer" />
+              <Avatar name={r.assignee_name} />
+              <span className="meta-date">{dt(r.updated_at)}</span>
             </div>
           </div>))}
       </div>
@@ -81,7 +86,7 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
       </div>
       <div id="detail">
         {selKey
-          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} />
+          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} onNew={onNew} />
           : <div className="placeholder">왼쪽 목록에서 이슈를 선택하세요</div>}
       </div>
     </div>
@@ -103,9 +108,11 @@ const GROUPERS = {
 
 export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew, boardJql }) {
   const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
+  const [selected, setSelected] = useState(() => new Set());
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump,
     { pageSize: 100, sort: sort ? (sort.dir < 0 ? '-' : '') + sort.field : null, extraJql: [boardJql] }); // 정렬은 서버에서 전체 기준으로
   useEffect(() => onCount(total), [total]);
+  useEffect(() => { setSelected((cur) => new Set([...cur].filter((id) => rows.some((r) => r.id === id)))); }, [rows]);
 
   const ordered = useMemo(() => {
     if (!filters.group) return rows;
@@ -129,30 +136,38 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
     await api('/api/issue/' + encodeURIComponent(r.issue_key), { method: 'PATCH', json: { statusId: id } });
     onChanged();
   };
+  const toggle = (id) => setSelected((cur) => { const n = new Set(cur); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allOn = rows.length > 0 && rows.every((r) => selected.has(r.id));
+  const toggleAll = () => setSelected(() => allOn ? new Set() : new Set(rows.map((r) => r.id)));
 
   return (
     <div className="view on" id="view-table">
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
     <div id="tablewrap" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
       <table className="issues">
-        <thead><tr>{TABLE_COLS.map(([f, label]) => (
-          <th key={f} onClick={() => clickSort(f)}>{label}
-            {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
+        <thead><tr>
+          <th className="c-check"><input type="checkbox" checked={allOn} onChange={toggleAll} aria-label="전체 선택" /></th>
+          {TABLE_COLS.map(([f, label]) => (
+            <th key={f} className={`c-${f}`} onClick={() => clickSort(f)}>{label}
+              {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}</th>))}
+          <th className="c-settings" title="열 설정"><IconSettings size={15} /></th>
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
-          ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length}>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
-          : <tr key={r.id}>
-              <td><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></td>
-              <td className="c-sum">{r.summary}</td>
-              <td><TypeIcon name={r.type_name} /> {r.type_name ?? ''}</td>
-              <td>{r.assignee_name ?? ''}</td>
-              <td>{r.reporter_name ?? ''}</td>
-              <td><Prio p={r.priority} /> {r.priority ?? ''}</td>
-              <td><StatusSelect small statuses={meta.statuses} value={r.status_id} category={r.status_category}
+          ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length + 2}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
+          : <tr key={r.id} className={selected.has(r.id) ? 'selected' : ''} onClick={() => onOpen(r.issue_key)}>
+              <td className="c-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.issue_key} 선택`} /></td>
+              <td className="c-key"><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></td>
+              <td className="c-sum"><span className="cell-sum" onClick={() => onOpen(r.issue_key)}>{r.summary}</span></td>
+              <td className="c-type"><TypeIcon name={r.type_name} /> <span>{r.type_name ?? ''}</span></td>
+              <td className="c-assignee"><span className="person"><Avatar name={r.assignee_name} /><span>{r.assignee_name ?? ''}</span></span></td>
+              <td className="c-reporter"><span className="person"><Avatar name={r.reporter_name} /><span>{r.reporter_name ?? ''}</span></span></td>
+              <td className="c-priority"><span className="person"><Prio p={r.priority} /><span>{r.priority ?? ''}</span></span></td>
+              <td className="c-status"><StatusSelect small statuses={meta.statuses} value={r.status_id} category={r.status_category}
                 onChange={(id) => changeStatus(r, id)} /></td>
-              <td>{r.resolution ?? (r.resolved_at ? '완료' : '')}</td>
-              <td>{dt(r.created_at)}</td>
-              <td>{dt(r.updated_at)}</td>
+              <td className="c-resolution">{r.resolution ? <span className="resolved"><IconCheck size={14} />{r.resolution}</span> : (r.resolved_at ? <span className="resolved"><IconCheck size={14} />완료</span> : '')}</td>
+              <td className="c-created">{dt(r.created_at)}</td>
+              <td className="c-updated">{dt(r.updated_at)}</td>
+              <td className="c-settings" />
             </tr>)}
         </tbody>
       </table>
@@ -161,6 +176,7 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
     </div></div>
   );
 }
+
 
 // ---------- 보드 (칸반) ----------
 export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
