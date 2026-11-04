@@ -117,6 +117,9 @@ a:hover { text-decoration: underline; }
 .srecent { display: flex; flex-direction: column; }
 .srecent-item { padding-left: 8px; }
 .snav-bottom { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); border-bottom: 0; }
+a.sitem { color: var(--text); text-decoration: none; }
+a.sitem:hover { text-decoration: none; }
+.sext { color: var(--subtle); font-size: 12px; }
 
 /* ---------- 콘텐츠 헤더 ---------- */
 .content { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
@@ -226,7 +229,6 @@ table.issues .c-priority { width: 100px; }
 table.issues .c-status { width: 115px; }
 table.issues .c-resolution { width: 80px; }
 table.issues .c-created, table.issues .c-updated { width: 145px; color: var(--dim); font-size: 12.5px; }
-table.issues .c-settings { width: 40px; text-align: center; color: var(--dim); cursor: default; }
 table.issues .c-summary .cell-sum, table.issues .c-sum .cell-sum { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 table.issues .c-summary .cell-sum:hover, table.issues .c-sum .cell-sum:hover { text-decoration: underline; }
 table.issues .c-key .ilink { font-size: 12.5px; font-weight: 500; }
