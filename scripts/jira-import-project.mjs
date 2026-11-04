@@ -229,7 +229,9 @@ for (;;) {
   for (const iss of issues) {
     const f = iss.fields;
     const sprintArr = SPRINT_FIELD ? (f[SPRINT_FIELD] ?? []).map(parseSprint).filter(Boolean) : [];
-    const sprintId = sprintArr.length ? sprintArr[sprintArr.length - 1].id : null; // 가장 최근 스프린트
+    // 현재 소속 = 열린(비완료) 스프린트가 있으면 그것, 없으면 마지막(완료) 스프린트 — Jira 멤버십 규칙
+    const openSp = sprintArr.find((s) => s.state !== 'closed');
+    const sprintId = openSp ? openSp.id : (sprintArr.length ? sprintArr[sprintArr.length - 1].id : null);
     const { comment: _c, attachment: _a, issuelinks: _l, ...rawRest } = f;
     await query(
       `INSERT INTO jira_issues

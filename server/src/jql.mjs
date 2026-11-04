@@ -43,6 +43,7 @@ const FIELDS = {
   summary: { kind: 'text', col: 'i.summary', like: true, label: 'summary' },
   text: { kind: 'search', label: 'text' },
   status: { kind: 'text', col: 's.name', label: 'status' },
+  statuscategory: { kind: 'text', col: 's.category', label: 'statusCategory' }, // new|indeterminate|done
   type: { kind: 'text', col: 't.name', label: 'type' },
   issuetype: { kind: 'text', col: 't.name', label: 'type' },
   assignee: { kind: 'user', col: 'u.display_name', id: 'i.assignee_id', label: 'assignee' },
@@ -68,6 +69,7 @@ const ORDER_FIELDS = {
   assignee: 'assignee', reporter: 'reporter', priority: 'priority', status: 'status',
   resolution: 'resolution', created: 'created', createddate: 'created',
   updated: 'updated', updateddate: 'updated',
+  rank: 'key', // Rank(수동 순서)는 미보유 — 키 순서로 근사
 };
 
 const REL_MS = { m: 60e3, h: 3600e3, d: 86400e3, w: 604800e3 };
@@ -184,7 +186,8 @@ class Parser {
       const fn = t.value.toLowerCase();
       if (fn === 'currentuser') return { fn: 'currentUser' };
       if (fn === 'opensprints') return { fn: 'openSprints' };
-      this.fail(t, `알 수 없는 함수 '${t.value}()' (가능: currentUser(), openSprints())`);
+      if (fn === 'activesprints') return { fn: 'activeSprints' };
+      this.fail(t, `알 수 없는 함수 '${t.value}()' (가능: currentUser(), openSprints(), activeSprints())`);
     }
     if (['empty', 'null'].includes(t.value.toLowerCase())) return { empty: true };
     return { value: t.value };
@@ -230,6 +233,10 @@ class Parser {
     if (v.fn === 'openSprints') {
       if (field.kind !== 'sprint') this.fail(ft, `openSprints()는 sprint에만 쓸 수 있습니다`);
       return `i.sprint_id IN (SELECT id FROM jira_sprints WHERE state <> 'closed')`;
+    }
+    if (v.fn === 'activeSprints') {
+      if (field.kind !== 'sprint') this.fail(ft, `activeSprints()는 sprint에만 쓸 수 있습니다`);
+      return `i.sprint_id IN (SELECT id FROM jira_sprints WHERE state = 'active')`;
     }
     switch (field.kind) {
       case 'text': case 'user':

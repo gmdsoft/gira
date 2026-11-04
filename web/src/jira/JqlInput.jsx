@@ -3,6 +3,7 @@ import React, { useMemo, useRef, useState } from 'react';
 
 const FIELD_DEFS = [
   ['project', 'plain'], ['key', 'key'], ['summary', 'text'], ['text', 'search'], ['status', 'plain'],
+  ['statusCategory', 'plain'],
   ['type', 'plain'], ['assignee', 'user'], ['reporter', 'user'], ['priority', 'plain'], ['resolution', 'plain'],
   ['sprint', 'sprint'], ['labels', 'array'], ['fixVersion', 'array'], ['component', 'array'], ['parent', 'parent'],
   ['created', 'date'], ['updated', 'date'], ['resolved', 'date'],
@@ -61,6 +62,7 @@ function valueItems(fieldLower, meta, pdata) {
   const empty = { label: 'EMPTY', insert: 'EMPTY', tag: '' };
   switch (fieldLower) {
     case 'status': return wrap(meta.statuses.map((s) => s.name), '상태');
+    case 'statuscategory': return wrap(['new', 'indeterminate', 'done'], '상태 분류');
     case 'type': case 'issuetype': return wrap(meta.types.map((t) => t.name), '타입');
     case 'assignee': case 'reporter':
       return [fn('currentUser()'), empty, ...wrap(meta.assignees.map((u) => u.display_name), '사용자')];

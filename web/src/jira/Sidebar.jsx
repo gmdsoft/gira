@@ -1,21 +1,11 @@
-// 좌측 전역 사이드바: 최근 항목 / 프로젝트(보드 중첩 트리) / 저장 필터
+// 좌측 전역 사이드바: 최근 항목 / 프로젝트(전체 목록·보드·백로그) / 저장 필터
 import React, { useEffect, useState } from 'react';
-import { api, hashColor } from './util.jsx';
+import { hashColor } from './util.jsx';
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent,
-  onProjView, onBoard, onIssue, onFilter }) {
+  onProjView, onBoard, onBoards, onIssue, onFilter }) {
   const [open, setOpen] = useState(() => new Set([project]));
-  const [boardsBy, setBoardsBy] = useState({}); // 다른 프로젝트의 보드 지연 로드 캐시
   useEffect(() => { setOpen((s) => s.has(project) ? s : new Set(s).add(project)); }, [project]);
-  useEffect(() => {
-    for (const pk of open) {
-      if (pk === project || boardsBy[pk]) continue;
-      api('/api/boards?project=' + encodeURIComponent(pk))
-        .then((b) => setBoardsBy((m) => ({ ...m, [pk]: b })))
-        .catch(() => {});
-    }
-  }, [open, project]);
-  const boardsOf = (pk) => (pk === project ? pdata.boards : boardsBy[pk] ?? []);
   const toggle = (pk) => setOpen((s) => { const n = new Set(s); n.has(pk) ? n.delete(pk) : n.add(pk); return n; });
 
   return (
@@ -33,7 +23,8 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         const cur = p.key === project;
         return (
           <React.Fragment key={p.key}>
-            <div className={`sitem${cur && (view === 'list' || view === 'table') ? ' on' : ''}`}
+            {/* 프로젝트 제목 클릭 → 목록 뷰 (진한 글씨 = 현재 프로젝트), 트위스티로 접기/펼치기 */}
+            <div className={`sitem phead2${cur ? ' curproj' : ''}${cur && view === 'list' && !boardId ? ' on' : ''}`}
               onClick={() => onProjView(p.key, 'list')}>
               <button className="twisty2" title={opened ? '접기' : '펼치기'}
                 onClick={(e) => { e.stopPropagation(); toggle(p.key); }}>{opened ? '▾' : '▸'}</button>
@@ -41,14 +32,11 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
               <span className="strunc" title={`${p.name} (${p.key})`}>{p.name}</span>
             </div>
             {opened && <>
-              <div className={`sitem child${cur && view === 'board' && !boardId ? ' on' : ''}`}
-                onClick={() => onBoard(p.key, '')}>기본 보드</div>
-              {boardsOf(p.key).map((b) => (
-                <div className={`sitem child${cur && view === 'board' && boardId === String(b.id) ? ' on' : ''}`}
-                  key={b.id} onClick={() => onBoard(p.key, String(b.id))}>
-                  <span className="strunc" title={b.name}>{b.name}</span>
-                </div>))}
-              <div className={`sitem child${cur && view === 'backlog' ? ' on' : ''}`}
+              <div className={`sitem child${cur && view === 'table' && !boardId ? ' on' : ''}`}
+                onClick={() => onProjView(p.key, 'table')}>전체 목록</div>
+              <div className={`sitem child${cur && view === 'board' ? ' on' : ''}`}
+                onClick={() => onBoards(p.key)}>보드</div>{/* 기본 보기: 칸반 보드 선택 */}
+              <div className={`sitem child${cur && view === 'backlog' && !boardId ? ' on' : ''}`}
                 onClick={() => onProjView(p.key, 'backlog')}>백로그</div>
             </>}
           </React.Fragment>

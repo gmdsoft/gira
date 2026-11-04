@@ -20,7 +20,8 @@ function parseRoute(projects) {
   const m2 = location.pathname.match(/^\/projects\/([^/]+)\/(list|table|board|backlog)$/);
   if (m2) {
     const pkey = decodeURIComponent(m2[1]);
-    const boardId = m2[2] === 'board' ? (new URLSearchParams(location.search).get('b') ?? '') : '';
+    // 보드는 컨텍스트: 어느 뷰에서든 ?b=가 있으면 그 보드의 필터가 적용된다
+    const boardId = new URLSearchParams(location.search).get('b') ?? '';
     if (projects.some((p) => p.key === pkey)) return { project: pkey, view: m2[2], selKey: null, boardId };
   }
   return null;
@@ -94,19 +95,27 @@ export default function JiraApp() {
     setProject(pkey); setFilters((f) => ({ ...f, sprint: '' })); setSavedSel('');
   };
   const gotoView = (v) => {
-    const q = v === 'board' && boardId ? '?b=' + boardId : '';
+    const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
     setView(v); setSelKey(null);
     nav(`/projects/${encodeURIComponent(project)}/${v}${q}`, `${project} ${VIEW_NAMES[v]} - Jira PoC`);
   };
   const gotoProjView = (pkey, v) => {
     switchProject(pkey);
-    setView(v); setSelKey(null);
+    setView(v); setSelKey(null); setBoardId(''); // 프로젝트 수준 이동은 보드 컨텍스트 해제
     nav(`/projects/${encodeURIComponent(pkey)}/${v}`, `${pkey} ${VIEW_NAMES[v]} - Jira PoC`);
   };
   const gotoBoard = (pkey, bid) => {
     switchProject(pkey);
     setView('board'); setSelKey(null); setBoardId(bid);
     nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Jira PoC`);
+  };
+  // 사이드바 '보드' 클릭: 칸반 보드를 기본 선택 (이름 '칸반' > kanban 유형 > 첫 보드 > 기본)
+  const gotoBoardsDefault = async (pkey) => {
+    const boards = pkey === project ? pdata.boards : await api('/api/boards?project=' + encodeURIComponent(pkey));
+    const pick = boards.find((b) => b.name.includes('칸반'))
+      ?? boards.find((b) => b.type === 'kanban')
+      ?? boards[0] ?? null;
+    gotoBoard(pkey, pick ? String(pick.id) : '');
   };
   const openIssue = (key) => {
     setView('list'); setSelKey(key);
@@ -152,29 +161,31 @@ export default function JiraApp() {
   };
   const applyJql = async (text) => {
     const t = text.trim();
-    if (!t) { setJqlErr(null); setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group })); setSavedSel(''); return; }
+    if (!t) { setJqlErr(null); setFilters((f) => ({ ...f, jql: '' })); setSavedSel(''); return; }
     try {
-      // limit=1로 서버 파서에 문법 검증만 받고, 통과하면 필터로 적용
+      // limit=1로 서버 파서에 문법 검증만 받고, 통과하면 필터로 적용 (기본 필터 선택값은 보존)
       await api(`/api/issues?project=${encodeURIComponent(project)}&limit=1&jql=${encodeURIComponent(t)}`, { quiet: true });
       setJqlErr(null);
-      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, jql: t }));
+      setFilters((f) => ({ ...f, jql: t }));
       setSavedSel('');
     } catch (e) {
       if (e instanceof AuthError) throw e;
       setJqlErr(e.message);
     }
   };
+  // 모드 전환은 '어느 쪽이 적용되는지'만 바꾼다 — 양쪽 필터 상태는 유지
   const switchMode = (m) => {
     if (m === fmode) return;
     try { localStorage.setItem('jira.fmode', m); } catch { /* 무시 */ }
     setFmode(m); setSavedSel('');
     if (m === 'jql') {
-      const pre = buildJql(); // 기본 필터 상태를 JQL로 이어받는다
+      // 직접 쓴 JQL이 있으면 그대로 재적용, 없으면 기본 필터를 JQL로 변환해 이어받는다
+      const pre = jqlInput.trim() || buildJql();
       setJqlInput(pre);
       applyJql(pre);
     } else {
-      setJqlErr(null); setQInput('');
-      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group }));
+      setJqlErr(null);
+      setFilters((f) => ({ ...f, jql: '' })); // 기본 선택값은 그대로 되살아난다
     }
   };
   const applySaved = (id) => {
@@ -217,6 +228,7 @@ export default function JiraApp() {
     project, meta, pdata, filters, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
     onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true),
+    boardJql: curBoard?.jql ?? null, // 보드 컨텍스트 필터 — 모든 뷰에 AND 적용
   };
 
   return (
@@ -230,11 +242,11 @@ export default function JiraApp() {
       <div className="shell">
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
-          onProjView={gotoProjView} onBoard={gotoBoard} onIssue={openIssue} onFilter={applySaved} />}
+          onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved} />}
         <div className="content">
           <div className="chead">
-            <div className="crumb">프로젝트 / {project}</div>
-            <h2>{projName}{view === 'board' && curBoard ? <span className="dim"> · {curBoard.name}</span> : ''}</h2>
+            <div className="crumb">프로젝트 / {projName} ({project})</div>
+            <h2>{curBoard ? curBoard.name : projName}</h2>
             <nav className="tabs">
               {VIEWS.map((v) => <button key={v} className={view === v ? 'on' : ''} onClick={() => gotoView(v)}>{VIEW_NAMES[v]}</button>)}
             </nav>
