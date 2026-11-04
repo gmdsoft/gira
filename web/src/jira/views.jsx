@@ -60,10 +60,36 @@ function ListFoot({ total, shown, loading, onNew, onRefresh }) {
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
 export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, boardJql }) {
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100, extraJql: [boardJql] });
+  const [paneWidth, setPaneWidth] = useState(() => {
+    const v = Number(localStorage.getItem('jira.listPaneWidth'));
+    return Number.isFinite(v) && v >= 280 ? v : 440;
+  });
+  const [paneResize, setPaneResize] = useState(null);
   useEffect(() => onCount(total), [total]);
+  useEffect(() => { try { localStorage.setItem('jira.listPaneWidth', String(paneWidth)); } catch { /* 무시 */ } }, [paneWidth]);
+  useEffect(() => {
+    if (!paneResize) return;
+    const onMove = (e) => {
+      const max = Math.max(280, Math.min(900, window.innerWidth - 360));
+      setPaneWidth(Math.max(280, Math.min(max, paneResize.startW + e.clientX - paneResize.startX)));
+    };
+    const onUp = () => { setPaneResize(null); document.body.classList.remove('pane-resizing'); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.classList.add('pane-resizing');
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.classList.remove('pane-resizing');
+    };
+  }, [paneResize]);
+  const startPaneResize = (e) => {
+    e.preventDefault();
+    setPaneResize({ startX: e.clientX, startW: paneWidth });
+  };
   return (
     <div className="view on" id="view-list">
-      <div className="lpane">
+      <div className="lpane" style={{ width: paneWidth }}>
       <div id="list" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
         {rows.map((r) => (
           <div className={`row${r.issue_key === selKey ? ' sel' : ''}`} key={r.id} onClick={() => onOpen(r.issue_key)}>
@@ -84,6 +110,7 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
       </div>
       <ListFoot total={total} shown={rows.length} loading={loading} onNew={onNew} onRefresh={onChanged} />
       </div>
+      <div className="pane-resizer" title="드래그하여 이슈 목록 폭 조절" onMouseDown={startPaneResize} />
       <div id="detail">
         {selKey
           ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} onNew={onNew} />
