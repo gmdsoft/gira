@@ -1,6 +1,7 @@
 // 모달: 로그인 게이트, 이슈 만들기, 보드 만들기/편집
-import React, { useEffect, useId, useState } from 'react';
-import { api } from './util.jsx';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { api, Avatar, hashColor, Prio } from './util.jsx';
+import { TypeIcon, IconClose, IconExpand, IconMore, IconPaperclip, IconGrid, IconBacklog, IconTag, IconUser, IconLink, IconInfo } from './icons.jsx';
 
 export function LoginGate({ onLogin }) {
   const [users, setUsers] = useState([]);
@@ -62,7 +63,7 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
   const [desc, setDesc] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
   const [reporterId, setReporterId] = useState(me?.id ?? '');
-  const [priority, setPriority] = useState('');
+  const [priority, setPriority] = useState(() => meta.priorities.includes('Normal') ? 'Normal' : (meta.priorities.includes('Medium') ? 'Medium' : ''));
   const [labels, setLabels] = useState([]);
   const [components, setComponents] = useState([]);
   const [fixVersions, setFixVersions] = useState([]);
@@ -70,17 +71,36 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
   const [another, setAnother] = useState(false);    // Jira의 '다른 이슈 만들기'
   const [lastKey, setLastKey] = useState('');
   const [epics, setEpics] = useState([]);
+  const [files, setFiles] = useState([]);
+  const [fieldTab, setFieldTab] = useState('basic');
+  const fileRef = useRef(null);
   const type = meta.types.find((t) => String(t.id) === String(typeId));
   const isSub = type?.subtask;
   const isEpic = type?.name === '에픽';
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed');
   const epicType = meta.types.find((t) => t.name === '에픽');
+  const defaultStatus = meta.statuses.find((s) => s.category === 'new') ?? meta.statuses[0];
+  const projName = meta.projects.find((p) => p.key === project)?.name ?? project;
+  const reporterName = meta.assignees.find((u) => String(u.id) === String(reporterId))?.display_name ?? me?.display_name;
+  const assigneeName = meta.assignees.find((u) => String(u.id) === String(assigneeId))?.display_name;
 
   useEffect(() => { // 상위 항목(에픽) 후보 — 최신순
     if (!epicType) return;
     api(`/api/issues?project=${encodeURIComponent(project)}&type=${epicType.id}&limit=500&sort=-key`)
       .then((d) => setEpics(d.rows)).catch(() => {});
   }, [project]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const addFiles = (list) => {
+    const arr = Array.from(list ?? []);
+    if (!arr.length) return;
+    setFiles((prev) => [...prev, ...arr].slice(0, 5));
+  };
 
   const create = async () => {
     if (!summary.trim()) return alert('요약을 입력하세요');
@@ -95,70 +115,152 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
       sprintId: sprintId ? Number(sprintId) : null,
       parentKey: isSub ? (parentKey.trim() || null) : (!isEpic && epicKey ? epicKey : null),
     } });
+    for (const f of files) {
+      const fd = new FormData(); fd.append('file', f);
+      await api(`/api/issue/${encodeURIComponent(res.issueKey)}/attachments`, { method: 'POST', body: fd });
+    }
     if (another) {
-      setLastKey(res.issueKey); setSummary(''); setDesc('');
+      setLastKey(res.issueKey); setSummary(''); setDesc(''); setFiles([]);
       onRefresh?.();
     } else onCreated(res.issueKey);
   };
 
   return (
-    <div className="overlay on"><div className="modal">
-      <h2>이슈 만들기</h2>
-      <div className="dim" style={{ fontSize: 12 }}>필수 필드는 별표(<span style={{ color: 'var(--danger)' }}>*</span>)로 표시됩니다</div>
-      <label>프로젝트 <span className="req">*</span></label>
-      <input value={`${meta.projects.find((p) => p.key === project)?.name ?? project} (${project})`} disabled />
-      <label>작업 유형 <span className="req">*</span></label>
-      <select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
-        {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-      </select>
-      <hr className="msep" />
-      <label>요약 <span className="req">*</span></label>
-      <input type="text" value={summary} autoFocus onChange={(e) => setSummary(e.target.value)} />
-      <label>설명</label>
-      <textarea placeholder="플레인 텍스트 (PoC)" value={desc} onChange={(e) => setDesc(e.target.value)} />
-      <label>담당자</label>
-      <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-        <option value="">자동 (미지정)</option>
-        {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-      </select>
-      {me && String(assigneeId) !== String(me.id)
-        && <button className="plain linklike" onClick={() => setAssigneeId(String(me.id))}>나에게 할당</button>}
-      <label>보고자 <span className="req">*</span></label>
-      <select value={reporterId} onChange={(e) => setReporterId(e.target.value)}>
-        {me && !meta.assignees.some((u) => String(u.id) === String(me.id))
-          && <option value={me.id}>{me.display_name}</option>}
-        {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-      </select>
-      <label>우선 순위</label>
-      <select value={priority} onChange={(e) => setPriority(e.target.value)}>
-        <option value="">없음</option>
-        {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
-      </select>
-      <label>레이블</label>
-      <TagInput value={labels} onChange={setLabels} suggestions={pdata.labels ?? []} placeholder="레이블 입력 후 Enter" />
-      <label>컴포넌트</label>
-      <TagInput value={components} onChange={setComponents} suggestions={pdata.components ?? []} placeholder="컴포넌트 입력 후 Enter" />
-      <label>수정 버전</label>
-      <TagInput value={fixVersions} onChange={setFixVersions} suggestions={(pdata.versions ?? []).map((v) => v.name)} placeholder="버전 입력 후 Enter" />
-      {isSub ? <>
-        <label>상위 항목 <span className="req">*</span> <span className="dim">(하위 작업의 상위 이슈 키)</span></label>
-        <input type="text" value={parentKey} placeholder={`${project}-10`} onChange={(e) => setParentKey(e.target.value)} />
-      </> : !isEpic && <>
-        <label>상위 항목 <span className="dim">(에픽)</span></label>
-        <select value={epicKey} onChange={(e) => setEpicKey(e.target.value)}>
-          <option value="">없음</option>
-          {epics.map((ep) => <option key={ep.id} value={ep.issue_key}>{ep.issue_key} — {ep.summary}</option>)}
-        </select>
-      </>}
-      <label>스프린트</label>
-      <select value={sprintId} onChange={(e) => setSprintId(e.target.value)}>
-        <option value="">백로그</option>
-        {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
-      </select>
-      <div className="actions">
-        {lastKey && <span className="dim" style={{ marginRight: 'auto' }}>{lastKey} 생성됨</span>}
-        <label className="inlinechk"><input type="checkbox" checked={another} onChange={(e) => setAnother(e.target.checked)} /> 다른 이슈 만들기</label>
-        <button onClick={onClose}>취소</button>
+    <div className="overlay on"><div className="modal create-modal">
+      <div className="create-head">
+        <div className="create-head-left">
+          <span className="proj-mark" style={{ background: hashColor(project) }}>{project[0]}</span>
+          <span className="create-proj">{project}</span>
+          <span className="create-type">
+            <TypeIcon name={type?.name} />
+            <select value={typeId} onChange={(e) => setTypeId(e.target.value)} aria-label="작업 유형">
+              {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </span>
+        </div>
+        <div className="create-head-actions">
+          <button className="iconbtn" title="최소화 (PoC 미지원)">–</button>
+          <button className="iconbtn" title="최대화 (PoC 미지원)"><IconExpand size={14} /></button>
+          <button className="iconbtn" title="더 보기 (PoC 미지원)"><IconMore size={16} /></button>
+          <button className="iconbtn" title="닫기" onClick={onClose}><IconClose size={16} /></button>
+        </div>
+      </div>
+
+      <div className="create-body">
+        <label className="cf-label">요약 <span className="req">*</span><IconInfo size={12} className="cf-info" /></label>
+        <textarea className="cf-summary" autoFocus rows={2} value={summary} placeholder="요약"
+          onChange={(e) => setSummary(e.target.value)} />
+
+        <label className="cf-label">설명 <IconInfo size={12} className="cf-info" /></label>
+        <textarea className="cf-desc" value={desc}
+          placeholder="설명을 추가하거나 /를 입력하여 작업 및 Rovo를 사용합니다"
+          onChange={(e) => setDesc(e.target.value)} />
+
+        <div className="cf-status">
+          <span className={`status-dot cat-${defaultStatus?.category ?? 'new'}`} />
+          <span>{defaultStatus?.name ?? '해야 할 일'}</span>
+        </div>
+
+        <div className="ctabs">
+          {[['basic', '기본 입력'], ['more', '추가 정보'], ['qa', 'QA'], ['hubspot', 'HubSpot']].map(([k, label]) => (
+            <button key={k} className={fieldTab === k ? 'on' : ''} onClick={() => setFieldTab(k)}>{label}</button>))}
+        </div>
+
+        {fieldTab === 'basic' ? <>
+          <div className="cf-row">
+            <div className="cf-label">스프린트</div>
+            <div className="cf-value"><IconBacklog size={15} />
+              <select value={sprintId} onChange={(e) => setSprintId(e.target.value)}>
+                <option value="">스프린트</option>
+                {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="cf-row">
+            <div className="cf-label">우선 순위</div>
+            <div className="cf-value"><Prio p={priority} />
+              <select value={priority} onChange={(e) => setPriority(e.target.value)}>
+                <option value="">없음</option>
+                {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="cf-row">
+            <div className="cf-label">담당자</div>
+            <div className="cf-value">
+              {assigneeName ? <Avatar name={assigneeName} /> : <IconUser size={15} />}
+              <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+                <option value="">자동</option>
+                {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+              </select>
+              {me && String(assigneeId) !== String(me.id) &&
+                <button type="button" className="plain linklike" onClick={() => setAssigneeId(String(me.id))}>나에게 할당</button>}
+            </div>
+          </div>
+          <div className="cf-row">
+            <div className="cf-label">보고자 <span className="req">*</span></div>
+            <div className="cf-value"><Avatar name={reporterName} />
+              <select value={reporterId} onChange={(e) => setReporterId(e.target.value)}>
+                {me && !meta.assignees.some((u) => String(u.id) === String(me.id))
+                  && <option value={me.id}>{me.display_name}</option>}
+                {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="cf-row">
+            <div className="cf-label">레이블</div>
+            <div className="cf-value"><IconTag size={15} />
+              <TagInput value={labels} onChange={setLabels} suggestions={pdata.labels ?? []} placeholder="레이블 입력 후 Enter" />
+            </div>
+          </div>
+          <div className="cf-row">
+            <div className="cf-label">컴포넌트</div>
+            <div className="cf-value"><IconGrid size={15} />
+              <TagInput value={components} onChange={setComponents} suggestions={pdata.components ?? []} placeholder="컴포넌트 입력 후 Enter" />
+            </div>
+          </div>
+          <div className="cf-row">
+            <div className="cf-label">수정 버전</div>
+            <div className="cf-value"><IconBacklog size={15} />
+              <TagInput value={fixVersions} onChange={setFixVersions} suggestions={(pdata.versions ?? []).map((v) => v.name)} placeholder="버전 입력 후 Enter" />
+            </div>
+          </div>
+          {isSub ? <div className="cf-row">
+            <div className="cf-label">상위 항목 <span className="req">*</span></div>
+            <div className="cf-value"><IconLink size={15} />
+              <input type="text" value={parentKey} placeholder={`${project}-10`} onChange={(e) => setParentKey(e.target.value)} />
+            </div>
+          </div> : !isEpic && <div className="cf-row">
+            <div className="cf-label">상위 항목</div>
+            <div className="cf-value"><IconLink size={15} />
+              <select value={epicKey} onChange={(e) => setEpicKey(e.target.value)}>
+                <option value="">없음</option>
+                {epics.map((ep) => <option key={ep.id} value={ep.issue_key}>{ep.issue_key} — {ep.summary}</option>)}
+              </select>
+            </div>
+          </div>}
+          <div className="cf-row">
+            <div className="cf-label">첨부 파일</div>
+            <div className="cf-drop" onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); addFiles(e.dataTransfer.files); }}>
+              <IconPaperclip size={16} /><span>첨부할 파일을 끌어놓거나 찾아보기</span>
+              <input type="file" ref={fileRef} multiple hidden onChange={(e) => addFiles(e.target.files)} />
+            </div>
+            {files.length > 0 && <div className="cf-file-list">
+              {files.map((f, i) => <div className="cf-file" key={f.name + i}>
+                <IconPaperclip size={13} /><span>{f.name}</span>
+                <button type="button" className="chip-x" onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))}>×</button>
+              </div>)}
+            </div>}
+          </div>
+        </> : <div className="empty-fields">이 탭에 표시할 추가 필드가 없습니다.</div>}
+      </div>
+
+      <div className="create-foot">
+        <button className="iconbtn" title="파일 첨부" onClick={() => fileRef.current?.click()}><IconPaperclip size={17} /></button>
+        {lastKey && <span className="dim">{lastKey} 생성됨</span>}
+        <label className="inlinechk"><input type="checkbox" checked={another} onChange={(e) => setAnother(e.target.checked)} /> 다른 항목 만들기</label>
         <button className="primary" onClick={create}>만들기</button>
       </div>
     </div></div>
