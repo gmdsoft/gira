@@ -1,8 +1,9 @@
-// Jira PoC SPA 셸: 인증 게이트 → 헤더(프로젝트·탭·만들기) + 필터바 + 뷰 + URL 라우팅
+// Jira PoC SPA 셸: 인증 게이트 → 상단 바 + 좌측 사이드바 + 콘텐츠(브레드크럼·탭·필터바·뷰) + URL 라우팅
 import React, { useEffect, useRef, useState } from 'react';
 import { api, AuthError } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
+import Sidebar from './Sidebar.jsx';
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
@@ -13,15 +14,22 @@ function parseRoute(projects) {
   if (m1) {
     const key = m1[1].toUpperCase();
     const pkey = key.split('-')[0];
-    if (projects.some((p) => p.key === pkey)) return { project: pkey, view: 'list', selKey: key };
+    if (projects.some((p) => p.key === pkey)) return { project: pkey, view: 'list', selKey: key, boardId: '' };
   }
   const m2 = location.pathname.match(/^\/projects\/([^/]+)\/(list|table|board|backlog)$/);
   if (m2) {
     const pkey = decodeURIComponent(m2[1]);
-    if (projects.some((p) => p.key === pkey)) return { project: pkey, view: m2[2], selKey: null };
+    const boardId = m2[2] === 'board' ? (new URLSearchParams(location.search).get('b') ?? '') : '';
+    if (projects.some((p) => p.key === pkey)) return { project: pkey, view: m2[2], selKey: null, boardId };
   }
   return null;
 }
+
+const loadRecent = () => { try { return JSON.parse(localStorage.getItem('jira.recent')) ?? []; } catch { return []; } };
+const loadSideOpen = () => {
+  try { const v = localStorage.getItem('jira.sidebar'); if (v != null) return v === '1'; } catch { /* 무시 */ }
+  return window.innerWidth >= 1100; // 좁은 화면은 접힌 채 시작
+};
 
 export default function JiraApp() {
   const [authed, setAuthed] = useState(null);   // null=확인 중, false=로그인 필요, true=완료
@@ -34,9 +42,12 @@ export default function JiraApp() {
   const [savedSel, setSavedSel] = useState('');
   const [view, setView] = useState('list');
   const [selKey, setSelKey] = useState(null);
+  const [boardId, setBoardId] = useState('');
   const [count, setCount] = useState(0);
   const [bump, setBump] = useState(0);
   const [showNew, setShowNew] = useState(false);
+  const [sideOpen, setSideOpen] = useState(loadSideOpen);
+  const [recent, setRecent] = useState(loadRecent);
   const qTimer = useRef(null);
   const [qInput, setQInput] = useState('');
 
@@ -49,7 +60,7 @@ export default function JiraApp() {
       const route = parseRoute(m.projects);
       const proj = route?.project ?? m.projects[0]?.key ?? '';
       setProject(proj);
-      if (route) { setView(route.view); setSelKey(route.selKey); }
+      if (route) { setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
       setSavedFilters(await api('/api/filters'));
       setAuthed(true);
     } catch (e) {
@@ -70,12 +81,27 @@ export default function JiraApp() {
 
   // URL 동기화 (Jira처럼 주소창 반영)
   const nav = (path, title) => {
-    if (location.pathname !== path) history.pushState({}, '', path);
+    if (location.pathname + location.search !== path) history.pushState({}, '', path);
     if (title) document.title = title;
   };
+  const switchProject = (pkey) => {
+    if (pkey === project) return;
+    setProject(pkey); setFilters((f) => ({ ...f, sprint: '' })); setSavedSel('');
+  };
   const gotoView = (v) => {
+    const q = v === 'board' && boardId ? '?b=' + boardId : '';
     setView(v); setSelKey(null);
-    nav(`/projects/${encodeURIComponent(project)}/${v}`, `${project} ${VIEW_NAMES[v]} - Jira PoC`);
+    nav(`/projects/${encodeURIComponent(project)}/${v}${q}`, `${project} ${VIEW_NAMES[v]} - Jira PoC`);
+  };
+  const gotoProjView = (pkey, v) => {
+    switchProject(pkey);
+    setView(v); setSelKey(null);
+    nav(`/projects/${encodeURIComponent(pkey)}/${v}`, `${pkey} ${VIEW_NAMES[v]} - Jira PoC`);
+  };
+  const gotoBoard = (pkey, bid) => {
+    switchProject(pkey);
+    setView('board'); setSelKey(null); setBoardId(bid);
+    nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Jira PoC`);
   };
   const openIssue = (key) => {
     setView('list'); setSelKey(key);
@@ -85,7 +111,7 @@ export default function JiraApp() {
     const onPop = () => {
       if (!meta) return;
       const route = parseRoute(meta.projects);
-      if (route) { setProject(route.project); setView(route.view); setSelKey(route.selKey); }
+      if (route) { setProject(route.project); setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -96,10 +122,15 @@ export default function JiraApp() {
 
   const refresh = () => setBump((b) => b + 1);
   const setF = (k, v) => { setFilters((f) => ({ ...f, [k]: v })); setSavedSel(''); };
-  const changeProject = (p) => {
-    setProject(p); setSelKey(null); setFilters((f) => ({ ...f, sprint: '' }));
-    nav(`/projects/${encodeURIComponent(p)}/${view}`, `${p} ${VIEW_NAMES[view]} - Jira PoC`);
-  };
+  const toggleSide = () => setSideOpen((v) => {
+    try { localStorage.setItem('jira.sidebar', v ? '0' : '1'); } catch { /* 무시 */ }
+    return !v;
+  });
+  const noteSeen = (key, summary) => setRecent((prev) => {
+    const next = [{ key, summary }, ...prev.filter((r) => r.key !== key)].slice(0, 5);
+    try { localStorage.setItem('jira.recent', JSON.stringify(next)); } catch { /* 무시 */ }
+    return next;
+  });
   const applySaved = (id) => {
     setSavedSel(id);
     const f = savedFilters.find((x) => String(x.id) === id);
@@ -129,78 +160,85 @@ export default function JiraApp() {
   };
   const logout = async () => { await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/'; };
 
+  const projName = meta.projects.find((p) => p.key === project)?.name ?? project;
+  const curBoard = pdata.boards.find((b) => String(b.id) === boardId);
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed');
   const viewProps = {
     project, meta, pdata, filters, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
-    onTitle: (t) => { document.title = t; },
+    onTitle: (t) => { document.title = t; }, onSeen: noteSeen,
   };
 
   return (
     <>
-      <header>
+      <header className="topbar">
+        <button className="plain navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}>☰</button>
         <h1>Jira <span className="poc">PoC</span></h1>
-        <select value={project} onChange={(e) => changeProject(e.target.value)}>
-          {meta.projects.map((p) => <option key={p.key} value={p.key}>{p.name} ({p.key})</option>)}
-        </select>
-        <nav className="tabs">
-          {VIEWS.map((v) => <button key={v} className={view === v ? 'on' : ''} onClick={() => gotoView(v)}>{VIEW_NAMES[v]}</button>)}
-        </nav>
-        <button className="primary" onClick={() => setShowNew(true)}>+ 이슈 만들기</button>
+        <button className="primary" onClick={() => setShowNew(true)}>+ 만들기</button>
         <span id="who"><span>{me.display_name}</span><button onClick={logout}>로그아웃</button></span>
       </header>
-      <div className="fbar">
-        <select value={filters.status} onChange={(e) => setF('status', e.target.value)}>
-          <option value="">상태: 전체</option>
-          {meta.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
-        <select value={filters.type} onChange={(e) => setF('type', e.target.value)}>
-          <option value="">타입: 전체</option>
-          {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-        </select>
-        <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
-          <option value="">담당자: 전체</option>
-          {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-        </select>
-        <select value={filters.priority} onChange={(e) => setF('priority', e.target.value)}>
-          <option value="">우선순위: 전체</option>
-          {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select value={filters.sprint} onChange={(e) => setF('sprint', e.target.value)}>
-          <option value="">스프린트: 전체</option>
-          <option value="none">백로그(없음)</option>
-          {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
-        </select>
-        <input type="search" placeholder="검색 (요약·키)" value={qInput}
-          onChange={(e) => {
-            const v = e.target.value; setQInput(v);
-            clearTimeout(qTimer.current);
-            qTimer.current = setTimeout(() => setF('q', v), 250);
-          }} />
-        <select value={filters.group} onChange={(e) => setF('group', e.target.value)} title="전체 목록(표)에서 행을 묶어 보기">
-          <option value="">그룹화: 없음</option>
-          <option value="status">상태</option>
-          <option value="assignee">담당자</option>
-          <option value="type">타입</option>
-          <option value="epic">에픽</option>
-          <option value="priority">우선순위</option>
-        </select>
-        <button onClick={() => { setFilters(EMPTY_FILTERS); setQInput(''); setSavedSel(''); }}>초기화</button>
-        <span style={{ borderLeft: '1px solid var(--line)', height: 20 }} />
-        <select value={savedSel} onChange={(e) => applySaved(e.target.value)}>
-          <option value="">저장된 필터…</option>
-          {savedFilters.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-        </select>
-        <button onClick={saveFilter}>현재 필터 저장</button>
-        <button onClick={deleteFilter} title="선택한 저장 필터 삭제">삭제</button>
-        <span id="count">{count}건</span>
+      <div className="shell">
+        {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
+          pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
+          onProjView={gotoProjView} onBoard={gotoBoard} onIssue={openIssue} onFilter={applySaved} />}
+        <div className="content">
+          <div className="chead">
+            <div className="crumb">프로젝트 / {project}</div>
+            <h2>{projName}{view === 'board' && curBoard ? <span className="dim"> · {curBoard.name}</span> : ''}</h2>
+            <nav className="tabs">
+              {VIEWS.map((v) => <button key={v} className={view === v ? 'on' : ''} onClick={() => gotoView(v)}>{VIEW_NAMES[v]}</button>)}
+            </nav>
+          </div>
+          <div className="fbar">
+            <select value={filters.status} onChange={(e) => setF('status', e.target.value)}>
+              <option value="">상태: 전체</option>
+              {meta.statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <select value={filters.type} onChange={(e) => setF('type', e.target.value)}>
+              <option value="">타입: 전체</option>
+              {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+            <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
+              <option value="">담당자: 전체</option>
+              {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+            </select>
+            <select value={filters.priority} onChange={(e) => setF('priority', e.target.value)}>
+              <option value="">우선순위: 전체</option>
+              {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <select value={filters.sprint} onChange={(e) => setF('sprint', e.target.value)}>
+              <option value="">스프린트: 전체</option>
+              <option value="none">백로그(없음)</option>
+              {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
+            </select>
+            <input type="search" placeholder="검색 (요약·키)" value={qInput}
+              onChange={(e) => {
+                const v = e.target.value; setQInput(v);
+                clearTimeout(qTimer.current);
+                qTimer.current = setTimeout(() => setF('q', v), 250);
+              }} />
+            <select value={filters.group} onChange={(e) => setF('group', e.target.value)} title="전체 목록(표)에서 행을 묶어 보기">
+              <option value="">그룹화: 없음</option>
+              <option value="status">상태</option>
+              <option value="assignee">담당자</option>
+              <option value="type">타입</option>
+              <option value="epic">에픽</option>
+              <option value="priority">우선순위</option>
+            </select>
+            <button onClick={() => { setFilters(EMPTY_FILTERS); setQInput(''); setSavedSel(''); }}>초기화</button>
+            <span style={{ borderLeft: '1px solid var(--line)', height: 20 }} />
+            <button onClick={saveFilter}>현재 필터 저장</button>
+            {savedSel && <button onClick={deleteFilter} title="적용 중인 저장 필터 삭제">필터 삭제</button>}
+            <span id="count">{count}건</span>
+          </div>
+          <main>
+            {view === 'list' && <ListView {...viewProps} selKey={selKey} />}
+            {view === 'table' && <TableView {...viewProps} />}
+            {view === 'board' && <BoardView {...viewProps} boardId={boardId} onBoard={(bid) => gotoBoard(project, bid)} />}
+            {view === 'backlog' && <BacklogView {...viewProps} />}
+          </main>
+        </div>
       </div>
-      <main>
-        {view === 'list' && <ListView {...viewProps} selKey={selKey} />}
-        {view === 'table' && <TableView {...viewProps} />}
-        {view === 'board' && <BoardView {...viewProps} />}
-        {view === 'backlog' && <BacklogView {...viewProps} />}
-      </main>
       {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project}
         onClose={() => setShowNew(false)}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
