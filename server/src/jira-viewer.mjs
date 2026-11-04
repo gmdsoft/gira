@@ -297,6 +297,7 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
   if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
   if ('labels' in b) sets.push(`labels = ${p(Array.isArray(b.labels) ? b.labels : [])}`);
+  if ('components' in b) sets.push(`components = ${p(Array.isArray(b.components) ? b.components : [])}`);
   if ('resolution' in b) sets.push(`resolution = ${p(b.resolution || null)}`);
   if ('fixVersions' in b) sets.push(`fix_versions = ${p(Array.isArray(b.fixVersions) ? b.fixVersions : [])}`);
   // 설명: ADF 문서(편집기) 또는 플레인 텍스트 (텍스트는 최소 ADF로 변환)
@@ -328,12 +329,13 @@ app.patch('/api/issue/:key', async (req, reply) => {
 // 기록 비교용 스냅샷 (표시 문자열 기준)
 const SNAP_FIELDS = {
   status: 'status', issuetype: 'type', assignee: 'assignee', priority: 'priority', summary: 'summary',
-  resolution: 'resolution', labels: 'labels', 'Fix Version': 'fix_versions', Sprint: 'sprint', Parent: 'parent',
+  resolution: 'resolution', labels: 'labels', Component: 'components', 'Fix Version': 'fix_versions', Sprint: 'sprint', Parent: 'parent',
 };
 async function issueSnapshot(id) {
   const { rows } = await query(
     `SELECT i.summary, i.priority, i.resolution,
-            array_to_string(i.labels, ', ') AS labels, array_to_string(i.fix_versions, ', ') AS fix_versions,
+            array_to_string(i.labels, ', ') AS labels, array_to_string(i.components, ', ') AS components,
+            array_to_string(i.fix_versions, ', ') AS fix_versions,
             s.name AS status, t.name AS type, u.display_name AS assignee,
             sp.name AS sprint, pi.issue_key AS parent,
             md5(coalesce(i.description_adf::text, '')) AS desc_md5

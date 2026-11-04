@@ -1,6 +1,6 @@
 // 이슈 상세: Jira식 2단 (본문 가변 + 우측 고정 패널), 하위 작업 패널, 인라인 필드 변경, 편집 모드
 import React, { useEffect, useRef, useState } from 'react';
-import { api, dt, fileSize, Prio, Avatar, StatusSelect } from './util.jsx';
+import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
 import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck, IconBolt, IconSparkle } from './icons.jsx';
 import AdfView from './adf.jsx';
@@ -27,12 +27,148 @@ function InlineText({ value, onSave, as: Tag = 'span', className, placeholder, i
     onKeyDown={(e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); }} />;
 }
 
-export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, onTitle, onSeen }) {
+// ---------- 필드 컨트롤 (Jira식 팝오버/칩) ----------
+function Popover({ children, onClose, width }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return <div className="popover" ref={ref} style={width ? { width } : undefined}>{children}</div>;
+}
+
+function SelectPicker({ display, items, value, onSelect, searchable = false, placeholder = '검색', width = 300 }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const close = () => { setOpen(false); setQ(''); };
+  const filtered = items.filter((it) => !q || it.label.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <span className="field-picker">
+      <button type="button" className="field-display" onClick={() => setOpen((v) => !v)}>
+        {display}<IconChevronDown size={12} />
+      </button>
+      {open && <Popover onClose={close} width={width}>
+        {searchable && <input autoFocus className="picker-search" placeholder={placeholder} value={q} onChange={(e) => setQ(e.target.value)} />}
+        <div className="picker-list">
+          {filtered.map((it) => (
+            <button type="button" key={String(it.value)} className={`picker-item${String(it.value) === String(value) ? ' on' : ''}`}
+              onClick={() => { onSelect(it.value); close(); }}>
+              {it.node ?? it.label}
+              {String(it.value) === String(value) && <IconCheck size={14} className="picker-check" />}
+            </button>))}
+          {!filtered.length && <div className="picker-empty">항목이 없습니다</div>}
+        </div>
+      </Popover>}
+    </span>
+  );
+}
+
+function MultiPicker({ values = [], options = [], emptyLabel, addLabel, searchPlaceholder, onChange, width = 320 }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const close = () => { setOpen(false); setQ(''); };
+  const available = options.filter((o) => !values.includes(o) && (!q || o.toLowerCase().includes(q.toLowerCase())));
+  return (
+    <span className="field-picker">
+      {values.map((v) => (
+        <span className="field-chip" key={v}>{v}
+          <button type="button" className="chip-x" title="제거" onClick={() => onChange(values.filter((x) => x !== v))}>×</button>
+        </span>))}
+      <button type="button" className="add-link" onClick={() => setOpen((v) => !v)}>{values.length ? addLabel : emptyLabel}</button>
+      {open && <Popover onClose={close} width={width}>
+        <input autoFocus className="picker-search" placeholder={searchPlaceholder} value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="picker-list">
+          {available.map((o) => <button type="button" className="picker-item" key={o} onClick={() => { onChange([...values, o]); setQ(''); }}>{o}</button>)}
+          {!available.length && <div className="picker-empty">{q ? '검색 결과가 없습니다' : '추가할 항목이 없습니다'}</div>}
+        </div>
+      </Popover>}
+    </span>
+  );
+}
+
+function ParentPicker({ project, issueKey, parentKey, parentSummary, onPick, onOpen }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const close = () => { setOpen(false); setQ(''); };
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setLoading(true);
+    const t = setTimeout(async () => {
+      try {
+        const d = await api(`/api/issues?project=${encodeURIComponent(project)}&q=${encodeURIComponent(q)}&limit=20`);
+        if (alive) setRows((d.rows ?? []).filter((r) => r.issue_key !== issueKey));
+      } finally {
+        if (alive) setLoading(false);
+      }
+    }, 180);
+    return () => { alive = false; clearTimeout(t); };
+  }, [open, q, project, issueKey]);
+  return (
+    <span className="field-picker">
+      {parentKey && <span className="field-chip parent-chip">
+        <span className="ilink" onClick={() => onOpen(parentKey)}>{parentKey}</span>
+        <span className="parent-sum" title={parentSummary ?? ''}>{parentSummary ?? ''}</span>
+        <button type="button" className="chip-x" title="상위 항목 해제" onClick={() => onPick('')}>×</button>
+      </span>}
+      <button type="button" className="add-link" onClick={() => setOpen((v) => !v)}>{parentKey ? '변경' : '상위 항목 추가'}</button>
+      {open && <Popover onClose={close} width={420}>
+        <input autoFocus className="picker-search" placeholder="이슈 키 또는 요약 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="picker-list">
+          {loading ? <div className="picker-empty">검색 중…</div> : rows.map((r) => (
+            <button type="button" className="picker-item parent-pick" key={r.issue_key}
+              onClick={() => { onPick(r.issue_key); close(); }}>
+              <span className="pk">{r.issue_key}</span>
+              <span className="ps" title={r.summary}>{r.summary}</span>
+              <span className={`badge cat-${r.status_category}`}>{r.status_name ?? '?'}</span>
+            </button>))}
+          {!loading && !rows.length && <div className="picker-empty">이슈가 없습니다</div>}
+        </div>
+      </Popover>}
+    </span>
+  );
+}
+
+const relTime = (s) => {
+  if (!s) return '';
+  const diff = Date.now() - new Date(s).getTime();
+  const min = 60000, hour = 60 * min, day = 24 * hour, month = 30 * day, year = 365 * day;
+  if (diff < min) return '방금 전';
+  if (diff < hour) return `${Math.floor(diff / min)}분 전`;
+  if (diff < day) return `${Math.floor(diff / hour)}시간 전`;
+  if (diff < month) return `${Math.floor(diff / day)}일 전`;
+  if (diff < year) return `${Math.floor(diff / month)}개월 전`;
+  return `${Math.floor(diff / year)}년 전`;
+};
+const statusCategoryOf = (name) => {
+  if (!name || name === '없음') return null;
+  if (/done|complete|closed|resolved|배포|완료|닫음/i.test(name)) return 'done';
+  if (/progress|review|진행|검토/i.test(name)) return 'indeterminate';
+  return 'new';
+};
+const HISTORY_ACTION = {
+  status: '상태 변경됨', assignee: '담당자 변경됨', reporter: '보고자 변경됨',
+  priority: '우선 순위 업데이트됨', summary: '요약 업데이트됨', description: '설명 업데이트됨',
+  issuetype: '업무 유형 변경됨', labels: '레이블 업데이트됨', components: '컴포넌트 업데이트됨',
+  Component: '컴포넌트 업데이트됨', fixVersions: '수정 버전 업데이트됨', 'Fix Version': '수정 버전 업데이트됨',
+  resolution: '해결 상태 업데이트됨', Sprint: '스프린트 업데이트됨', Parent: '상위 항목 업데이트됨',
+  Attachment: '첨부 파일 추가됨', issuelinks: '연결된 이슈 업데이트됨', Link: '연결된 이슈 업데이트됨',
+  security: '보안 등급 업데이트됨', duedate: '기한 업데이트됨', Rank: '순위 업데이트됨',
+  created: '업무 항목 생성함', environment: '환경 업데이트됨',
+  timeestimate: '시간 추적 업데이트됨', timespent: '시간 추적 업데이트됨',
+};
+
+export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, onTitle, onSeen, onNew }) {
   const [d, setD] = useState(null);
   const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
   const [editingComment, setEditingComment] = useState(null); // {id, text}
-  const [actTab, setActTab] = useState('all'); // all | comments | history
+  const [actTab, setActTab] = useState('comments'); // all | comments | history | worklog
   const [fieldTab, setFieldTab] = useState('basic');
   const fileRef = useRef(null);
   const descEditorRef = useRef(null);
@@ -50,11 +186,6 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const patch = async (json, reload = true) => {
     await api('/api/issue/' + encodeURIComponent(issueKey), { method: 'PATCH', json });
     if (reload) { load(); onChanged?.(); }
-  };
-  const changeParent = async () => {
-    const v = prompt('상위 이슈 키 (비우면 상위 해제)', d.parent_key ?? '');
-    if (v === null) return;
-    patch({ parentKey: v.trim() });
   };
   const addComment = async () => {
     const text = comment.trim();
@@ -88,17 +219,33 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const resoList = [...new Set([...meta.resolutions, ...(d.resolution ? [d.resolution] : [])])];
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed' || s.id === d.sprint_id);
   const proj = meta.projects.find((p) => p.key === issueKey.split('-')[0]);
+  const priorityItems = [
+    { value: '', label: '없음', node: <span className="dim">없음</span> },
+    ...[...meta.priorities].sort((a, b) => (PRIORITY_ORDER[a] ?? 9) - (PRIORITY_ORDER[b] ?? 9))
+      .map((p) => ({ value: p, label: p, node: <><Prio p={p} /> <span>{p}</span></> })),
+  ];
+  const assigneeItems = [
+    { value: '', label: '미지정', node: <span className="dim">미지정</span> },
+    ...meta.assignees.map((u) => ({ value: String(u.id), label: u.display_name, node: <><Avatar name={u.display_name} /> <span>{u.display_name}</span></> })),
+  ];
+  const sprintItems = [
+    { value: '', label: '백로그', node: <span>백로그</span> },
+    ...openSprints.map((s) => ({ value: String(s.id), label: s.name, node: <span>{s.name}{s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''}</span> })),
+  ];
+  const project = proj?.key ?? issueKey.split('-')[0];
 
   // ---------- 활동 (전체/댓글/기록) ----------
   const history = d.history ?? [];
+  const statusByName = new Map(meta.statuses.map((s) => [s.name, s]));
   const feed = (actTab === 'comments' ? d.comments.map((c) => ({ t: 'c', at: c.created_at, c }))
     : actTab === 'history' ? history.map((h) => ({ t: 'h', at: h.created_at, h }))
+    : actTab === 'worklog' ? []
     : [...d.comments.map((c) => ({ t: 'c', at: c.created_at, c })), ...history.map((h) => ({ t: 'h', at: h.created_at, h }))])
-    .sort((a, b) => new Date(a.at) - new Date(b.at));
+    .sort((a, b) => new Date(b.at) - new Date(a.at));
 
   const commentBlock = (c) => (
     <div className="comment" key={'c' + c.id}>
-      <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {dt(c.created_at)}
+      <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {relTime(c.created_at)}
         {editingComment?.id !== c.id &&
           <button className="plain dim" style={{ marginLeft: 6 }} title="댓글 편집"
             onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
@@ -116,30 +263,40 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
     </div>
   );
 
-  const FIELD_KO = {
-    status: '상태', assignee: '담당자', priority: '우선 순위', summary: '요약', description: '설명',
-    issuetype: '업무 유형', labels: '레이블', 'Fix Version': '수정 버전', resolution: '해결',
-    Sprint: '스프린트', Parent: '상위 항목', Attachment: '첨부 파일', Link: '링크', Component: '컴포넌트',
-    duedate: '기한', reporter: '보고자', 'Epic Link': '에픽 링크', Rank: '순위',
-    RemoteWorkItemLink: '원격 링크', Version: '버전', IssueParentAssociation: '상위 항목',
+  const historyValue = (field, value) => {
+    if (value == null || value === '' || value === '없음' || value === 'null') return <span className="dim">없음</span>;
+    if (field === 'status') {
+      const cat = statusByName.get(value)?.category ?? statusCategoryOf(value);
+      return <span className={`badge cat-${cat ?? 'new'}`}>{value}</span>;
+    }
+    const parts = String(value).split(/(\b[A-Z][A-Z0-9]+-\d+\b)/g);
+    return <span className="hist-val" title={String(value)}>
+      {parts.map((p, i) => /^[A-Z][A-Z0-9]+-\d+$/.test(p)
+        ? <span className="ilink" key={i} onClick={() => onOpen(p)}>{p}</span>
+        : <React.Fragment key={i}>{p}</React.Fragment>)}
+    </span>;
   };
-  const historyBlock = (h) => (
-    <div className="hist" key={'h' + h.id}>
-      <div className="chead"><Avatar name={h.author_name} /> <b>{h.author_name ?? '?'}</b>
-        <span className="dim"> 님이 업데이트함 · {dt(h.created_at)}</span></div>
-      {(h.items ?? []).map((it, i) => (
-        <div className="hitem" key={i}>
-          <span className="hfield">{FIELD_KO[it.field] ?? it.field}</span>
-          {it.field === 'description'
-            ? <span className="dim">업데이트됨</span>
-            : <>
-                <span className="hval" title={it.fromString ?? ''}>{it.fromString ?? '없음'}</span>
-                <span className="dim">→</span>
-                <span className="hval to" title={it.toString ?? ''}>{it.toString ?? '없음'}</span>
-              </>}
-        </div>))}
-    </div>
-  );
+  const historyBlock = (h) => {
+    const items = h.items ?? [];
+    const action = items.length === 1
+      ? (HISTORY_ACTION[items[0].field] ?? `${items[0].field} 업데이트됨`)
+      : `${items.length}개 필드 업데이트됨`;
+    return (
+      <div className="hist" key={'h' + h.id}>
+        <Avatar name={h.author_name} />
+        <div className="hist-body">
+          <div className="hist-head"><b>{h.author_name ?? '?'}</b> <span>{action}</span></div>
+          <div className="hist-time">{relTime(h.created_at)}</div>
+          {items.map((it, i) => (it.field === 'description' && !it.fromString && !it.toString) ? null : (
+            <div className="hist-item" key={i}>
+              {historyValue(it.field, it.fromString)}
+              <span className="hist-arrow">→</span>
+              {historyValue(it.field, it.toString)}
+            </div>))}
+        </div>
+      </div>
+    );
+  };
 
   const linkRow = (l, i) => {
     const mine = l.inward_key === issueKey;
@@ -159,10 +316,10 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
       <div className="issue-crumb">
         <span>스페이스</span><span className="crumb-sep">/</span>
         <span className="crumb-cur">{proj?.name ?? issueKey.split('-')[0]}</span><span className="crumb-sep">/</span>
-        {d.parent_key
-          ? <><span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span>
-              <button className="plain dim crumb-edit" title="상위 항목 변경" onClick={changeParent}>✎</button><span className="crumb-sep">/</span></>
-          : <><button className="crumb-add" onClick={changeParent}>상위 항목 추가</button><span className="crumb-sep">/</span></>}
+        {d.parent_key && <>
+          <span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span>
+          <span className="crumb-sep">/</span>
+        </>}
         <TypeIcon name={d.type_name} /><span className="crumb-key">{d.issue_key}</span>
       </div>
       <div className="issue-title-row">
@@ -188,38 +345,33 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                 <button key={k} className={fieldTab === k ? 'on' : ''} onClick={() => setFieldTab(k)}>{label}</button>))}
             </div>
             {fieldTab === 'basic' ? <dl className="fields2">
-              <dt>컴포넌트</dt><dd>{d.components?.length ? d.components.map((c) => <span className="chip" key={c}>{c}</span>) : <span className="dim">없음</span>}</dd>
-              <dt>우선 순위</dt><dd><Prio p={d.priority} />{' '}
-                <select value={d.priority ?? ''} onChange={(e) => patch({ priority: e.target.value || null })}>
-                  <option value="">없음</option>
-                  {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select></dd>
+              <dt>컴포넌트</dt><dd>
+                <MultiPicker values={d.components ?? []} options={pdata.components ?? []}
+                  emptyLabel="컴포넌트 추가" addLabel="컴포넌트 추가" searchPlaceholder="컴포넌트 검색"
+                  onChange={(v) => patch({ components: v })} /></dd>
+              <dt>우선 순위</dt><dd>
+                <SelectPicker value={d.priority ?? ''} items={priorityItems} searchable={false} width={260}
+                  display={<><Prio p={d.priority} /><span>{d.priority ?? '없음'}</span></>}
+                  onSelect={(v) => patch({ priority: v || null })} /></dd>
               <dt>상위 항목</dt><dd>
-                {d.parent_key
-                  ? <><span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span> {d.parent_summary ?? ''}{' '}
-                      <button className="plain dim" title="상위 항목 변경" onClick={changeParent}>✎</button></>
-                  : <button className="mini" onClick={changeParent}>상위 항목 추가</button>}</dd>
+                <ParentPicker project={project} issueKey={issueKey} parentKey={d.parent_key} parentSummary={d.parent_summary}
+                  onPick={(key) => patch({ parentKey: key })} onOpen={onOpen} /></dd>
               <dt>수정 버전</dt><dd>
-                <select multiple size={Math.min(3, Math.max(2, verNames.length))} title="Ctrl 클릭으로 복수 선택"
-                  value={d.fix_versions ?? []}
-                  onChange={(e) => patch({ fixVersions: [...e.target.selectedOptions].map((o) => o.value) }, false)}>
-                  {verNames.map((v) => <option key={v} value={v}>{v}</option>)}
-                </select></dd>
-              <dt>레이블</dt><dd style={{ flex: 1 }}>
-                <InlineText value={(d.labels ?? []).join(', ')} placeholder="레이블 추가 (쉼표 구분)"
-                  onSave={(v) => patch({ labels: v.split(',').map((s) => s.trim()).filter(Boolean) })} />
-              </dd>
-              <dt>담당자</dt><dd><Avatar name={d.assignee_name} />{' '}
-                <select value={d.assignee_id ?? ''} onChange={(e) => patch({ assigneeId: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">미지정</option>
-                  {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
-                </select></dd>
+                <MultiPicker values={d.fix_versions ?? []} options={verNames}
+                  emptyLabel="수정 버전 추가" addLabel="수정 버전 추가" searchPlaceholder="버전 검색"
+                  onChange={(v) => patch({ fixVersions: v })} /></dd>
+              <dt>레이블</dt><dd>
+                <MultiPicker values={d.labels ?? []} options={pdata.labels ?? []}
+                  emptyLabel="레이블 추가" addLabel="레이블 추가" searchPlaceholder="레이블 검색"
+                  onChange={(v) => patch({ labels: v })} /></dd>
+              <dt>담당자</dt><dd>
+                <SelectPicker value={d.assignee_id == null ? '' : String(d.assignee_id)} items={assigneeItems} searchable width={280}
+                  display={<><Avatar name={d.assignee_name} /><span>{d.assignee_name ?? '미지정'}</span></>}
+                  onSelect={(v) => patch({ assigneeId: v ? Number(v) : null })} /></dd>
               <dt>Sprint</dt><dd>
-                <select value={d.sprint_id ?? ''} onChange={(e) => patch({ sprintId: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">백로그</option>
-                  {openSprints.map((s) => <option key={s.id} value={s.id}>
-                    {s.name}{s.state === 'active' ? ' (활성)' : s.state === 'closed' ? ' (완료)' : ''}</option>)}
-                </select></dd>
+                <SelectPicker value={d.sprint_id == null ? '' : String(d.sprint_id)} items={sprintItems} width={280}
+                  display={<span>{d.sprint_name ?? '백로그'}</span>}
+                  onSelect={(v) => patch({ sprintId: v ? Number(v) : null })} /></dd>
             </dl> : <div className="empty-fields">이 탭에 표시할 추가 필드가 없습니다.</div>}
             <div className="fieldrow"><div className="flabel2">설명</div>
               {descEditing
@@ -275,12 +427,13 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
 
           <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>활동</h3></div>
             <div className="acttabs">
-              {[['all', '전체'], ['comments', `댓글 (${d.comments.length})`], ['history', `기록 (${(d.history ?? []).length})`]]
+              {[['all', '전체'], ['comments', '댓글'], ['history', '기록'], ['worklog', '업무 로그']]
                 .map(([k, label]) => (
                   <button key={k} className={actTab === k ? 'on' : ''} onClick={() => setActTab(k)}>{label}</button>))}
             </div>
             {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
-            {actTab !== 'history' && (
+            {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
+            {actTab !== 'history' && actTab !== 'worklog' && (
               <div className="cform">
                 <textarea placeholder="댓글 입력 (플레인 텍스트)" value={comment} onChange={(e) => setComment(e.target.value)} />
                 <div className="actions"><button className="primary" onClick={addComment}>댓글 달기</button></div>
