@@ -4,6 +4,7 @@ import { api, AuthError } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
 import Sidebar from './Sidebar.jsx';
+import JqlInput from './JqlInput.jsx';
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
@@ -36,7 +37,7 @@ export default function JiraApp() {
   const [me, setMe] = useState(null);
   const [meta, setMeta] = useState(null);
   const [project, setProject] = useState('');
-  const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [] });
+  const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [], labels: [], components: [] });
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [savedFilters, setSavedFilters] = useState([]);
   const [savedSel, setSavedSel] = useState('');
@@ -76,9 +77,10 @@ export default function JiraApp() {
   const reloadPdata = async () => {
     if (!project) return;
     const proj = encodeURIComponent(project);
-    const [sprints, versions, boards] = await Promise.all([
-      api('/api/sprints?project=' + proj), api('/api/versions?project=' + proj), api('/api/boards?project=' + proj)]);
-    setPdata({ sprints, versions, boards });
+    const [sprints, versions, boards, tags] = await Promise.all([
+      api('/api/sprints?project=' + proj), api('/api/versions?project=' + proj),
+      api('/api/boards?project=' + proj), api('/api/labels?project=' + proj)]);
+    setPdata({ sprints, versions, boards, ...tags });
   };
   useEffect(() => { if (authed) reloadPdata(); }, [project, authed]);
 
@@ -271,10 +273,8 @@ export default function JiraApp() {
                   qTimer.current = setTimeout(() => setF('q', v), 250);
                 }} />
             </> : <>
-              <input className="jqlinput" spellCheck={false} value={jqlInput}
-                placeholder='JQL — 예: status != "완료" AND assignee = currentUser() ORDER BY updated DESC'
-                onChange={(e) => setJqlInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') applyJql(jqlInput); }} />
+              <JqlInput value={jqlInput} onChange={setJqlInput} onApply={applyJql} meta={meta} pdata={pdata}
+                placeholder='JQL — 예: status != "완료" AND assignee = currentUser() ORDER BY updated DESC' />
               <button className="primary" onClick={() => applyJql(jqlInput)}>적용</button>
             </>}
             <select value={filters.group} onChange={(e) => setF('group', e.target.value)} title="전체 목록(표)에서 행을 묶어 보기">

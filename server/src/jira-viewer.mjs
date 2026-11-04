@@ -88,6 +88,16 @@ app.get('/api/versions', async (req) => {
   return rows;
 });
 
+// 프로젝트의 레이블·컴포넌트 목록 (JQL 자동완성 값 제안용)
+app.get('/api/labels', async (req) => {
+  const one = async (col) => (await query(
+    `SELECT DISTINCT unnest(i.${col}) AS v FROM jira_issues i
+       JOIN jira_projects p ON p.id = i.project_id WHERE p.key = $1 ORDER BY v`, [req.query.project]))
+    .rows.map((r) => r.v);
+  const [labels, components] = await Promise.all([one('labels'), one('components')]);
+  return { labels, components };
+});
+
 // ---------- 이슈 목록/상세 ----------
 
 // 정렬 가능 컬럼 (화이트리스트 — 쿼리 문자열이 SQL에 직접 들어가지 않도록)

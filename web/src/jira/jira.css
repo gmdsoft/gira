@@ -72,8 +72,14 @@ header .poc { color: var(--dim); font-weight: normal; font-size: 12px; }
 .fmode { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .fmode button { border: none; border-radius: 0; padding: 5px 10px; font-size: 12px; }
 .fmode button.on { background: var(--selected); color: var(--accent); font-weight: 600; }
-.jqlinput { flex: 1; min-width: 320px; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
+.jqlwrap { position: relative; flex: 1; min-width: 320px; display: flex; }
+.jqlinput { width: 100%; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
 .jqlerr { flex-basis: 100%; color: var(--danger); font-size: 12px; }
+.jqlsug { position: absolute; top: calc(100% + 2px); left: 0; min-width: 260px; max-height: 280px; overflow-y: auto;
+          background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+          box-shadow: 0 4px 12px rgba(9,30,66,.18); z-index: 30; }
+.jqlsug-item { display: flex; justify-content: space-between; gap: 16px; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.jqlsug-item.on { background: var(--selected); }
 #count { color: var(--dim); font-size: 12px; margin-left: auto; }
 .badge { padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .cat-new { background: var(--new); color: var(--new-t); }
