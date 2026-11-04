@@ -42,7 +42,7 @@ export function CatChips({ rows }) {
   const c = { new: 0, indeterminate: 0, done: 0 };
   for (const r of rows) c[r.status_category] = (c[r.status_category] ?? 0) + 1;
   return (
-    <span className="catchips">
+    <span className="catchips" title={`해야 할 일 ${c.new} · 진행 중 ${c.indeterminate} · 완료 ${c.done}`}>
       <span className="cat-new">{c.new}</span>
       <span className="cat-indeterminate">{c.indeterminate}</span>
       <span className="cat-done">{c.done}</span>
