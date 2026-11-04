@@ -37,7 +37,9 @@ await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 const DIST = path.join(here, '..', '..', 'web', 'dist-jira-app');
 // wildcard 서빙: 재빌드로 애셋 해시가 바뀌어도 서버 재시작 불필요
 await app.register(fastifyStatic, { root: DIST, index: false });
-const page = (req, reply) => reply.type('text/html').send(createReadStream(path.join(DIST, 'jira.html')));
+const page = (req, reply) => reply.type('text/html')
+  .header('cache-control', 'no-cache') // 재배포 시 옛 빌드가 휴리스틱 캐시로 남지 않도록
+  .send(createReadStream(path.join(DIST, 'jira.html')));
 app.get('/', page);
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)

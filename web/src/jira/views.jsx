@@ -17,7 +17,7 @@ function useIssues(project, filters, bump, extraDep = null) {
 }
 
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
-export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount }) {
+export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen }) {
   const rows = useIssues(project, { ...filters, sprintOnly: undefined }, bump);
   useEffect(() => onCount(rows.length), [rows]);
   return (
@@ -38,7 +38,7 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
       </div>
       <div id="detail">
         {selKey
-          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} />
+          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} />
           : <div className="placeholder">왼쪽 목록에서 이슈를 선택하세요</div>}
       </div>
     </div>
@@ -128,14 +128,14 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
 }
 
 // ---------- 보드 (칸반) ----------
-export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata }) {
+export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
   const rows = useIssues(project, filters, bump);
-  const [boardId, setBoardId] = useState('');
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
   const [overCol, setOverCol] = useState(null);
   useEffect(() => onCount(rows.length), [rows]);
-  useEffect(() => { if (!pdata.boards.some((b) => String(b.id) === boardId)) setBoardId(''); }, [pdata.boards]);
+  // 보드 목록이 로드된 뒤에만 유효성 검사 (로드 전 빈 배열로 ?b= 딥링크를 지우지 않도록)
+  useEffect(() => { if (boardId && pdata.boards.length && !pdata.boards.some((b) => String(b.id) === boardId)) onBoard(''); }, [pdata.boards]);
 
   const board = pdata.boards.find((b) => String(b.id) === boardId);
   const cols = board
@@ -165,14 +165,14 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
     if (!board) return alert('삭제할 보드를 선택하세요');
     if (!confirm(`보드 '${board.name}'을(를) 삭제할까요? (이슈는 삭제되지 않습니다)`)) return;
     await api('/api/boards/' + board.id, { method: 'DELETE' });
-    setBoardId(''); reloadPdata();
+    onBoard(''); reloadPdata();
   };
 
   return (
     <div className="view on" id="view-board">
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <div className="bbar">
-          <select value={boardId} onChange={(e) => setBoardId(e.target.value)}>
+          <select value={boardId} onChange={(e) => onBoard(e.target.value)}>
             <option value="">기본 (모든 상태)</option>
             {pdata.boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
@@ -210,7 +210,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
       </div>
       {modal && <BoardModal meta={meta} project={project} board={modal.board}
         onClose={() => setModal(null)}
-        onSaved={(b) => { setModal(null); reloadPdata().then(() => setBoardId(String(b.id))); }} />}
+        onSaved={(b) => { setModal(null); reloadPdata().then(() => onBoard(String(b.id))); }} />}
     </div>
   );
 }

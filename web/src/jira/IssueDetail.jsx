@@ -26,7 +26,7 @@ function InlineText({ value, onSave, as: Tag = 'span', className, placeholder, i
     onKeyDown={(e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); }} />;
 }
 
-export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, onTitle }) {
+export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, onTitle, onSeen }) {
   const [d, setD] = useState(null);
   const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
@@ -38,6 +38,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
     const data = await api('/api/issue/' + encodeURIComponent(issueKey));
     setD(data);
     onTitle?.(`[${data.issue_key}] ${data.summary} - Jira PoC`);
+    onSeen?.(data.issue_key, data.summary);
   };
   useEffect(() => { setDescEditing(false); setComment(''); setEditingComment(null); load(); }, [issueKey]);
 
