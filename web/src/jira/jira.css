@@ -176,6 +176,20 @@ h2.inline-edit { margin: 4px -6px 10px; }
 .adf .expand > summary { padding: 6px 10px; cursor: pointer; font-weight: 600; }
 .adf .expand > .expand-body { padding: 2px 12px 8px; }
 
+/* 활동 (전체/댓글/기록) */
+.acttabs { display: flex; gap: 4px; margin-bottom: 10px; }
+.acttabs button { font-size: 12px; padding: 3px 10px; border-radius: 3px; border: none; background: var(--hover); color: var(--dim); font-weight: 600; }
+.acttabs button.on { background: var(--selected); color: var(--accent); }
+.hist { border-left: 2px solid var(--line); padding: 2px 0 2px 12px; margin: 10px 0; max-width: 760px; }
+.hist .chead { font-size: 12px; color: var(--dim); margin-bottom: 2px; }
+.hist .chead b { color: var(--text); }
+.hitem { display: flex; gap: 8px; align-items: baseline; font-size: 12.5px; padding: 2px 0; }
+.hitem .hfield { color: var(--dim); min-width: 72px; flex: none; }
+.hitem .hval { max-width: 42%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hitem .hval.to { font-weight: 600; }
+.adf .adf-img { display: block; border: 1px solid var(--line); border-radius: 4px; margin: 6px 0; }
+.adf .media-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+
 /* 댓글·첨부 */
 .comment { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; margin: 10px 0; max-width: 760px; }
 .comment .chead { font-size: 12px; color: var(--dim); margin-bottom: 4px; }

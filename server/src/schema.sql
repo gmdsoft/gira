@@ -274,6 +274,17 @@ ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS sprint_id bigint REFERENCES jir
 -- 로컬 업로드 첨부: source_url 대신 DATA_DIR 아래 파일 키
 ALTER TABLE jira_attachments ADD COLUMN IF NOT EXISTS local_key text;
 
+-- 변경 이력(기록): 이관분은 jira_id에 원본 history id, 로컬 수정은 NULL
+CREATE TABLE IF NOT EXISTS jira_changelog (
+  id bigserial PRIMARY KEY,
+  jira_id bigint UNIQUE,
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  author_id bigint REFERENCES users(id),
+  created_at timestamptz DEFAULT now(),
+  items jsonb NOT NULL  -- [{field, fromString, toString}]
+);
+CREATE INDEX IF NOT EXISTS jira_changelog_issue ON jira_changelog(issue_id, created_at);
+
 -- 사용자 정의 보드: 컬럼마다 포함할 상태를 지정한다 (columns: [{name, statusIds[]}])
 CREATE TABLE IF NOT EXISTS jira_boards (
   id bigserial PRIMARY KEY,

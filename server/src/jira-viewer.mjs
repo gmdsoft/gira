@@ -199,7 +199,7 @@ app.get('/api/issue/:key', async (req, reply) => {
   if (!issue) return reply.code(404).send({ error: 'not found' });
   delete issue.fields_raw;
 
-  const [comments, attachments, links, subtasks] = await Promise.all([
+  const [comments, attachments, links, subtasks, history] = await Promise.all([
     query(`SELECT c.id, c.body_adf, c.created_at, u.display_name AS author_name
              FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
             WHERE c.issue_id = $1 ORDER BY c.created_at`, [issue.id]),
@@ -220,8 +220,12 @@ app.get('/api/issue/:key', async (req, reply) => {
              LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
              LEFT JOIN users u ON u.id = i.assignee_id
             WHERE i.parent_id = $1 ORDER BY i.id`, [issue.id]),
+    query(`SELECT h.id, h.created_at, h.items, u.display_name AS author_name
+             FROM jira_changelog h LEFT JOIN users u ON u.id = h.author_id
+            WHERE h.issue_id = $1 ORDER BY h.created_at`, [issue.id]),
   ]);
-  return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows, subtasks: subtasks.rows };
+  return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
+           subtasks: subtasks.rows, history: history.rows };
 });
 
 // ---------- 이슈 생성/수정 ----------
@@ -303,9 +307,43 @@ app.patch('/api/issue/:key', async (req, reply) => {
   }
   if (!sets.length) return reply.code(400).send({ error: '변경할 필드가 없습니다' });
   sets.push(`updated_at = now()`);
+  const before = await issueSnapshot(issue.id);
   await query(`UPDATE jira_issues SET ${sets.join(', ')} WHERE id = $1`, params);
+  // 로컬 수정도 Jira처럼 기록(changelog)에 남긴다
+  const after = await issueSnapshot(issue.id);
+  const items = [];
+  for (const [field, label] of Object.entries(SNAP_FIELDS)) {
+    if (before[label] !== after[label]) items.push({ field, fromString: before[label], toString: after[label] });
+  }
+  if (before.desc_md5 !== after.desc_md5) items.push({ field: 'description', fromString: null, toString: null });
+  if (items.length) {
+    await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
+      [issue.id, req.access.userId, JSON.stringify(items)]);
+  }
   return { ok: true };
 });
+
+// 기록 비교용 스냅샷 (표시 문자열 기준)
+const SNAP_FIELDS = {
+  status: 'status', issuetype: 'type', assignee: 'assignee', priority: 'priority', summary: 'summary',
+  resolution: 'resolution', labels: 'labels', 'Fix Version': 'fix_versions', Sprint: 'sprint', Parent: 'parent',
+};
+async function issueSnapshot(id) {
+  const { rows } = await query(
+    `SELECT i.summary, i.priority, i.resolution,
+            array_to_string(i.labels, ', ') AS labels, array_to_string(i.fix_versions, ', ') AS fix_versions,
+            s.name AS status, t.name AS type, u.display_name AS assignee,
+            sp.name AS sprint, pi.issue_key AS parent,
+            md5(coalesce(i.description_adf::text, '')) AS desc_md5
+       FROM jira_issues i
+       LEFT JOIN jira_statuses s ON s.id = i.status_id
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN users u ON u.id = i.assignee_id
+       LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
+       LEFT JOIN jira_issues pi ON pi.id = i.parent_id
+      WHERE i.id = $1`, [id]);
+  return rows[0];
+}
 
 // ---------- 댓글 ----------
 
