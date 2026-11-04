@@ -1,5 +1,24 @@
 // ADF(Atlassian Document Format) → React 읽기 전용 렌더러
-import React from 'react';
+import React, { useContext } from 'react';
+
+// 첨부 매핑: media 노드의 alt(파일명) → 이슈 첨부. 이미지면 인라인으로 보여준다.
+const AttCtx = React.createContext(null);
+
+function Media({ n }) {
+  const byName = useContext(AttCtx);
+  const a = n.attrs ?? {};
+  if (a.type === 'external' && a.url) {
+    return <img className="adf-img" src={a.url} alt={a.alt ?? ''} loading="lazy"
+      style={{ maxWidth: '100%', width: a.width ? Math.min(a.width, 740) : undefined }} />;
+  }
+  const hit = a.alt ? byName?.get(String(a.alt).toLowerCase()) : null;
+  if (hit && (hit.media_type ?? '').startsWith('image/')) {
+    return <img className="adf-img" src={`/api/attachment/${hit.id}`} alt={a.alt} loading="lazy"
+      style={{ maxWidth: '100%', width: a.width ? Math.min(a.width, 740) : undefined }} />;
+  }
+  if (hit) return <a href={`/api/attachment/${hit.id}`} target="_blank" rel="noopener noreferrer">📎 {a.alt}</a>;
+  return <span className="media-ph">📎 {a.alt || '첨부 미디어'} <span className="dim">(첨부 목록 참조)</span></span>;
+}
 
 function Marked({ text, marks }) {
   let el = <>{text}</>;
@@ -48,8 +67,8 @@ function Node({ n }) {
     case 'tableRow': return <tr><Kids n={n} /></tr>;
     case 'tableHeader': return <th colSpan={n.attrs?.colspan} rowSpan={n.attrs?.rowspan}><Kids n={n} /></th>;
     case 'tableCell': return <td colSpan={n.attrs?.colspan} rowSpan={n.attrs?.rowspan}><Kids n={n} /></td>;
-    case 'mediaSingle': case 'mediaGroup': return <Kids n={n} />;
-    case 'media': return <span className="media-ph">📎 {n.attrs?.alt || '첨부 미디어'} <span className="dim">(첨부 목록 참조)</span></span>;
+    case 'mediaSingle': case 'mediaGroup': return <div className="media-row"><Kids n={n} /></div>;
+    case 'media': case 'mediaInline': return <Media n={n} />;
     case 'inlineCard': return <a href={n.attrs?.url} target="_blank" rel="noopener noreferrer">{n.attrs?.url}</a>;
     case 'expand': case 'nestedExpand':
       return <details className="expand"><summary>{n.attrs?.title || '펼치기'}</summary><div className="expand-body"><Kids n={n} /></div></details>;
@@ -57,7 +76,12 @@ function Node({ n }) {
   }
 }
 
-export default function AdfView({ doc }) {
+export default function AdfView({ doc, attachments }) {
   if (!doc) return <span className="dim">없음</span>;
-  return <div className="adf"><Node n={doc} /></div>;
+  const byName = new Map((attachments ?? []).map((a) => [String(a.filename).toLowerCase(), a]));
+  return (
+    <AttCtx.Provider value={byName}>
+      <div className="adf"><Node n={doc} /></div>
+    </AttCtx.Provider>
+  );
 }

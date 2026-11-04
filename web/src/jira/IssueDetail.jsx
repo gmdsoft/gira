@@ -31,6 +31,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
   const [editingComment, setEditingComment] = useState(null); // {id, text}
+  const [actTab, setActTab] = useState('comments'); // all | comments | history
   const fileRef = useRef(null);
   const descEditorRef = useRef(null);
 
@@ -84,6 +85,58 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
   const verNames = [...new Set([...pdata.versions.map((v) => v.name), ...(d.fix_versions ?? [])])];
   const resoList = [...new Set([...meta.resolutions, ...(d.resolution ? [d.resolution] : [])])];
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed' || s.id === d.sprint_id);
+
+  // ---------- 활동 (전체/댓글/기록) ----------
+  const history = d.history ?? [];
+  const feed = (actTab === 'comments' ? d.comments.map((c) => ({ t: 'c', at: c.created_at, c }))
+    : actTab === 'history' ? history.map((h) => ({ t: 'h', at: h.created_at, h }))
+    : [...d.comments.map((c) => ({ t: 'c', at: c.created_at, c })), ...history.map((h) => ({ t: 'h', at: h.created_at, h }))])
+    .sort((a, b) => new Date(a.at) - new Date(b.at));
+
+  const commentBlock = (c) => (
+    <div className="comment" key={'c' + c.id}>
+      <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {dt(c.created_at)}
+        {editingComment?.id !== c.id &&
+          <button className="plain dim" style={{ marginLeft: 6 }} title="댓글 편집"
+            onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
+      </div>
+      {editingComment?.id === c.id
+        ? <div className="cform">
+            <textarea autoFocus value={editingComment.text}
+              onChange={(e) => setEditingComment({ ...editingComment, text: e.target.value })} />
+            <div className="actions">
+              <button className="primary mini" onClick={saveComment}>저장</button>
+              <button className="mini" onClick={() => setEditingComment(null)}>취소</button>
+            </div>
+          </div>
+        : <AdfView doc={c.body_adf} attachments={d.attachments} />}
+    </div>
+  );
+
+  const FIELD_KO = {
+    status: '상태', assignee: '담당자', priority: '우선 순위', summary: '요약', description: '설명',
+    issuetype: '업무 유형', labels: '레이블', 'Fix Version': '수정 버전', resolution: '해결',
+    Sprint: '스프린트', Parent: '상위 항목', Attachment: '첨부 파일', Link: '링크', Component: '컴포넌트',
+    duedate: '기한', reporter: '보고자', 'Epic Link': '에픽 링크', Rank: '순위',
+    RemoteWorkItemLink: '원격 링크', Version: '버전', IssueParentAssociation: '상위 항목',
+  };
+  const historyBlock = (h) => (
+    <div className="hist" key={'h' + h.id}>
+      <div className="chead"><Avatar name={h.author_name} /> <b>{h.author_name ?? '?'}</b>
+        <span className="dim"> 님이 업데이트함 · {dt(h.created_at)}</span></div>
+      {(h.items ?? []).map((it, i) => (
+        <div className="hitem" key={i}>
+          <span className="hfield">{FIELD_KO[it.field] ?? it.field}</span>
+          {it.field === 'description'
+            ? <span className="dim">업데이트됨</span>
+            : <>
+                <span className="hval" title={it.fromString ?? ''}>{it.fromString ?? '없음'}</span>
+                <span className="dim">→</span>
+                <span className="hval to" title={it.toString ?? ''}>{it.toString ?? '없음'}</span>
+              </>}
+        </div>))}
+    </div>
+  );
 
   const linkRow = (l, i) => {
     const mine = l.inward_key === issueKey;
@@ -160,7 +213,7 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
                     </div>
                   </>
                 : <div className="inline-edit" title="클릭하여 편집" onClick={() => setDescEditing(true)}>
-                    <AdfView doc={d.description_adf} />
+                    <AdfView doc={d.description_adf} attachments={d.attachments} />
                   </div>}
             </div>
           </section>
@@ -199,29 +252,18 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
 
           {d.links.length > 0 && <section><h3>연결된 업무 항목 ({d.links.length})</h3><ul className="link-list">{d.links.map(linkRow)}</ul></section>}
 
-          <section><h3>댓글 ({d.comments.length})</h3>
-            {d.comments.map((c) => (
-              <div className="comment" key={c.id}>
-                <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {dt(c.created_at)}
-                  {editingComment?.id !== c.id &&
-                    <button className="plain dim" style={{ marginLeft: 6 }} title="댓글 편집"
-                      onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
-                </div>
-                {editingComment?.id === c.id
-                  ? <div className="cform">
-                      <textarea autoFocus value={editingComment.text}
-                        onChange={(e) => setEditingComment({ ...editingComment, text: e.target.value })} />
-                      <div className="actions">
-                        <button className="primary mini" onClick={saveComment}>저장</button>
-                        <button className="mini" onClick={() => setEditingComment(null)}>취소</button>
-                      </div>
-                    </div>
-                  : <AdfView doc={c.body_adf} />}
-              </div>))}
-            <div className="cform">
-              <textarea placeholder="댓글 입력 (플레인 텍스트)" value={comment} onChange={(e) => setComment(e.target.value)} />
-              <div className="actions"><button className="primary" onClick={addComment}>댓글 달기</button></div>
+          <section><h3>활동</h3>
+            <div className="acttabs">
+              {[['all', '전체'], ['comments', `댓글 (${d.comments.length})`], ['history', `기록 (${(d.history ?? []).length})`]]
+                .map(([k, label]) => (
+                  <button key={k} className={actTab === k ? 'on' : ''} onClick={() => setActTab(k)}>{label}</button>))}
             </div>
+            {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
+            {actTab !== 'history' && (
+              <div className="cform">
+                <textarea placeholder="댓글 입력 (플레인 텍스트)" value={comment} onChange={(e) => setComment(e.target.value)} />
+                <div className="actions"><button className="primary" onClick={addComment}>댓글 달기</button></div>
+              </div>)}
           </section>
         </div>
 
