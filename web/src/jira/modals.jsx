@@ -1,5 +1,5 @@
 // 모달: 로그인 게이트, 이슈 만들기, 보드 만들기/편집
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import { api } from './util.jsx';
 
 export function LoginGate({ onLogin }) {
@@ -20,61 +20,147 @@ export function LoginGate({ onLogin }) {
   );
 }
 
-export function NewIssueModal({ meta, pdata, project, onClose, onCreated }) {
+// 다중 값 입력 (레이블·컴포넌트·수정 버전) — 칩 + 기존 값 자동완성(datalist)
+function TagInput({ value, onChange, suggestions = [], placeholder }) {
+  const [text, setText] = useState('');
+  const listId = useId();
+  const add = (raw) => {
+    const t = String(raw ?? '').trim();
+    if (!t) return;
+    if (!value.includes(t)) onChange([...value, t]);
+    setText('');
+  };
+  return (
+    <div className="taginput" onClick={(e) => e.currentTarget.querySelector('input')?.focus()}>
+      {value.map((t) => (
+        <span className="chip" key={t}>{t}
+          <button title="제거" onClick={() => onChange(value.filter((x) => x !== t))}>✕</button>
+        </span>))}
+      <input list={listId} value={text} placeholder={value.length ? '' : placeholder}
+        onChange={(e) => {
+          const v = e.target.value;
+          // datalist 항목 클릭(또는 완전 일치 입력) 시 바로 추가
+          if (suggestions.includes(v)) add(v); else setText(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(text); }
+          else if (e.key === 'Backspace' && !text && value.length) onChange(value.slice(0, -1));
+        }}
+        onBlur={() => add(text)} />
+      <datalist id={listId}>
+        {suggestions.filter((s) => !value.includes(s)).map((s) => <option key={s} value={s} />)}
+      </datalist>
+    </div>
+  );
+}
+
+export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, onRefresh }) {
   const [typeId, setTypeId] = useState(meta.types.find((t) => !t.subtask)?.id ?? meta.types[0]?.id);
-  const [parentKey, setParentKey] = useState('');
+  const [parentKey, setParentKey] = useState('');   // 하위 작업의 상위 이슈
+  const [epicKey, setEpicKey] = useState('');       // 표준 타입의 상위 항목(에픽)
   const [summary, setSummary] = useState('');
   const [desc, setDesc] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
+  const [reporterId, setReporterId] = useState(me?.id ?? '');
   const [priority, setPriority] = useState('');
+  const [labels, setLabels] = useState([]);
+  const [components, setComponents] = useState([]);
+  const [fixVersions, setFixVersions] = useState([]);
   const [sprintId, setSprintId] = useState('');
-  const isSub = meta.types.find((t) => String(t.id) === String(typeId))?.subtask;
+  const [another, setAnother] = useState(false);    // Jira의 '다른 이슈 만들기'
+  const [lastKey, setLastKey] = useState('');
+  const [epics, setEpics] = useState([]);
+  const type = meta.types.find((t) => String(t.id) === String(typeId));
+  const isSub = type?.subtask;
+  const isEpic = type?.name === '에픽';
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed');
+  const epicType = meta.types.find((t) => t.name === '에픽');
+
+  useEffect(() => { // 상위 항목(에픽) 후보 — 최신순
+    if (!epicType) return;
+    api(`/api/issues?project=${encodeURIComponent(project)}&type=${epicType.id}&limit=500&sort=-key`)
+      .then((d) => setEpics(d.rows)).catch(() => {});
+  }, [project]);
 
   const create = async () => {
+    if (!summary.trim()) return alert('요약을 입력하세요');
     const res = await api('/api/issues', { method: 'POST', json: {
       projectKey: project,
       typeId: Number(typeId),
       summary, description: desc,
       assigneeId: assigneeId ? Number(assigneeId) : null,
+      reporterId: reporterId ? Number(reporterId) : null,
       priority: priority || null,
+      labels, components, fixVersions,
       sprintId: sprintId ? Number(sprintId) : null,
-      parentKey: isSub ? parentKey : null,
+      parentKey: isSub ? (parentKey.trim() || null) : (!isEpic && epicKey ? epicKey : null),
     } });
-    onCreated(res.issueKey);
+    if (another) {
+      setLastKey(res.issueKey); setSummary(''); setDesc('');
+      onRefresh?.();
+    } else onCreated(res.issueKey);
   };
 
   return (
     <div className="overlay on"><div className="modal">
       <h2>이슈 만들기</h2>
-      <label>타입</label>
+      <div className="dim" style={{ fontSize: 12 }}>필수 필드는 별표(<span style={{ color: 'var(--danger)' }}>*</span>)로 표시됩니다</div>
+      <label>프로젝트 <span className="req">*</span></label>
+      <input value={`${meta.projects.find((p) => p.key === project)?.name ?? project} (${project})`} disabled />
+      <label>작업 유형 <span className="req">*</span></label>
       <select value={typeId} onChange={(e) => setTypeId(e.target.value)}>
         {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
-      {isSub && <>
-        <label>상위 이슈 키 (하위 작업용, 예: {project}-10)</label>
-        <input type="text" value={parentKey} placeholder={`${project}-10`} onChange={(e) => setParentKey(e.target.value)} />
-      </>}
-      <label>요약 *</label>
-      <input type="text" value={summary} onChange={(e) => setSummary(e.target.value)} />
+      <hr className="msep" />
+      <label>요약 <span className="req">*</span></label>
+      <input type="text" value={summary} autoFocus onChange={(e) => setSummary(e.target.value)} />
       <label>설명</label>
       <textarea placeholder="플레인 텍스트 (PoC)" value={desc} onChange={(e) => setDesc(e.target.value)} />
       <label>담당자</label>
       <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-        <option value="">미지정</option>
+        <option value="">자동 (미지정)</option>
         {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
       </select>
-      <label>우선순위</label>
+      {me && String(assigneeId) !== String(me.id)
+        && <button className="plain linklike" onClick={() => setAssigneeId(String(me.id))}>나에게 할당</button>}
+      <label>보고자 <span className="req">*</span></label>
+      <select value={reporterId} onChange={(e) => setReporterId(e.target.value)}>
+        {me && !meta.assignees.some((u) => String(u.id) === String(me.id))
+          && <option value={me.id}>{me.display_name}</option>}
+        {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+      </select>
+      <label>우선 순위</label>
       <select value={priority} onChange={(e) => setPriority(e.target.value)}>
         <option value="">없음</option>
         {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
       </select>
+      <label>레이블</label>
+      <TagInput value={labels} onChange={setLabels} suggestions={pdata.labels ?? []} placeholder="레이블 입력 후 Enter" />
+      <label>컴포넌트</label>
+      <TagInput value={components} onChange={setComponents} suggestions={pdata.components ?? []} placeholder="컴포넌트 입력 후 Enter" />
+      <label>수정 버전</label>
+      <TagInput value={fixVersions} onChange={setFixVersions} suggestions={(pdata.versions ?? []).map((v) => v.name)} placeholder="버전 입력 후 Enter" />
+      {isSub ? <>
+        <label>상위 항목 <span className="req">*</span> <span className="dim">(하위 작업의 상위 이슈 키)</span></label>
+        <input type="text" value={parentKey} placeholder={`${project}-10`} onChange={(e) => setParentKey(e.target.value)} />
+      </> : !isEpic && <>
+        <label>상위 항목 <span className="dim">(에픽)</span></label>
+        <select value={epicKey} onChange={(e) => setEpicKey(e.target.value)}>
+          <option value="">없음</option>
+          {epics.map((ep) => <option key={ep.id} value={ep.issue_key}>{ep.issue_key} — {ep.summary}</option>)}
+        </select>
+      </>}
       <label>스프린트</label>
       <select value={sprintId} onChange={(e) => setSprintId(e.target.value)}>
         <option value="">백로그</option>
-        {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
       </select>
-      <div className="actions"><button onClick={onClose}>취소</button><button className="primary" onClick={create}>만들기</button></div>
+      <div className="actions">
+        {lastKey && <span className="dim" style={{ marginRight: 'auto' }}>{lastKey} 생성됨</span>}
+        <label className="inlinechk"><input type="checkbox" checked={another} onChange={(e) => setAnother(e.target.checked)} /> 다른 이슈 만들기</label>
+        <button onClick={onClose}>취소</button>
+        <button className="primary" onClick={create}>만들기</button>
+      </div>
     </div></div>
   );
 }

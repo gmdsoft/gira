@@ -448,7 +448,20 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .modal label { display: block; font-size: 12px; font-weight: 600; color: var(--dim); margin: 12px 0 4px; }
 .modal input[type=text], .modal select, .modal textarea { width: 100%; height: 36px; }
 .modal textarea { height: auto; min-height: 100px; resize: vertical; }
-.modal .actions { margin-top: 18px; display: flex; gap: 8px; justify-content: flex-end; }
+.modal .actions { margin-top: 18px; display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+.modal .req { color: var(--danger); }
+.modal .msep { border: 0; border-top: 1px solid var(--line-soft); margin: 16px 0 4px; }
+.modal input:disabled { background: #f7f8f9; color: var(--dim); }
+.modal .linklike { border: 0; background: none; color: var(--accent); font-size: 12px; padding: 4px 0 0; cursor: pointer; }
+.modal .linklike:hover { text-decoration: underline; }
+.modal .inlinechk { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-weight: 400; font-size: 13px; color: var(--text); }
+.modal .inlinechk input { width: auto; height: auto; }
+/* 다중 값 입력 (레이블·컴포넌트·수정 버전) */
+.taginput { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; background: #fff; cursor: text; }
+.taginput .chip { display: inline-flex; align-items: center; gap: 2px; margin: 0; font-size: 12px; }
+.taginput .chip button { border: 0; background: none; padding: 0 2px; font-size: 10px; color: var(--subtle); cursor: pointer; }
+.taginput .chip button:hover { color: var(--danger); }
+.taginput input { border: 0; outline: none; flex: 1; min-width: 140px; height: 26px; padding: 0 2px; }
 .acct { display: block; width: 100%; margin: 8px 0; padding: 10px; font-size: 15px; }
 .bm-col { border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; margin-top: 8px; }
 

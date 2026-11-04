@@ -441,8 +441,8 @@ export default function JiraApp() {
           </main>
         </div>
       </div>
-      {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project}
-        onClose={() => setShowNew(false)}
+      {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
+        onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
     </>
   );
