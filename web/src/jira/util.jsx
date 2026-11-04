@@ -51,11 +51,12 @@ export function CatChips({ rows, catOf = (r) => r.status_category }) {
   );
 }
 
-// 상태 변경 드롭다운 (색상 롯지)
+// 상태 변경 드롭다운 (색상 롯지) — 변경 후 blur: Windows Chrome이 포커스 유지 중 옵션 하이라이트(파란 칠)를 박스에 그대로 보여주는 것 방지
 export function StatusSelect({ statuses, value, category, onChange, small }) {
   return (
-    <select className={`tstatus cat-${category}`} style={small ? undefined : { fontSize: 13, padding: '5px 8px' }}
-      value={value ?? ''} onClick={(e) => e.stopPropagation()} onChange={(e) => onChange(Number(e.target.value))}>
+    <select className={`tstatus cat-${category}${small ? '' : ' lg'}`}
+      value={value ?? ''} onClick={(e) => e.stopPropagation()}
+      onChange={(e) => { const id = Number(e.target.value); e.currentTarget.blur(); onChange(id); }}>
       {statuses.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
     </select>
   );
