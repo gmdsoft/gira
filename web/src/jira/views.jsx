@@ -14,7 +14,10 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
   const qs = (offset, limit) => {
     const u = new URLSearchParams({ project, offset, limit });
     if (filters.jql) u.append('jql', filters.jql); // 고급(JQL) 모드 — 기본 필터와 병행하지 않음
-    else for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+    else {
+      for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+      if (filters.xjql) u.append('jql', filters.xjql); // 기본 모드로 못 옮긴 잔여 JQL — AND 결합
+    }
     for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;

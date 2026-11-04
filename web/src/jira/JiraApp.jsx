@@ -9,7 +9,8 @@ import { IconGrid, IconSearch, IconPlus, IconSparkle, IconBell, IconHelp, IconSe
 
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
-const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '' };
+// xjql: 기본 모드에서 콤보로 표현할 수 없어 그대로 유지하는 잔여 JQL (기본 필터와 AND 결합)
+const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '' };
 
 function parseRoute(projects) {
   const m1 = location.pathname.match(/^\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)$/);
@@ -157,7 +158,7 @@ export default function JiraApp() {
     try { localStorage.setItem('jira.recent', JSON.stringify(next)); } catch { /* 무시 */ }
     return next;
   });
-  // 현재 기본 필터를 동등한 JQL로 변환 (기본 → 고급 전환 시 프리필)
+  // 현재 기본 필터를 동등한 JQL로 변환 (기본 → 고급 전환 시 프리필) — 잔여 JQL(xjql)도 이어붙인다
   const buildJql = () => {
     const parts = [];
     const nameOf = (list, id, idKey = 'id', out = 'name') => list.find((x) => String(x[idKey]) === String(id))?.[out];
@@ -169,11 +170,74 @@ export default function JiraApp() {
     if (filters.sprint === 'none') parts.push('sprint IS EMPTY');
     else if (filters.sprint) parts.push(`sprint = ${quote(nameOf(pdata.sprints, filters.sprint))}`);
     if (filters.q) parts.push(`text ~ ${quote(filters.q)}`);
-    return parts.join(' AND ');
+    const x = (filters.xjql ?? '').trim();
+    if (!x) return parts.join(' AND ');
+    if (/^order\s+by/i.test(x)) return [parts.join(' AND '), x].filter(Boolean).join(' ');
+    return [...parts, x].join(' AND ');
+  };
+  // 적용 중인 JQL을 기본 필터로 번역: 콤보로 표현 가능한 조건은 선택값(picks)으로,
+  // 나머지(날짜 비교, OR 묶음, ORDER BY 등)는 잔여 JQL(residual)로 돌려준다 — 결과 집합 보존이 목적
+  const splitJqlToBasic = (text) => {
+    const src = String(text ?? '').trim();
+    const picks = {}; const rest = [];
+    // 최상위(따옴표·괄호 밖) ORDER BY 분리
+    let order = '', wherePart = src;
+    {
+      let depth = 0, q = null;
+      for (let i = 0; i < src.length; i++) {
+        const c = src[i];
+        if (q) { if (c === q) q = null; continue; }
+        if (c === '"' || c === "'") q = c;
+        else if (c === '(') depth++;
+        else if (c === ')') depth--;
+        else if (depth === 0 && (i === 0 || /\s/.test(src[i - 1])) && /^order\s+by\s/i.test(src.slice(i))) {
+          wherePart = src.slice(0, i).trim(); order = src.slice(i).trim(); break;
+        }
+      }
+    }
+    // 최상위 AND 분해 — OR가 최상위에 있으면 통째로 잔여 처리
+    const terms = [];
+    {
+      let depth = 0, q = null, start = 0, bail = false;
+      for (let i = 0; i < wherePart.length && !bail; i++) {
+        const c = wherePart[i];
+        if (q) { if (c === q) q = null; continue; }
+        if (c === '"' || c === "'") q = c;
+        else if (c === '(') depth++;
+        else if (c === ')') depth--;
+        else if (depth === 0 && (i === 0 || /\s/.test(wherePart[i - 1]))) {
+          const m = wherePart.slice(i).match(/^(and|or)(?=\s)/i);
+          if (!m) continue;
+          if (m[1].toLowerCase() === 'or') { bail = true; break; }
+          terms.push(wherePart.slice(start, i)); start = i + m[0].length; i += m[0].length - 1;
+        }
+      }
+      if (bail) terms.splice(0, terms.length, wherePart);
+      else terms.push(wherePart.slice(start));
+    }
+    const unq = (v) => v.replace(/^"([^"]*)"$/, '$1').replace(/^'([^']*)'$/, '$1');
+    const byName = (list, name, key = 'name') => list.find((x) => String(x[key]).toLowerCase() === name.toLowerCase());
+    for (const raw of terms.map((t) => t.trim()).filter(Boolean)) {
+      let m;
+      if ((m = raw.match(/^sprint\s+is\s+empty$/i)) && !picks.sprint) { picks.sprint = 'none'; continue; }
+      if ((m = raw.match(/^(\w+)\s*(=|~)\s*("[^"]*"|'[^']*'|[^\s()]+)$/))) {
+        const field = m[1].toLowerCase(), op = m[2], val = unq(m[3]);
+        if (field === 'project' && op === '=' && val.toUpperCase() === project.toUpperCase()) continue; // 현재 프로젝트 — 암묵 조건
+        if (field === 'status' && op === '=' && !picks.status && byName(meta.statuses, val)) { picks.status = byName(meta.statuses, val).id; continue; }
+        if (field === 'type' && op === '=' && !picks.type && byName(meta.types, val)) { picks.type = byName(meta.types, val).id; continue; }
+        if (field === 'assignee' && op === '=' && !picks.assignee && byName(meta.assignees, val, 'display_name')) { picks.assignee = byName(meta.assignees, val, 'display_name').id; continue; }
+        if (field === 'priority' && op === '=' && !picks.priority && meta.priorities.find((p) => p.toLowerCase() === val.toLowerCase())) { picks.priority = meta.priorities.find((p) => p.toLowerCase() === val.toLowerCase()); continue; }
+        if (field === 'sprint' && op === '=' && !picks.sprint && byName(pdata.sprints, val)) { picks.sprint = String(byName(pdata.sprints, val).id); continue; }
+        if (field === 'text' && op === '~' && !picks.q) { picks.q = val; continue; }
+      }
+      rest.push(raw);
+    }
+    const residual = [rest.join(' AND '), order].filter(Boolean).join(' ').trim();
+    return { picks, residual };
   };
   const applyJql = async (text) => {
     const t = text.trim();
-    if (!t) { setJqlErr(null); setFilters((f) => ({ ...f, jql: '' })); setSavedSel(''); return; }
+    if (!t) { setJqlErr(null); setFilters((f) => ({ ...f, jql: '', xjql: '' })); setSavedSel(''); return; }
     try {
       // limit=1로 서버 파서에 문법 검증만 받고, 통과하면 필터로 적용 (기본 필터 선택값은 보존)
       await api(`/api/issues?project=${encodeURIComponent(project)}&limit=1&jql=${encodeURIComponent(t)}`, { quiet: true });
@@ -185,19 +249,24 @@ export default function JiraApp() {
       setJqlErr(e.message);
     }
   };
-  // 모드 전환은 '어느 쪽이 적용되는지'만 바꾼다 — 양쪽 필터 상태는 유지
+  // 모드 전환으로 결과 집합이 바뀌지 않게 한다 — 적용 중인 쿼리를 반대쪽 표현으로 번역해 이어받는다
   const switchMode = (m) => {
     if (m === fmode) return;
     try { localStorage.setItem('jira.fmode', m); } catch { /* 무시 */ }
     setFmode(m); setSavedSel('');
     if (m === 'jql') {
-      // 직접 쓴 JQL이 있으면 그대로 재적용, 없으면 기본 필터를 JQL로 변환해 이어받는다
+      // 직접 쓴 JQL이 있으면 그대로 재적용, 없으면 기본 필터(+잔여 JQL)를 JQL로 변환해 이어받는다
       const pre = jqlInput.trim() || buildJql();
       setJqlInput(pre);
       applyJql(pre);
     } else {
       setJqlErr(null);
-      setFilters((f) => ({ ...f, jql: '' })); // 기본 선택값은 그대로 되살아난다
+      const applied = (filters.jql ?? '').trim();
+      if (!applied) { setFilters((f) => ({ ...f, jql: '' })); return; } // 적용된 JQL이 없으면 기본 선택값 그대로
+      // 적용 중인 JQL을 기본 선택값으로 번역하고, 못 옮긴 조건·정렬은 잔여 JQL로 유지
+      const { picks, residual } = splitJqlToBasic(applied);
+      setQInput(picks.q ?? '');
+      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, ...picks, xjql: residual }));
     }
   };
   const applySaved = (id) => {
@@ -249,6 +318,7 @@ export default function JiraApp() {
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
     onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true),
     boardJql: curBoard?.jql ?? null, // 보드 컨텍스트 필터 — 모든 뷰에 AND 적용
+    board: curBoard ?? null,         // 백로그 요약 칩이 보드 컬럼 기준으로 세도록
   };
 
   return (
