@@ -72,7 +72,6 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
   const [lastKey, setLastKey] = useState('');
   const [epics, setEpics] = useState([]);
   const [files, setFiles] = useState([]);
-  const [fieldTab, setFieldTab] = useState('basic');
   const fileRef = useRef(null);
   const type = meta.types.find((t) => String(t.id) === String(typeId));
   const isSub = type?.subtask;
@@ -153,7 +152,7 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
 
         <label className="cf-label">설명 <IconInfo size={12} className="cf-info" /></label>
         <textarea className="cf-desc" value={desc}
-          placeholder="설명을 추가하거나 /를 입력하여 작업 및 Rovo를 사용합니다"
+          placeholder="설명을 입력하세요"
           onChange={(e) => setDesc(e.target.value)} />
 
         <div className="cf-status">
@@ -161,12 +160,7 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
           <span>{defaultStatus?.name ?? '해야 할 일'}</span>
         </div>
 
-        <div className="ctabs">
-          {[['basic', '기본 입력'], ['more', '추가 정보'], ['qa', 'QA'], ['hubspot', 'HubSpot']].map(([k, label]) => (
-            <button key={k} className={fieldTab === k ? 'on' : ''} onClick={() => setFieldTab(k)}>{label}</button>))}
-        </div>
-
-        {fieldTab === 'basic' ? <>
+        <>
           <div className="cf-row">
             <div className="cf-label">스프린트</div>
             <div className="cf-value"><IconBacklog size={15} />
@@ -254,7 +248,7 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
               </div>)}
             </div>}
           </div>
-        </> : <div className="empty-fields">이 탭에 표시할 추가 필드가 없습니다.</div>}
+        </>
       </div>
 
       <div className="create-foot">
