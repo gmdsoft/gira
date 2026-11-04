@@ -218,7 +218,7 @@ const Panel = Node.create({
   name: 'panel',
   group: 'block',
   content: 'block+',
-  addAttributes: () => ({ panelType: { default: 'info' }, title: { default: null }, bgColor: { default: null } }),
+  addAttributes: () => ({ panelType: { default: 'info' }, title: { default: null }, bgColor: { default: null }, panelIcon: { default: null } }),
   // 복사/붙여넣기 round-trip용 (본문 변환은 convert-storage.mjs가 담당)
   parseHTML: () => [{
     tag: 'div.panel',
@@ -226,15 +226,23 @@ const Panel = Node.create({
       panelType: /panel-([\w-]+)/.exec(el.className)?.[1] || 'info',
       title: el.querySelector(':scope > .panel-title')?.textContent || null,
       bgColor: el.style?.background || null,
+      panelIcon: el.querySelector(':scope > .panel-icon')?.textContent || null,
     }),
     contentElement: (el) => el.querySelector(':scope > .panel-body') || el,
   }],
   renderHTML: ({ node }) => {
-    const attrs = { class: `panel panel-${node.attrs.panelType}` };
-    if (node.attrs.bgColor) attrs.style = `background: ${node.attrs.bgColor}`;
+    const attrs = { class: `panel panel-${node.attrs.panelType}${node.attrs.panelIcon ? ' panel-has-icon' : ''}` };
+    const PANEL_BG = { '#F4F5F7': '#F0F1F2', '#FFEBE6': '#FFECEB' };
+    const bg = PANEL_BG[node.attrs.bgColor] ?? node.attrs.bgColor;
+    if (bg) attrs.style = `background: ${bg}`;
+    const PANEL_ICONS = { note: '📄', info: 'ℹ️', tip: '💡', success: '✅', warning: '⚠️', error: '❌' };
+    const iconText = node.attrs.panelIcon || (node.attrs.panelType !== 'custom' ? PANEL_ICONS[node.attrs.panelType] : null);
+    if (iconText) attrs.class += ' panel-has-icon';
+    const icon = iconText ? ['span', { class: 'panel-icon' }, iconText] : null;
+    const body = ['div', { class: 'panel-body' }, 0];
     return node.attrs.title
-      ? ['div', attrs, ['div', { class: 'panel-title' }, node.attrs.title], ['div', { class: 'panel-body' }, 0]]
-      : ['div', attrs, ['div', { class: 'panel-body' }, 0]];
+      ? ['div', attrs, icon, ['div', { class: 'panel-title' }, node.attrs.title], body].filter(Boolean)
+      : ['div', attrs, icon, body].filter(Boolean);
   },
 });
 
@@ -438,10 +446,12 @@ const Media = Node.create({
       ...(width ? { width } : {}),
       ...(border ? { class: 'media-border' } : {}),
     }];
-    const cls = `media ${align ? `media-${align}` : ''} ${layout ? `media-layout-${layout}` : ''}`.trim();
+    const breakout = width && width > 760;
+    const cls = `media ${align ? `media-${align}` : ''} ${layout ? `media-layout-${layout}` : ''}${breakout ? ' media-breakout' : ''}`.trim();
+    const style = breakout ? `--media-w: ${width}px` : null;
     return caption
-      ? ['figure', { class: cls }, img, ['figcaption', {}, caption]]
-      : ['span', { class: cls }, img];
+      ? ['figure', { class: cls, ...(style ? { style } : {}) }, img, ['figcaption', {}, caption]]
+      : ['span', { class: cls, ...(style ? { style } : {}) }, img];
   },
 });
 
@@ -508,6 +518,14 @@ const PageLink = Node.create({
     class: 'page-link', href: '#',
     'data-title': node.attrs.contentTitle, 'data-space': node.attrs.spaceKey ?? '',
   }, node.childCount ? 0 : node.attrs.contentTitle],
+});
+
+const SpaceLink = Node.create({
+  name: 'spaceLink', group: 'inline', inline: true, content: 'text*',
+  addAttributes: () => ({ spaceKey: { default: '' } }),
+  renderHTML: ({ node }) => ['a', {
+    class: 'space-link', href: '#', 'data-space': node.attrs.spaceKey ?? '',
+  }, node.childCount ? 0 : node.attrs.spaceKey],
 });
 
 const FileLink = Node.create({
@@ -827,7 +845,7 @@ const custom = [
   Panel, Expand, Layout, LayoutSection, LayoutColumn,
   Mermaid, JiraTable, CfMacro, AdfNode,
   Media, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
-  PageLink, FileLink, CfMacroInline,
+  PageLink, SpaceLink, FileLink, CfMacroInline,
 ];
 
 // 읽기 전용 렌더링·render-check 용 (undo 히스토리 불필요)

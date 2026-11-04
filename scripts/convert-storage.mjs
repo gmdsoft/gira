@@ -100,11 +100,15 @@ export function convertStorage(xhtml) {
           break;
         case 'ac:link': case 'ac:link-body': {
           const page = childEl(n, 'ri:page');
+          const space = childEl(n, 'ri:space');
           const user = childEl(n, 'ri:user');
           const att = childEl(n, 'ri:attachment');
           const bodyNode = childEl(n, 'ac:plain-text-link-body') ?? childEl(n, 'ac:link-body');
           const label = bodyNode ? textOf(bodyNode) : '';
           if (user) out.push({ type: 'mention', attrs: { accountId: dec(user.attribs['ri:account-id'] ?? ''), text: label } });
+          else if (space) out.push({ type: 'spaceLink', attrs: {
+            spaceKey: dec(space.attribs['ri:space-key'] ?? ''),
+          }, ...(label ? { content: [text(label, [])] } : {}) });
           else if (page) out.push({ type: 'pageLink', attrs: {
             contentTitle: dec(page.attribs['ri:content-title'] ?? ''),
             spaceKey: dec(page.attribs['ri:space-key'] ?? '') || null,
@@ -161,8 +165,10 @@ export function convertStorage(xhtml) {
           ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
       }
       case 'info': case 'note': case 'tip': case 'warning': case 'panel':
-        return { type: 'panel', attrs: { panelType: PANEL_TYPES[name], title: params.title ?? null, bgColor: params.bgColor ?? null },
-          content: ensureBlocks(rich ? blocks(rich.children) : []) };
+        return { type: 'panel', attrs: {
+          panelType: PANEL_TYPES[name], title: params.title ?? null, bgColor: params.bgColor ?? null,
+          panelIcon: params.panelIconText ?? params.panelIcon ?? null,
+        }, content: ensureBlocks(rich ? blocks(rich.children) : []) };
       case 'expand':
         return { type: 'expand', attrs: { title: params.title ?? '' },
           content: ensureBlocks(rich ? blocks(rich.children) : []) };

@@ -1,10 +1,10 @@
 :root {
-  --border: #dcdfe4;
-  --muted: #626f86;
-  --accent: #0c66e4;
-  --bg-subtle: #f7f8f9;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Pretendard", "Malgun Gothic", sans-serif;
-  color: #172b4d;
+  --border: #dfe1e6;
+  --muted: #505258;
+  --accent: #1868db;
+  --bg-subtle: #f8f8f8;
+  font-family: "Atlassian Sans", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Ubuntu, "Helvetica Neue", sans-serif;
+  color: #292a2e;
 }
 * { box-sizing: border-box; }
 body { margin: 0; }
@@ -61,9 +61,9 @@ body { margin: 0; }
 .page-error { color: #ae2a19; }
 
 /* 본문 */
-.doc { line-height: 1.7; font-size: 15px; }
+.doc { line-height: 27.424px; font-size: 16px; }
 .doc .ProseMirror { outline: none; }
-.doc h1 { font-size: 24px; } .doc h2 { font-size: 20px; } .doc h3 { font-size: 17px; }
+.doc h1 { font-size: 27.4px; line-height: 32px; font-weight: 600; } .doc h2 { font-size: 22.9px; line-height: 27.5px; font-weight: 600; } .doc h3 { font-size: 18.3px; line-height: 27.4px; font-weight: 600; }
 .doc p { margin: 0.6em 0; }
 .doc code { background: var(--bg-subtle); border-radius: 3px; padding: 1px 4px; font-size: 0.9em; }
 .doc pre { background: #f1f2f4; border-radius: 6px; padding: 12px 14px; overflow-x: auto; font-size: 13px; }
@@ -104,18 +104,24 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 .task-check { flex: none; }
 .task-body p { margin: 0; }
 
-/* 패널 */
-.panel { border-radius: 6px; padding: 7px 12px; margin: 0.6em 0; background: #f0f6ff; border: 1px solid #cce0ff; }
+/* 패널 — Confluence 패널과 동일한 플랫한 색면 + 아이콘 */
+.panel { display: flex; gap: 0; align-items: flex-start; border-radius: 4px; padding: 8px 16px 8px 8px; margin: 0.6em 0; background: #f0f1f2; border: 0; min-height: 48px; }
+.panel-icon { width: 32px; flex: none; text-align: center; font-size: 24px; line-height: 32px; }
+.panel-body { flex: 1; min-width: 0; }
 .panel-body p { margin: 0.3em 0; }
-.panel-info { background: #e9f2ff; border-color: #cce0ff; }
-.panel-note { background: #f3f0ff; border-color: #dfd8fd; }
-.panel-tip, .panel-success { background: #effaf1; border-color: #bbe3c4; }
-.panel-warning { background: #fff7d6; border-color: #f5e489; }
-.panel-error { background: #ffefeb; border-color: #ffd5d2; }
+.panel-info { background: #e9f2ff; }
+.panel-note { background: #f8eefe; }
+.panel-tip, .panel-success { background: #effaf1; }
+.panel-warning { background: #fff7d6; }
+.panel-error { background: #ffefeb; }
 .panel-title { font-weight: 700; margin-bottom: 4px; }
 .panel-body > :first-child { margin-top: 0; }
 .panel-body > :last-child { margin-bottom: 0; }
 .panel-body h1, .panel-body h2, .panel-body h3, .panel-body h4 { margin: 0.3em 0; }
+.panel-body h3 { font-size: 18.3px; font-weight: 600; line-height: 27.4px; margin: 0; }
+.panel a, .panel .page-link, .panel .space-link { color: var(--accent); text-decoration: none; }
+.panel a:hover, .panel .page-link:hover, .panel .space-link:hover { text-decoration: underline; }
+.space-link { color: var(--accent); }
 
 /* 펼치기 — Confluence처럼 접힘: 테두리 없음 / 펼침: 전체 박스 테두리 */
 .expand { margin: 0.4em 0; }
@@ -132,9 +138,9 @@ details.expand[open] { border: 1px solid var(--border); border-radius: 8px; padd
 .expand-edit .expand-body { padding: 0 4px 0 24px; overflow-x: auto; }
 
 /* 레이아웃(다단) */
-.layout-section { display: flex; gap: 24px; }
+.layout-section { display: flex; gap: 48px; }
 .layout-column { flex: 1; min-width: 0; }
-@media (max-width: 760px) { .layout-section { flex-direction: column; } }
+@media (max-width: 760px) { .layout-section { flex-direction: column; gap: 16px; } }
 
 /* 인라인 요소 */
 .mention { color: var(--accent); background: #e9f2ff; border-radius: 10px; padding: 0 6px; font-size: 0.95em; }
@@ -356,6 +362,8 @@ mark { background: #fff0b3; border-radius: 2px; padding: 0 1px; }
 .doc .media-layout-align-start { display: block; text-align: left; }
 .doc .media-layout-align-end { display: block; text-align: right; }
 .doc img.media-border { border: 1px solid var(--border); }
+.doc .media.media-breakout { display: block; width: min(var(--media-w), calc(100vw - 380px)); max-width: none; margin-left: 50%; transform: translateX(-50%); }
+.doc .media.media-breakout img { width: 100%; max-width: none; }
 .pres-slide { overflow-x: auto; }
 
 /* ---------- 매크로 렌더링 (2026-10-26) ---------- */

@@ -105,6 +105,12 @@ export default function App() {
 
   // 본문 내 페이지 링크(제목 기반) 클릭 처리
   const onContentClick = useCallback(async (e) => {
+    const sl = e.target.closest('a.space-link');
+    if (sl) {
+      e.preventDefault();
+      if (sl.dataset.space) navigate(`/s/${sl.dataset.space}`);
+      return;
+    }
     const a = e.target.closest('a.page-link');
     if (!a) return;
     e.preventDefault();
