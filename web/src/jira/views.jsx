@@ -6,14 +6,15 @@ import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
 
 // 이슈 목록 훅. pageSize를 주면 스크롤 추가 로드(fetchMore), 없으면 한 번에 최대 1000건.
-function useIssues(project, filters, bump, { sort = null, pageSize = 0 } = {}) {
+function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql = [] } = {}) {
   const [data, setData] = useState({ total: 0, rows: [] });
   const [loading, setLoading] = useState(false);
   const seq = useRef(0); // 필터/정렬 변경 후 도착하는 이전 요청 응답 무시용
   const qs = (offset, limit) => {
     const u = new URLSearchParams({ project, offset, limit });
-    if (filters.jql) u.set('jql', filters.jql); // 고급(JQL) 모드 — 기본 필터와 병행하지 않음
+    if (filters.jql) u.append('jql', filters.jql); // 고급(JQL) 모드 — 기본 필터와 병행하지 않음
     else for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
+    for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;
   };
@@ -25,7 +26,7 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0 } = {}) {
       if (seq.current !== my) return;
       setData(d); setLoading(false);
     });
-  }, [project, JSON.stringify(filters), bump, sort]);
+  }, [project, JSON.stringify(filters), bump, sort, JSON.stringify(extraJql)]);
   const fetchMore = () => {
     if (!pageSize || loading || data.rows.length >= data.total) return;
     const my = seq.current;
@@ -163,15 +164,16 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
 
 // ---------- 보드 (칸반) ----------
 export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
-  const { rows, total } = useIssues(project, filters, bump); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
+  const board = pdata.boards.find((b) => String(b.id) === boardId);
+  // 보드 필터(JQL) + 스크럼 보드는 활성 스프린트만 (실제 Jira 스크럼 보드 동작)
+  const extraJql = board ? [board.jql, board.type === 'scrum' ? 'sprint IN activeSprints()' : null].filter(Boolean) : [];
+  const { rows, total } = useIssues(project, filters, bump, { extraJql }); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
   const [overCol, setOverCol] = useState(null);
   useEffect(() => onCount(total), [total]);
   // 보드 목록이 로드된 뒤에만 유효성 검사 (로드 전 빈 배열로 ?b= 딥링크를 지우지 않도록)
   useEffect(() => { if (boardId && pdata.boards.length && !pdata.boards.some((b) => String(b.id) === boardId)) onBoard(''); }, [pdata.boards]);
-
-  const board = pdata.boards.find((b) => String(b.id) === boardId);
   const cols = board
     ? board.columns.map((c) => ({ name: c.name, statusIds: c.statusIds.map(Number), custom: true }))
     : meta.statuses.map((s) => ({ name: s.name, statusIds: [Number(s.id)], category: s.category }));
@@ -208,8 +210,12 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
         <div className="bbar">
           <select value={boardId} onChange={(e) => onBoard(e.target.value)}>
             <option value="">기본 (모든 상태)</option>
-            {pdata.boards.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            {pdata.boards.map((b) => <option key={b.id} value={b.id}>{b.name}{b.type === 'scrum' ? ' (스크럼)' : ''}</option>)}
           </select>
+          {board?.type === 'scrum' && <span className="badge cat-indeterminate" title="스크럼 보드는 활성 스프린트 이슈만 표시합니다">활성 스프린트</span>}
+          {board?.type === 'scrum' && !pdata.sprints.some((s) => s.state === 'active') &&
+            <span className="dim">활성 스프린트가 없어 비어 있습니다 — 백로그에서 스프린트를 시작하세요</span>}
+          {board?.jql && <span className="dim" title={board.jql} style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>필터: {board.jql}</span>}
           <button onClick={() => setModal({})}>+ 보드 만들기</button>
           <button onClick={() => board ? setModal({ board }) : alert('편집할 보드를 선택하세요 (기본 보드는 편집 불가)')}>편집</button>
           <button onClick={delBoard}>삭제</button>

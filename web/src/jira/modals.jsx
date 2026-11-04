@@ -81,6 +81,7 @@ export function NewIssueModal({ meta, pdata, project, onClose, onCreated }) {
 
 export function BoardModal({ meta, project, board, onClose, onSaved }) {
   const [name, setName] = useState(board?.name ?? '');
+  const [jql, setJql] = useState(board?.jql ?? '');
   const [cols, setCols] = useState(() => board?.columns?.map((c) => ({ name: c.name, statusIds: c.statusIds.map(Number) }))
     ?? [{ name: '해야 할 일', statusIds: [] }, { name: '대기', statusIds: [] }, { name: '진행 중', statusIds: [] }, { name: '완료', statusIds: [] }]);
 
@@ -94,8 +95,8 @@ export function BoardModal({ meta, project, board, onClose, onSaved }) {
     if (!name.trim()) return alert('보드 이름을 입력하세요');
     const columns = cols.filter((c) => c.name.trim() || c.statusIds.length);
     const saved = board
-      ? await api('/api/boards/' + board.id, { method: 'PATCH', json: { name, columns } })
-      : await api('/api/boards', { method: 'POST', json: { projectKey: project, name, columns } });
+      ? await api('/api/boards/' + board.id, { method: 'PATCH', json: { name, columns, jql } })
+      : await api('/api/boards', { method: 'POST', json: { projectKey: project, name, columns, jql } });
     onSaved(saved);
   };
 
@@ -120,6 +121,9 @@ export function BoardModal({ meta, project, board, onClose, onSaved }) {
           </div>
         </div>))}
       <button style={{ marginTop: 8 }} onClick={() => setCols((cs) => [...cs, { name: '', statusIds: [] }])}>+ 컬럼 추가</button>
+      <label>보드 필터 (JQL, 선택) <span className="dim">— 보드에 담을 이슈를 제한 (예: component = MD-PLUG)</span></label>
+      <input type="text" value={jql} spellCheck={false} style={{ fontFamily: 'ui-monospace, Consolas, monospace', fontSize: 12.5 }}
+        placeholder='예: type != 에픽 AND labels = 1차병합' onChange={(e) => setJql(e.target.value)} />
       <div className="actions"><button onClick={onClose}>취소</button><button className="primary" onClick={save}>저장</button></div>
     </div></div>
   );

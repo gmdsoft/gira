@@ -122,11 +122,13 @@ app.get('/api/issues', async (req, reply) => {
   const p = (v) => { params.push(v); return `$${params.length}`; };
   if (project) cond.push(`pr.key = ${p(project)}`);
   let jqlOrder = null;
-  if (req.query.jql?.trim()) {
+  // jql 파라미터는 여러 개 가능 (보드 필터 + 사용자 필터 AND 결합), ORDER BY는 마지막 것 적용
+  for (const one of [].concat(req.query.jql ?? [])) {
+    if (!String(one).trim()) continue;
     try {
-      const r = parseJql(req.query.jql, { p, userId: req.access.userId });
+      const r = parseJql(String(one), { p, userId: req.access.userId });
       cond.push(r.where);
-      jqlOrder = r.order;
+      if (r.order) jqlOrder = r.order;
     } catch (e) {
       if (e instanceof JqlError) return reply.code(400).send({ error: `JQL 오류: ${e.message}`, pos: e.pos });
       throw e;
@@ -470,24 +472,31 @@ function validColumns(columns) {
   return null;
 }
 
+// 보드 필터(JQL) 유효성: 문법만 검사 (파라미터는 버린다)
+function jqlErrorOf(jql) {
+  try { parseJql(jql, { p: () => '$1', userId: 0 }); return null; }
+  catch (e) { return e instanceof JqlError ? `JQL 오류: ${e.message}` : (() => { throw e; })(); }
+}
+
 app.get('/api/boards', async (req) => {
   const { rows } = await query(
-    `SELECT b.id, b.name, b.columns FROM jira_boards b
+    `SELECT b.id, b.name, b.columns, b.type, b.jql FROM jira_boards b
        JOIN jira_projects p ON p.id = b.project_id
       WHERE p.key = $1 ORDER BY b.id`, [req.query.project]);
   return rows;
 });
 
 app.post('/api/boards', async (req, reply) => {
-  const { projectKey, name, columns } = req.body ?? {};
+  const { projectKey, name, columns, jql } = req.body ?? {};
   if (!projectKey || !name?.trim()) return reply.code(400).send({ error: 'projectKey, name은 필수입니다' });
-  const err = validColumns(columns);
+  const err = validColumns(columns) ?? (jql?.trim() ? jqlErrorOf(jql.trim()) : null);
   if (err) return reply.code(400).send({ error: err });
   const { rows: pr } = await query(`SELECT id FROM jira_projects WHERE key = $1`, [projectKey]);
   if (!pr.length) return reply.code(404).send({ error: 'project not found' });
   const { rows } = await query(
-    `INSERT INTO jira_boards (project_id, name, columns) VALUES ($1, $2, $3) RETURNING id, name, columns`,
-    [pr[0].id, name.trim(), JSON.stringify(columns)]);
+    `INSERT INTO jira_boards (project_id, name, columns, jql) VALUES ($1, $2, $3, $4)
+     RETURNING id, name, columns, type, jql`,
+    [pr[0].id, name.trim(), JSON.stringify(columns), jql?.trim() || null]);
   return rows[0];
 });
 
@@ -498,8 +507,13 @@ app.patch('/api/boards/:id', async (req, reply) => {
     if (err) return reply.code(400).send({ error: err });
     await query(`UPDATE jira_boards SET columns = $2 WHERE id = $1`, [req.params.id, JSON.stringify(b.columns)]);
   }
+  if ('jql' in b) {
+    const jql = b.jql?.trim() || null;
+    if (jql) { const err = jqlErrorOf(jql); if (err) return reply.code(400).send({ error: err }); }
+    await query(`UPDATE jira_boards SET jql = $2 WHERE id = $1`, [req.params.id, jql]);
+  }
   if (b.name?.trim()) await query(`UPDATE jira_boards SET name = $2 WHERE id = $1`, [req.params.id, b.name.trim()]);
-  const { rows } = await query(`SELECT id, name, columns FROM jira_boards WHERE id = $1`, [req.params.id]);
+  const { rows } = await query(`SELECT id, name, columns, type, jql FROM jira_boards WHERE id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   return rows[0];
 });

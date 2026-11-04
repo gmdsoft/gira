@@ -274,6 +274,11 @@ ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS sprint_id bigint REFERENCES jir
 -- 로컬 업로드 첨부: source_url 대신 DATA_DIR 아래 파일 키
 ALTER TABLE jira_attachments ADD COLUMN IF NOT EXISTS local_key text;
 
+-- 보드 고도화: 원본 이관(source_id)·유형(scrum/kanban)·보드 필터(JQL)
+ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS type text;
+ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS jql text;
+ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS source_id bigint UNIQUE;
+
 -- 변경 이력(기록): 이관분은 jira_id에 원본 history id, 로컬 수정은 NULL
 CREATE TABLE IF NOT EXISTS jira_changelog (
   id bigserial PRIMARY KEY,
