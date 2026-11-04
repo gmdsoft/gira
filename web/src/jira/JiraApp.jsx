@@ -109,6 +109,14 @@ export default function JiraApp() {
     setView('board'); setSelKey(null); setBoardId(bid);
     nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Jira PoC`);
   };
+  // 사이드바 '보드' 클릭: 칸반 보드를 기본 선택 (이름 '칸반' > kanban 유형 > 첫 보드 > 기본)
+  const gotoBoardsDefault = async (pkey) => {
+    const boards = pkey === project ? pdata.boards : await api('/api/boards?project=' + encodeURIComponent(pkey));
+    const pick = boards.find((b) => b.name.includes('칸반'))
+      ?? boards.find((b) => b.type === 'kanban')
+      ?? boards[0] ?? null;
+    gotoBoard(pkey, pick ? String(pick.id) : '');
+  };
   const openIssue = (key) => {
     setView('list'); setSelKey(key);
     nav('/browse/' + encodeURIComponent(key)); // 제목은 상세 로드 후 설정
@@ -234,7 +242,7 @@ export default function JiraApp() {
       <div className="shell">
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
-          onProjView={gotoProjView} onBoard={gotoBoard} onIssue={openIssue} onFilter={applySaved} />}
+          onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved} />}
         <div className="content">
           <div className="chead">
             <div className="crumb">프로젝트 / {projName} ({project})</div>
