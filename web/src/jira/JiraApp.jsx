@@ -60,6 +60,22 @@ export default function JiraApp() {
   const setJqlInput = (v) => { setJqlInputRaw(v); try { localStorage.setItem('jira.jql', v); } catch { /* 무시 */ } };
   const [jqlErr, setJqlErr] = useState(null);
   const [globalQ, setGlobalQ] = useState('');
+  // 테마: light | dark | system (system은 OS 설정을 따라가고 변경도 실시간 반영)
+  const [theme, setTheme] = useState(() => {
+    try { const t = localStorage.getItem('jira.theme'); return ['light', 'dark', 'system'].includes(t) ? t : 'system'; }
+    catch { return 'system'; }
+  });
+  const [showSet, setShowSet] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.dataset.theme = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme;
+    };
+    apply();
+    try { localStorage.setItem('jira.theme', theme); } catch { /* 무시 */ }
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [theme]);
 
   const boot = async () => {
     try {
@@ -338,7 +354,19 @@ export default function JiraApp() {
           <button className="toolbtn ai" title="PoC에서는 미지원"><IconSparkle size={15} /> Rovo에 질문하기</button>
           <button className="iconbtn bell" title="알림 (PoC 미지원)"><IconBell size={18} /><span className="bell-dot" /></button>
           <button className="iconbtn" title="도움말 (PoC 미지원)"><IconHelp size={18} /></button>
-          <button className="iconbtn" title="설정 (PoC 미지원)"><IconSettings size={18} /></button>
+          <span className="settings-wrap">
+            <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={18} /></button>
+            {showSet && <>
+              <div className="menu-backdrop" onClick={() => setShowSet(false)} />
+              <div className="setmenu">
+                <div className="setmenu-title">테마</div>
+                {[['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(([v, name]) => (
+                  <button key={v} onClick={() => { setTheme(v); setShowSet(false); }}>
+                    <span>{name}</span>{theme === v && <span className="chk">✓</span>}
+                  </button>))}
+              </div>
+            </>}
+          </span>
           <span className="tb-sep" />
           <span className="tb-user" title={me.display_name}><Avatar name={me.display_name} /></span>
           <button className="plain logout" onClick={logout}>로그아웃</button>
