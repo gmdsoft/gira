@@ -67,7 +67,16 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   useEffect(() => {
     setPage(null); setComments(null); setError(null); setPresent(false); setMoveOpen(false);
     api(`/api/content/${pageId}`)
-      .then((p) => { setPage(p); document.title = `${p.title} - Gonfluence`; })
+      .then((p) => {
+        setPage(p); document.title = `${p.title} - Gonfluence`;
+        // 홈 '다시 시작하기' 카드용 최근 방문 기록 (이 브라우저에만 저장)
+        try {
+          const prev = JSON.parse(localStorage.getItem('gonf.recent') ?? '[]');
+          const next = [{ id: p.id, title: p.title, spaceKey: p.space_key, spaceName: p.space_name, at: Date.now() },
+            ...prev.filter((r) => String(r.id) !== String(p.id))].slice(0, 8);
+          localStorage.setItem('gonf.recent', JSON.stringify(next));
+        } catch { /* 무시 */ }
+      })
       .catch((e) => setError(String(e)));
     loadComments();
   }, [pageId, loadComments]);

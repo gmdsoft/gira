@@ -271,30 +271,80 @@ function SearchBox({ navigate, spaceKey }) {
   );
 }
 
+// 홈 — Confluence 홈 구성을 따른다: 다시 시작하기(최근 방문 카드) · 최근 업데이트 피드 · 스페이스 타일
+const SPACE_COLORS = ['#0052cc', '#00875a', '#ff8b00', '#de350b', '#5243aa', '#00a3bf', '#403294', '#e56910'];
+const spaceColor = (s) => SPACE_COLORS[[...String(s ?? '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % SPACE_COLORS.length];
+const ago = (t) => {
+  const m = Math.floor((Date.now() - new Date(t).getTime()) / 60000);
+  if (m < 1) return '방금 전';
+  if (m < 60) return `${m}분 전`;
+  if (m < 1440) return `${Math.floor(m / 60)}시간 전`;
+  if (m < 43200) return `${Math.floor(m / 1440)}일 전`;
+  return new Date(t).toLocaleDateString('ko-KR');
+};
+
 function Home({ navigate, me, logout }) {
   const [spaces, setSpaces] = useState(null);
+  const [feed, setFeed] = useState(null);
   const [q, setQ] = useState('');
-  useEffect(() => { api('/api/spaces').then(setSpaces).catch(console.error); }, []);
+  const recent = (() => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } })();
+  useEffect(() => {
+    api('/api/spaces').then(setSpaces).catch(console.error);
+    api('/api/home/recent').then(setFeed).catch(() => setFeed([]));
+  }, []);
+  const go = (path) => (e) => { e.preventDefault(); navigate(path); };
   return (
-    <div className="home">
+    <div className="home home-wide">
       <div className="home-user muted">👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button></div>
       <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`); }}>
         <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="문서 검색 (한국어 형태소 분석)" />
         <button className="btn btn-primary" type="submit">검색</button>
       </form>
-      <p className="muted">임포트된 스페이스</p>
-      {!spaces ? '불러오는 중…' : (
-        <ul className="space-list">
-          {spaces.map((s) => (
-            <li key={s.id}>
-              <a href={`/s/${s.key}`} onClick={(e) => { e.preventDefault(); navigate(`/s/${s.key}`); }}>
-                <strong>{s.name}</strong> <span className="muted">{s.key} · {s.type}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
+
+      {recent.length > 0 && <>
+        <h2 className="home-sec">다시 시작하기</h2>
+        <div className="resume-row">
+          {recent.slice(0, 4).map((r) => (
+            <a className="resume-card" key={r.id} href={`/s/${r.spaceKey}/p/${r.id}`} onClick={go(`/s/${r.spaceKey}/p/${r.id}`)}>
+              <span className="resume-icon">📄</span>
+              <span className="resume-title">{r.title}</span>
+              <span className="muted">{r.spaceName ?? r.spaceKey}</span>
+            </a>))}
+        </div>
+      </>}
+
+      <div className="home-cols">
+        <div className="home-main">
+          <h2 className="home-sec">최근 업데이트</h2>
+          {!feed ? <p className="muted">불러오는 중…</p> : !feed.length ? <p className="muted">업데이트가 없습니다</p> : (
+            <ul className="feed">
+              {feed.map((r) => (
+                <li key={r.id}>
+                  <span className="feed-av" style={{ background: spaceColor(r.editor ?? '?') }}>{(r.editor ?? '?').trim()[0]}</span>
+                  <span className="feed-body">
+                    <span><strong>{r.editor ?? '알 수 없음'}</strong>님이 <a href={`/s/${r.space_key}/p/${r.id}`} onClick={go(`/s/${r.space_key}/p/${r.id}`)}>{r.title}</a> 페이지를 업데이트함</span>
+                    <span className="muted">{r.space_name} · {ago(r.updated_at)}</span>
+                  </span>
+                </li>))}
+            </ul>
+          )}
+        </div>
+        <div className="home-side">
+          <h2 className="home-sec">스페이스</h2>
+          {!spaces ? <p className="muted">불러오는 중…</p> : (
+            <ul className="space-tiles">
+              {spaces.map((s) => (
+                <li key={s.id}>
+                  <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)}>
+                    <span className="space-ic" style={{ background: spaceColor(s.key) }}>{s.name.trim()[0]}</span>
+                    <span className="space-nm"><strong>{s.name}</strong><span className="muted">{s.key} · {s.type}</span></span>
+                  </a>
+                </li>))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
