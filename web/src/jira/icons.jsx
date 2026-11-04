@@ -103,3 +103,7 @@ export const IconComment = (p) => <Svg {...p}><path d="M21 12a8 8 0 01-8 8H5l-2 
 export const IconHistory = (p) => <Svg {...p}><path d="M3 12a9 9 0 109-9 9 9 0 00-7.5 4" /><path d="M3 4v4h4M12 7v5l3 2" /></Svg>;
 export const IconUser = (p) => <Svg {...p}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0116 0" /></Svg>;
 export const IconProject = (p) => <Svg {...p}><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M9 9h6v6H9z" /></Svg>;
+
+export const IconClose = (p) => <Svg {...p}><path d="M6 6l12 12M18 6L6 18" /></Svg>;
+export const IconTag = (p) => <Svg {...p}><path d="M20 13l-7 7-9-9V4h7l9 9z" /><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor" stroke="none" /></Svg>;
+export const IconInfo = (p) => <Svg {...p}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" /></Svg>;
