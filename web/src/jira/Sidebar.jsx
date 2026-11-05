@@ -1,11 +1,11 @@
 // 좌측 전역 사이드바: 최근 항목 / 프로젝트(전체 목록·보드·백로그) / 저장 필터
 import React, { useEffect, useState } from 'react';
 import { hashColor } from './util.jsx';
-import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, IconBacklog, IconFilter, IconStar, IconGrid, IconDashboard, IconSpace, IconProject } from './icons.jsx';
+import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, IconBacklog, IconFilter, IconStar, IconGrid, IconDashboard, IconSpace, IconProject, IconRocket, IconPlus } from './icons.jsx';
 import { SPEC_URL } from '../dev-feedback-ui.jsx';
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent,
-  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback }) {
+  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback, onCreateProject }) {
   const [open, setOpen] = useState(() => new Set([project]));
   useEffect(() => { setOpen((s) => s.has(project) ? s : new Set(s).add(project)); }, [project]);
   const toggle = (pk) => setOpen((s) => { const n = new Set(s); n.has(pk) ? n.delete(pk) : n.add(pk); return n; });
@@ -17,8 +17,11 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         <div className="sitem snav-top"><IconStar size={16} /><span className="strunc">별표 표시됨</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconGrid size={16} /><span className="strunc">앱</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconDashboard size={16} /><span className="strunc">계획</span><IconChevronRight size={14} className="sarrow" /></div>
+        {onCreateProject && <div className="sitem snav-top" onClick={onCreateProject}><IconRocket size={16} />
+          <span className="strunc">프로젝트 만들기</span><IconPlus size={14} className="sarrow" /></div>}
       </div>
-      <div className="shead2"><span>스페이스</span><button className="shead-plus" title="스페이스 추가">+</button></div>
+      <div className="shead2"><span>스페이스</span>{onCreateProject &&
+        <button className="shead-plus" title="프로젝트 만들기" onClick={onCreateProject}>+</button>}</div>
       {meta.projects.map((p) => {
         const opened = open.has(p.key);
         const cur = p.key === project;

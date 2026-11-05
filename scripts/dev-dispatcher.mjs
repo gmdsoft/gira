@@ -218,6 +218,22 @@ async function processOne(it) {
   console.log(`▶ ${it.issue_key} (${executor}) ${it.summary}`);
 
   const r = await runAgent(executor, dir, buildPrompt(it));
+  // 에이전트 실행(수십 분) 동안 이슈 번호가 바뀔 수 있으므로(로컬 번호 대역 이동 등) 키로 다시 조회한다
+  const { rows: cur } = await query(`SELECT id FROM jira_issues WHERE issue_key = $1`, [it.issue_key]);
+  if (!cur.length) { console.log(`  ✗ ${it.issue_key} 이슈가 사라짐 — 결과 기록 생략`); return; }
+  it.id = cur[0].id;
+  // 에이전트가 남긴 미커밋 변경은 디스패처가 커밋한다 — 샌드박스(codex workspace-write)는 worktree의
+  // git 메타데이터(본 저장소 .git/worktrees/…)에 쓸 수 없어 에이전트가 직접 커밋하지 못할 수 있다
+  try {
+    const dirty = execFileSync('git', ['status', '--porcelain'], { cwd: dir, encoding: 'utf8' }).trim();
+    if (dirty) {
+      execFileSync('git', ['add', '-A'], { cwd: dir });
+      execFileSync('git', ['commit', '-q', '-F', '-'], {
+        cwd: dir,
+        input: `${it.issue_key}: ${it.summary}\n\n${r.last.slice(0, 3000)}\n\n(GIRA 에이전트 — ${executor} 처리 결과를 디스패처가 커밋)`,
+      });
+    }
+  } catch (e) { console.log(`  커밋 실패: ${String(e.message).split('\n')[0]}`); }
   let commits = 0;
   try { commits = Number(git('rev-list', '--count', `master..${branch}`)); } catch { /* 무시 */ }
   const ok = r.code === 0 && commits > 0;

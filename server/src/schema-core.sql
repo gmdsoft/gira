@@ -65,6 +65,18 @@ CREATE TABLE IF NOT EXISTS access_requests (
 CREATE INDEX IF NOT EXISTS access_requests_resource ON access_requests(resource_type, resource_id, status);
 CREATE INDEX IF NOT EXISTS access_requests_user ON access_requests(user_id, created_at);
 
+-- 원본 동기화(병행 운영기): 이관된 프로젝트/스페이스별 마지막 동기화 상태
+-- last_synced_at = 마지막 성공 실행의 시작 시각 → 다음 실행의 증분 기준(--since)
+CREATE TABLE IF NOT EXISTS source_sync_state (
+  kind text NOT NULL,             -- 'jira-project' | 'conf-space'
+  key text NOT NULL,              -- 프로젝트/스페이스 키
+  last_synced_at timestamptz,
+  last_run_at timestamptz,
+  last_status text,               -- 'ok' | 'error'
+  last_log text,
+  PRIMARY KEY (kind, key)
+);
+
 -- 셀프 이관: 본인 Atlassian API 토큰(AES-GCM 암호화 저장)과 이관 작업 이력
 CREATE TABLE IF NOT EXISTS atlassian_tokens (
   user_id bigint PRIMARY KEY REFERENCES users(id),
