@@ -365,9 +365,9 @@ function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }
           {me.can_create && (
             <button onClick={() => { setShowImport(true); setOpen(false); }}><span>스페이스 가져오기…</span></button>
           )}
-          {me.can_create && (
-            <button onClick={() => { setShowMigrate(true); setOpen(false); }}><span>원본 Confluence에서 가져오기…</span></button>
-          )}
+          <button onClick={() => { setShowMigrate(true); setOpen(false); }}>
+            <span>원본 Confluence에서 가져오기…</span>
+          </button>
         </div>
       </>}
       {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}

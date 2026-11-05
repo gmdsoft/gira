@@ -99,6 +99,21 @@ export function registerSelfMigrate(app, { kind }) {
   const K = KINDS[kind];
   const basic = (email, token) => 'Basic ' + Buffer.from(`${email}:${token}`).toString('base64');
 
+  // Confluence 개인 스페이스 키 (~<accountId>) — 생성 권한이 없는 일반 구성원도
+  // 본인 개인 스페이스는 직접 가져올 수 있다.
+  async function ownPersonalKey(userId) {
+    if (kind !== 'conf') return null;
+    const { rows } = await query(`SELECT confluence_account_id FROM users WHERE id = $1`, [userId]);
+    const acc = rows[0]?.confluence_account_id;
+    return acc ? '~' + acc : null;
+  }
+  // 반환: null = 전체 허용(생성 권한자), '~...' = 본인 개인 스페이스만, false = 불가
+  async function migrateScope(req) {
+    if (req.access.canCreate) return null;
+    const own = await ownPersonalKey(req.access.userId);
+    return own ?? false;
+  }
+
   async function myToken(userId) {
     const { rows } = await query(`SELECT email, token_enc FROM atlassian_tokens WHERE user_id = $1`, [userId]);
     if (!rows.length) return null;
@@ -130,13 +145,15 @@ export function registerSelfMigrate(app, { kind }) {
     return { ok: true };
   });
 
-  // 원본 목록 (이미 이관된 것 표시)
+  // 원본 목록 (이미 이관된 것 표시). 생성 권한이 없으면 본인 개인 스페이스만 보인다.
   app.get('/api/migrate/remote', async (req, reply) => {
-    if (!req.access.canCreate) return reply.code(403).send({ error: '이관 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
+    const scope = await migrateScope(req);
+    if (scope === false) return reply.code(403).send({ error: '이관 권한이 없습니다 (팀장·파트장·지정 그룹, 개인 스페이스는 본인)' });
     const cred = await myToken(req.access.userId);
     if (!cred) return reply.code(400).send({ error: 'API 토큰을 먼저 등록하세요', needToken: true });
     try {
-      const [remote, local] = await Promise.all([K.listRemote(basic(cred.email, cred.token)), K.localKeys()]);
+      let [remote, local] = await Promise.all([K.listRemote(basic(cred.email, cred.token)), K.localKeys()]);
+      if (scope) remote = remote.filter((r) => r.key === scope);
       const have = new Set(local);
       return remote.map((r) => ({ ...r, exists: have.has(r.key) }));
     } catch (e) {
@@ -147,9 +164,14 @@ export function registerSelfMigrate(app, { kind }) {
 
   // 여러 개를 한 번에 선택하면 한 작업 안에서 순서대로 이관한다
   app.post('/api/migrate/run', async (req, reply) => {
-    if (!req.access.canCreate) return reply.code(403).send({ error: '이관 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
+    const scope = await migrateScope(req);
+    if (scope === false) return reply.code(403).send({ error: '이관 권한이 없습니다 (팀장·파트장·지정 그룹, 개인 스페이스는 본인)' });
     const keys = [...new Set([].concat(req.body?.keys ?? req.body?.key ?? [])
-      .map((k) => String(k).trim().toUpperCase()).filter(Boolean))];
+      .map((k) => String(k).trim()).filter(Boolean)
+      .map((k) => (k.startsWith('~') ? k : k.toUpperCase())))];
+    if (scope && keys.some((k) => k !== scope)) {
+      return reply.code(403).send({ error: '본인 개인 스페이스만 가져올 수 있습니다' });
+    }
     if (!keys.length) return reply.code(400).send({ error: '가져올 대상을 선택하세요' });
     const cred = await myToken(req.access.userId);
     if (!cred) return reply.code(400).send({ error: 'API 토큰을 먼저 등록하세요', needToken: true });
