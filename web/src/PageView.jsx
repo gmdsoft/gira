@@ -6,6 +6,7 @@ import { api, hydrateDoc } from './api.js';
 import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
 import MoveDialog from './MoveDialog.jsx';
+import { RestrictionsModal } from './access.jsx';
 
 // 본문 텍스트 노드를 이어 붙여 needle을 찾아 Range로 반환 (서식으로 쪼개진 노드도 매칭)
 function findTextRange(root, needle, from = 0) {
@@ -58,6 +59,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   const [error, setError] = useState(null);
   const [present, setPresent] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [restrictOpen, setRestrictOpen] = useState(false);
   const [selPop, setSelPop] = useState(null); // {x, y, text, open} 본문 선택 → 인라인 댓글
 
   const loadComments = useCallback(() => {
@@ -168,7 +170,8 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
             <button className="btn btn-primary"
               onClick={() => navigate(`/s/${page.spaceKey}/p/${page.id}/edit`)}>편집</button>
             <PageMenu page={page} navigate={navigate} reloadSpace={reloadSpace}
-              onPresent={() => setPresent(true)} onMove={() => setMoveOpen(true)} setStatus={setStatus} />
+              onPresent={() => setPresent(true)} onMove={() => setMoveOpen(true)}
+              onRestrict={() => setRestrictOpen(true)} setStatus={setStatus} />
           </div>
         </div>
         <div className="page-meta">
@@ -211,12 +214,13 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
       {present && <Presentation page={page} onClose={() => setPresent(false)} />}
       {moveOpen && <MoveDialog page={page} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMoveOpen(false)} />}
+      {restrictOpen && <RestrictionsModal pageId={page.id} onClose={() => setRestrictOpen(false)} />}
     </article>
   );
 }
 
 // ⋯ 메뉴: 프레젠테이션, 링크 복사, 복사본, 이동, 보관, 휴지통
-function PageMenu({ page, navigate, reloadSpace, onPresent, onMove, setStatus }) {
+function PageMenu({ page, navigate, reloadSpace, onPresent, onMove, onRestrict, setStatus }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -249,6 +253,7 @@ function PageMenu({ page, navigate, reloadSpace, onPresent, onMove, setStatus })
           <button onClick={() => { setOpen(false); navigate(`/s/${page.spaceKey}/p/${page.id}/history`); }}>🕘 버전 기록</button>
           <button onClick={makeCopy}>📄 복사본 만들기</button>
           <button onClick={() => { setOpen(false); onMove(); }}>→ 이동</button>
+          <button onClick={() => { setOpen(false); onRestrict(); }}>🔒 접근 제한</button>
           <hr />
           <button onClick={() => { setOpen(false); setStatus('archived', `"${page.title}"${page.children?.length ? '과 하위 페이지를' : '을(를)'} 보관할까요?\n보관된 페이지는 트리와 검색에서 빠지고, 보관함에서 복원할 수 있습니다.`); }}>🗂 보관</button>
           <button className="menu-danger" onClick={() => { setOpen(false); setStatus('trashed', `"${page.title}"${page.children?.length ? '과 하위 페이지를' : '을(를)'} 휴지통으로 옮길까요?`); }}>🗑 휴지통으로 이동</button>

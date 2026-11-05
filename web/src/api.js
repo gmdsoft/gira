@@ -1,6 +1,13 @@
-export async function api(path) {
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`${res.status} ${path}`);
+export async function api(path, opts) {
+  if (opts?.json) {
+    opts = { ...opts, body: JSON.stringify(opts.json), headers: { 'Content-Type': 'application/json' } };
+    delete opts.json;
+  }
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(body.error ?? `${res.status} ${path}`), { status: res.status, body });
+  }
   return res.json();
 }
 

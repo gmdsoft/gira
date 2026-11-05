@@ -126,8 +126,12 @@ a:hover { text-decoration: underline; }
 .brand-word { color: var(--text); }
 .brand .poc-badge { font-size: 11px; background: var(--accent); color: var(--on-accent); border-radius: 4px; padding: 2px 6px; font-weight: 600; margin-left: 2px; }
 .navtgl { color: var(--dim); }
-.tb-search {
+/* 가운데 묶음: 검색바 + 만들기 (Jira처럼 검색 오른쪽에 만들기) */
+.tb-center {
   position: absolute; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+}
+.tb-search {
   width: min(600px, 40vw); height: 32px; display: flex; align-items: center; gap: 8px;
   padding: 0 10px; border: 2px solid var(--line); border-radius: 4px; color: var(--dim); background: var(--panel);
 }
@@ -605,3 +609,50 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .create-foot .primary { height: 32px; padding: 0 14px; }
 .create-modal .empty-fields { padding: 20px 0; color: var(--dim); font-size: 13px; }
 .cf-info { color: var(--subtle); }
+
+/* ===== 접근 제어 UI (알파 2단계) ===== */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(9,30,66,.45); display: flex; align-items: center; justify-content: center; z-index: 80; }
+.perm-modal {
+  background: var(--panel); color: var(--text); border-radius: 8px; padding: 22px 24px;
+  width: 620px; max-width: 94vw; height: min(760px, 90vh); overflow: auto;
+  display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,.3);
+}
+.perm-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.perm-rows { flex: 1; min-height: 120px; overflow: auto; margin-bottom: 8px; }
+.perm-modal h2 { margin: 0 0 6px; font-size: 18px; }
+.muted2 { color: var(--text2); font-size: 12.5px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.perm-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.perm-table td { padding: 6px 8px; border-bottom: 1px solid var(--line, #ebecf0); vertical-align: top; }
+.perm-name { width: 55%; }
+.perm-decide { white-space: nowrap; }
+.perm-decide button { margin-right: 6px; }
+.ptag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--inset); color: var(--text2); white-space: nowrap; }
+.ptag-team { background: var(--doing, #e9f2ff); color: var(--doing-fg, #0055cc); }
+.ptag-group { background: var(--done, #dffcf0); color: var(--done-fg, #216e4e); }
+.ppicker { position: relative; margin-top: 8px; }
+.ppicker > input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); }
+.ppicker-tabs { display: flex; gap: 2px; margin-bottom: 6px; border-bottom: 2px solid var(--line); }
+.ppicker-tabs button { background: none; border: 0; padding: 6px 12px; font: inherit; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.ppicker-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.ppicker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); max-height: 220px; overflow: auto; position: absolute; width: 100%; box-sizing: border-box; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.ppicker-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 4px; cursor: pointer; font: inherit; color: var(--text); }
+.ppicker-list button:hover { background: var(--inset); }
+/* 복수 선택 리스트: 드롭다운 대신 모달 안에 고정 표시 (체크박스로 여러 개 선택) */
+.ppicker-list.static { position: static; box-shadow: none; height: 232px; max-height: none; }
+.ppicker-list.static label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+.ppicker-list.static label:hover { background: var(--inset); }
+.ppicker-list.static input[type=checkbox] { margin: 0; width: auto; flex: none; }
+.ppicker-list.static .ptag { flex: none; }
+.ppick-name { font-size: 14px; }
+.ppick-empty { padding: 8px; }
+.ppicker-add { margin-top: 8px; align-self: flex-start; }
+.perm-add { display: flex; flex-direction: column; gap: 6px; }
+.gate { display: flex; justify-content: center; padding-top: 80px; min-height: 100vh; background: var(--bg); }
+.gate-card { background: var(--panel); color: var(--text); border-radius: 10px; padding: 28px 32px; width: 480px; max-width: 92vw; box-shadow: 0 8px 26px rgba(0,0,0,.2); height: fit-content; }
+.gate-card h2 { margin: 0 0 8px; }
+.gate-form { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+.gate-form input, .gate-form select { font: inherit; padding: 7px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); }
+.gate-form input:first-child { width: 160px; }
+.gate-reqs { list-style: none; margin: 10px 0; padding: 10px 12px; background: var(--inset); border-radius: 6px; font-size: 13px; }
+.gate-reqs li { padding: 2px 0; }

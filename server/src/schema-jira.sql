@@ -141,6 +141,15 @@ CREATE TABLE IF NOT EXISTS jira_changelog (
 );
 CREATE INDEX IF NOT EXISTS jira_changelog_issue ON jira_changelog(issue_id, created_at);
 
+-- 프로젝트 접근 권한 (space_permissions와 동일 의미, 규칙이 없으면 비공개 — 사이트 관리자만)
+CREATE TABLE IF NOT EXISTS jira_project_permissions (
+  project_id bigint NOT NULL REFERENCES jira_projects(id),
+  principal_type text NOT NULL CHECK (principal_type IN ('user','group','team','anyone')),
+  principal_id bigint NOT NULL DEFAULT 0,
+  role text NOT NULL CHECK (role IN ('viewer','editor','admin')),
+  PRIMARY KEY (project_id, principal_type, principal_id, role)
+);
+
 -- 저장된 필터 (사용자별)
 CREATE TABLE IF NOT EXISTS jira_filters (
   id bigserial PRIMARY KEY,

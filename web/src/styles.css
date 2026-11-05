@@ -521,3 +521,65 @@ span.cf-macro-slot { display: inline; margin: 0; }
 
 /* 서제스천 항목 설명 (멘션 이메일 등) */
 .slash-desc { margin-left: 8px; color: var(--muted); font-size: 12px; }
+
+/* ===== 접근 제어 UI (알파 2단계) ===== */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(9,30,66,.4); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.modal { background: #fff; border-radius: 8px; padding: 24px; width: 560px; max-width: 94vw; max-height: 86vh; overflow: auto; box-shadow: 0 8px 28px rgba(9,30,66,.25); }
+.modal h2 { margin: 0 0 8px; font-size: 20px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.perm-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.perm-table td { padding: 6px 8px; border-bottom: 1px solid #ebecf0; }
+.perm-name { width: 55%; }
+.ptag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: #ebecf0; color: #44546f; white-space: nowrap; }
+.ptag-team { background: #e9f2ff; color: #0055cc; }
+.ptag-group { background: #dffcf0; color: #216e4e; }
+.ptag-anyone { background: #fff3db; color: #974f0c; }
+.ppicker { position: relative; margin-top: 8px; }
+.ppicker > input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #c2c7d0; border-radius: 4px; }
+.ppicker-tabs { display: flex; gap: 2px; margin-bottom: 6px; border-bottom: 2px solid #ebecf0; }
+.ppicker-tabs button { background: none; border: 0; padding: 6px 12px; font: inherit; color: #44546f; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.ppicker-tabs button.on { color: #0052cc; border-bottom-color: #0052cc; font-weight: 600; }
+.ppicker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid #c2c7d0; border-radius: 4px; background: #fff; max-height: 220px; overflow: auto; position: absolute; width: 100%; box-sizing: border-box; z-index: 5; box-shadow: 0 4px 14px rgba(9,30,66,.18); }
+/* 복수 선택 리스트: 드롭다운 대신 고정 표시 (체크박스) */
+.ppicker-list.static { position: static; box-shadow: none; height: 210px; max-height: none; }
+.ppicker-list.static label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+.ppicker-list.static input[type=checkbox] { margin: 0; width: auto; flex: none; }
+.ppicker-list.static .ptag { flex: none; }
+.ppicker-list.static label:hover { background: #f4f5f7; }
+.ppick-empty { padding: 8px; }
+.ppicker-add { margin-top: 8px; }
+.perm-modal { height: min(760px, 88vh); display: flex; flex-direction: column; }
+.perm-modal .perm-rows { flex: 1; min-height: 100px; overflow: auto; }
+.ppicker-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 4px; cursor: pointer; font: inherit; }
+.ppicker-list button:hover { background: #f4f5f7; }
+.perm-add { margin-top: 6px; display: flex; flex-direction: column; gap: 6px; }
+.restr-sec { margin: 14px 0; }
+.restr-sec h3 { margin: 0 0 6px; font-size: 14px; }
+.restr-list { list-style: none; margin: 0; padding: 0; }
+.restr-list li { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.request-access h1 { font-size: 24px; }
+.req-form { display: flex; flex-direction: column; gap: 12px; max-width: 420px; }
+.req-form label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
+.req-form select, .req-form textarea, .req-form input { font: inherit; padding: 7px 10px; border: 1px solid #c2c7d0; border-radius: 4px; }
+.req-sent { background: #dffcf0; border-radius: 6px; padding: 12px 16px; }
+.admin-tabs { display: flex; gap: 4px; border-bottom: 2px solid #ebecf0; margin: 12px 0 16px; }
+.admin-tabs button { background: none; border: 0; padding: 8px 14px; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; color: #44546f; }
+.admin-tabs button.on { color: #0052cc; border-bottom-color: #0052cc; font-weight: 600; }
+.admin-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+.admin-table th { text-align: left; font-size: 12px; color: #6b778c; padding: 6px 8px; border-bottom: 2px solid #ebecf0; }
+.admin-table td { padding: 6px 8px; border-bottom: 1px solid #ebecf0; }
+.admin-table tr.inactive td { opacity: .5; }
+.admin-table select, .rank-input { font: inherit; padding: 4px 6px; border: 1px solid #c2c7d0; border-radius: 4px; }
+.rank-input { width: 90px; }
+.team-add { display: flex; gap: 8px; margin: 8px 0 14px; }
+.team-add input { flex: 1; font: inherit; padding: 7px 10px; border: 1px solid #c2c7d0; border-radius: 4px; }
+.team-list { list-style: none; margin: 0; padding: 0; max-width: 560px; }
+.team-list li { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-bottom: 1px solid #ebecf0; }
+.team-list .team-part { padding-left: 32px; }
+.team-list .team-name { flex: 1; font-weight: 600; }
+.team-list .team-part .team-name { font-weight: 400; }
+.group-members { padding: 6px 8px 12px; background: #fafbfc; border-radius: 6px; }
+.group-members ul { list-style: none; margin: 0 0 8px; padding: 0; }
+.group-members li { display: flex; gap: 8px; align-items: center; padding: 3px 0; }
+.home-sec .space-new { margin-left: 10px; vertical-align: 2px; }
+.home-user a { margin-right: 12px; }

@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
+import { ProjectPermissionsModal, InboxModal, AccessGate } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -66,6 +67,8 @@ export default function JiraApp() {
     catch { return 'system'; }
   });
   const [showSet, setShowSet] = useState(false);
+  const [showPerm, setShowPerm] = useState(false);   // 프로젝트 권한 편집
+  const [showInbox, setShowInbox] = useState(false); // 접근 요청 승인함
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
@@ -162,6 +165,12 @@ export default function JiraApp() {
 
   if (authed === false) return <LoginGate onLogin={() => { setAuthed(null); boot(); }} />;
   if (!authed || !meta) return <div className="placeholder" style={{ marginTop: 60, textAlign: 'center' }}>불러오는 중…</div>;
+  // 접근 가능한 프로젝트가 없으면 요청 게이트
+  if (!meta.projects.length) {
+    return <AccessGate me={me} onLogout={async () => {
+      await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/';
+    }} />;
+  }
 
   const refresh = () => setBump((b) => b + 1);
   const setF = (k, v) => { setFilters((f) => ({ ...f, [k]: v })); setSavedSel(''); };
@@ -344,17 +353,19 @@ export default function JiraApp() {
           <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
           <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">PoC</span></span>
         </div>
-        <form className="tb-search" onSubmit={submitGlobal}>
-          <IconSearch size={17} />
-          <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
-          <kbd>/</kbd>
-        </form>
-        <div className="tb-right">
+        <div className="tb-center">
+          <form className="tb-search" onSubmit={submitGlobal}>
+            <IconSearch size={17} />
+            <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
+            <kbd>/</kbd>
+          </form>
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
+        </div>
+        <div className="tb-right">
           <button className="iconbtn bell" title="알림 (PoC 미지원)"><IconBell size={18} /><span className="bell-dot" /></button>
           <button className="iconbtn" title="도움말 (PoC 미지원)"><IconHelp size={18} /></button>
           <span className="settings-wrap">
-            <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={18} /></button>
+            <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={20} /></button>
             {showSet && <>
               <div className="menu-backdrop" onClick={() => setShowSet(false)} />
               <div className="setmenu">
@@ -363,6 +374,15 @@ export default function JiraApp() {
                   <button key={v} onClick={() => { setTheme(v); setShowSet(false); }}>
                     <span>{name}</span>{theme === v && <span className="chk">✓</span>}
                   </button>))}
+                {(meta.projects.find((p) => p.key === project)?.role === 'admin' || meta.projects.some((p) => p.role === 'admin')) && (
+                  <div className="setmenu-title">관리</div>
+                )}
+                {meta.projects.find((p) => p.key === project)?.role === 'admin' && (
+                  <button onClick={() => { setShowPerm(true); setShowSet(false); }}><span>프로젝트 권한…</span></button>
+                )}
+                {meta.projects.some((p) => p.role === 'admin') && (
+                  <button onClick={() => { setShowInbox(true); setShowSet(false); }}><span>접근 요청 승인함…</span></button>
+                )}
               </div>
             </>}
           </span>
@@ -470,6 +490,8 @@ export default function JiraApp() {
       {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
         onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
+      {showPerm && <ProjectPermissionsModal project={project} onClose={() => setShowPerm(false)} />}
+      {showInbox && <InboxModal onClose={() => setShowInbox(false)} />}
     </>
   );
 }
