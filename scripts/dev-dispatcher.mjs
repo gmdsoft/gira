@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // 개발참여 디스패처: GIRA 개발 프로젝트의 이슈를 하위 코딩 에이전트(헤드리스)에게 맡기고 결과를 기록한다.
+// 자동 실행하지 않는다 — 운영자가 개발 세션에서 이슈를 읽고(scripts/gira-issue.mjs) 이 스크립트로 맡긴다.
 //
 // 대상: 상태 '해야 할 일'류(new) + 레이블 agent:codex | agent:opencode + needs-approval 없음
 //       + 아직 맡기지 않은 것(agent-running/agent-done/agent-failed 없음)
@@ -13,6 +14,8 @@
 //   node scripts/dev-dispatcher.mjs --run           # 대상 1건 처리
 //   node scripts/dev-dispatcher.mjs --run --all     # 대상 전부 순서대로 처리
 //   node scripts/dev-dispatcher.mjs --run --watch 300   # 300초마다 반복
+//   node scripts/dev-dispatcher.mjs --run --issue GIRA-4 [--executor codex|opencode] [--note "추가 지시"]
+//        # 지정한 이슈 하나를 처리 (레이블 조건 무시, needs-approval만 차단). --note는 프롬프트에 덧붙인다
 // 환경변수: GIRA_DATABASE_URL, (선택) GITHUB_TOKEN(PR 생성), PR_BASE_BRANCH(기본 master),
 //          CODEX_MODEL, OPENCODE_MODEL, AGENT_TIMEOUT_MIN(기본 40)
 import { parseArgs } from 'node:util';
@@ -21,7 +24,7 @@ import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { configureDb, query, closeDb } from '../server/src/db.mjs';
+import { configureDb, query, closeDb, DATA_DIR } from '../server/src/db.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..');
@@ -36,6 +39,9 @@ const { values: args } = parseArgs({
     run: { type: 'boolean', default: false },
     all: { type: 'boolean', default: false },
     watch: { type: 'string' },
+    issue: { type: 'string' },
+    executor: { type: 'string' },
+    note: { type: 'string' },
   },
 });
 
@@ -63,6 +69,34 @@ const textToAdf = (text) => ({
 async function statusId(name) {
   const { rows } = await query(`SELECT id FROM jira_statuses WHERE name = $1 ORDER BY id LIMIT 1`, [name]);
   return rows[0]?.id ?? null;
+}
+
+const ISSUE_COLS = `i.id, i.issue_key, i.summary, i.description_adf, i.labels, i.status_id, i.reporter_id,
+            t.name AS type_name, p.issue_key AS parent_key, p.summary AS parent_summary`;
+
+async function oneIssue(key) {
+  const { rows } = await query(
+    `SELECT ${ISSUE_COLS}
+       FROM jira_issues i
+       JOIN jira_projects pr ON pr.id = i.project_id AND pr.key = $1
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN jira_issues p ON p.id = i.parent_id
+      WHERE i.issue_key = $2`, [PROJECT, key.toUpperCase()]);
+  return rows[0] ?? null;
+}
+
+// 프롬프트 보강: 이슈 댓글(사람이 단 보충 설명)과 첨부 파일 경로
+async function issueExtras(issueId) {
+  const { rows: comments } = await query(
+    `SELECT c.body_adf, c.created_at, u.display_name FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
+      WHERE c.issue_id = $1 ORDER BY c.created_at`, [issueId]);
+  const { rows: atts } = await query(
+    `SELECT filename, media_type, local_key FROM jira_attachments WHERE issue_id = $1 AND local_key IS NOT NULL ORDER BY id`,
+    [issueId]);
+  return {
+    comments: comments.map((c) => `- ${c.display_name ?? '?'}: ${adfText(c.body_adf).replace(/\n+/g, ' / ')}`),
+    files: atts.map((a) => ({ name: a.filename, type: a.media_type, path: path.join(DATA_DIR, a.local_key) })),
+  };
 }
 
 async function candidates() {
@@ -117,8 +151,13 @@ function prepareWorktree(key) {
   return { dir, branch };
 }
 
-function buildPrompt(it) {
+function buildPrompt(it, extras, note) {
   const spec = it.labels.includes('spec-update') ? '예 — docs/alpha-spec.md 해당 부분도 고칠 것' : '아니오';
+  const files = extras.files.length
+    ? `\n### 첨부 파일 (읽기 전용 경로 — 스크린샷·로그는 열어서 확인할 것)\n${extras.files.map((f) => `- ${f.name} (${f.type ?? '?'}): ${f.path}`).join('\n')}\n`
+    : '';
+  const comments = extras.comments.length ? `\n### 이슈 댓글\n${extras.comments.join('\n')}\n` : '';
+  const extra = note ? `\n### 운영자 추가 지시 (이슈 내용보다 우선)\n${note}\n` : '';
   return `${WORKER_GUIDE}
 
 ---
@@ -130,22 +169,25 @@ ${it.parent_key ? `- 상위: ${it.parent_key} ${it.parent_summary}\n` : ''}- 명
 
 ### 내용
 ${adfText(it.description_adf) || it.summary}
-`;
+${files}${comments}${extra}`;
 }
 
-function runAgent(executor, dir, prompt) {
+function runAgent(executor, dir, prompt, images = []) {
   return new Promise((resolve) => {
     const tmp = mkdtempSync(path.join(os.tmpdir(), 'gira-agent-'));
     const lastFile = path.join(tmp, 'last.txt');
     let cmd; let argv;
     if (executor === 'codex') {
       cmd = 'codex';
-      argv = ['exec', '-C', dir, '--sandbox', 'workspace-write', '-o', lastFile, '-'];
+      argv = ['exec', '-C', dir, '--sandbox', 'workspace-write', '-o', lastFile];
+      for (const img of images) argv.push(`--image=${img}`); // 스크린샷은 이미지 입력으로도 (= 형식: 뒤 인자 흡수 방지)
+      argv.push('-');
       if (process.env.CODEX_MODEL) argv.splice(1, 0, '-m', process.env.CODEX_MODEL);
     } else {
       cmd = 'opencode';
       argv = ['run', '--auto', '--title', 'GIRA 처리'];
       if (process.env.OPENCODE_MODEL) argv.push('-m', process.env.OPENCODE_MODEL);
+      for (const img of images) argv.push('-f', img);
       argv.push(prompt); // opencode는 메시지를 인자로 받는다
     }
     const child = spawn(cmd, argv, { cwd: dir, env: process.env });
@@ -206,8 +248,8 @@ async function openPullRequest(it, branch, report) {
   return { note: `PR 생성 실패(${res.status}: ${body.message ?? ''}) — 수동으로: ${compare}` };
 }
 
-async function processOne(it) {
-  const executor = it.labels.includes('agent:codex') ? 'codex' : 'opencode';
+async function processOne(it, { executor: forced, note } = {}) {
+  const executor = forced ?? (it.labels.includes('agent:codex') ? 'codex' : 'opencode');
   const original = it.status_id;
   const inProgress = await statusId('진행 중');
   const review = await statusId('검토');
@@ -217,7 +259,9 @@ async function processOne(it) {
   await comment(it.id, it.reporter_id, `처리 시작 — ${executor === 'codex' ? 'Codex' : 'OpenCode'} 헤드리스, 브랜치 ${branch}`);
   console.log(`▶ ${it.issue_key} (${executor}) ${it.summary}`);
 
-  const r = await runAgent(executor, dir, buildPrompt(it));
+  const extras = await issueExtras(it.id);
+  const images = extras.files.filter((f) => /^image\/(png|jpeg|gif|webp)$/.test(f.type ?? '') && existsSync(f.path)).map((f) => f.path);
+  const r = await runAgent(executor, dir, buildPrompt(it, extras, note), images);
   // 에이전트 실행(수십 분) 동안 이슈 번호가 바뀔 수 있으므로(로컬 번호 대역 이동 등) 키로 다시 조회한다
   const { rows: cur } = await query(`SELECT id FROM jira_issues WHERE issue_key = $1`, [it.issue_key]);
   if (!cur.length) { console.log(`  ✗ ${it.issue_key} 이슈가 사라짐 — 결과 기록 생략`); return; }
@@ -257,6 +301,18 @@ async function processOne(it) {
 }
 
 async function tick() {
+  if (args.issue) {
+    const it = await oneIssue(args.issue);
+    if (!it) { console.log(`${args.issue} 이슈가 없습니다.`); return; }
+    if (it.labels.includes('needs-approval')) { console.log(`${it.issue_key}는 승인 대기(needs-approval)라 처리하지 않습니다.`); return; }
+    if (it.labels.includes('agent-running')) { console.log(`${it.issue_key}는 이미 처리 중입니다.`); return; }
+    const executor = args.executor ?? (it.labels.includes('agent:opencode') ? 'opencode' : 'codex');
+    if (!['codex', 'opencode'].includes(executor)) { console.log('--executor는 codex 또는 opencode'); return; }
+    if (!args.run) { console.log(`미리보기: ${it.issue_key} → ${executor} (${it.summary}) — --run 으로 실행`); return; }
+    await setLabels(it.id, [], ['agent-done', 'agent-failed']);
+    await processOne(it, { executor, note: args.note });
+    return;
+  }
   const list = await candidates();
   if (!args.run) {
     console.log(list.length ? '맡길 이슈 (미리보기 — --run 으로 실행):' : '맡길 이슈가 없습니다.');

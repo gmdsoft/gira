@@ -9,3 +9,6 @@ temp/
 web/dist-admin/
 # 편집기 스왑 파일 (.env 편집 중 비밀값이 담길 수 있음)
 *.swp
+
+# 일일 이슈 처리 로그
+logs/

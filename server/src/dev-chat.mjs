@@ -1,13 +1,14 @@
-// 개발참여 챗봇: 사용자의 자연어 요청을 Claude가 해석해 답하고, 필요한 작업은 GIRA 개발 프로젝트에
-// 이슈(에픽~하위 작업)로 생성한다. 지침은 dev-agent/guidelines.md (시스템 프롬프트로 전달).
+// 개발참여 챗봇: 사용자의 자연어 요청(첨부 파일 포함)을 Claude가 해석해 답하고, 필요한 작업은 GIRA 개발
+// 프로젝트에 이슈(에픽~하위 작업)로 정확하게 등록한다 — 등록까지만 한다. 이슈 처리(디스패치)는 운영자가
+// 개발 세션에서 이슈를 읽고 따로 수행한다. 지침은 dev-agent/guidelines.md (시스템 프롬프트로 전달).
 // 대화는 dev_chat_* 테이블에 API 응답 블록 그대로 append-only로 저장한다 (thinking 블록 보존 규칙).
 // 필요한 환경변수: ANTHROPIC_API_KEY (없으면 503), 선택: DEV_CHAT_MODEL (기본 claude-opus-5-5)
 import Anthropic from '@anthropic-ai/sdk';
-import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query } from './db.mjs';
+import { query, DATA_DIR } from './db.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const GUIDELINES = readFileSync(path.join(here, 'dev-agent', 'guidelines.md'), 'utf8');
@@ -23,6 +24,11 @@ const EFFORT = process.env.DEV_CHAT_EFFORT ?? 'low';
 const DAILY_LIMIT = Number(process.env.DEV_CHAT_DAILY_LIMIT ?? 40); // 1인당 하루 메시지 상한
 const DEV_PROJECT_KEY = 'GIRA';
 const MAX_TOOL_ROUNDS = 8;
+// 첨부: 한 메시지 최대 5개, 파일당 20MB. 모델에 보여주는 범위 — 이미지 5MB, PDF 10MB, 텍스트 100KB까지
+const MAX_FILES_PER_MESSAGE = 5;
+const MAX_UPLOAD = 20 * 1024 * 1024;
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const TEXT_EXT = /\.(txt|log|md|json|csv|tsv|xml|ya?ml|ini|conf|js|mjs|jsx|ts|tsx|css|html|sql|sh|py)$/i;
 
 // 계층 → Gira 이슈 타입 이름 (프로젝트 공용 타입 사전에서 이름으로 찾는다)
 const TYPE_NAMES = { epic: '에픽', story: '스토리', task: '작업', subtask: '하위 작업', bug: '버그' };
@@ -62,8 +68,13 @@ const TOOLS = [
               executor: { type: 'string', enum: ['codex', 'opencode', 'human'] },
               needs_approval: { type: 'boolean' },
               spec_update: { type: 'boolean' },
+              attach_files: {
+                type: 'array', items: { type: 'integer' },
+                description: '이 이슈에 첨부할 파일 번호 (사용자가 올린 [첨부 #번호]). 없으면 빈 배열',
+              },
             },
-            required: ['ref', 'type', 'summary', 'description', 'parent', 'executor', 'needs_approval', 'spec_update'],
+            required: ['ref', 'type', 'summary', 'description', 'parent', 'executor', 'needs_approval', 'spec_update',
+              'attach_files'],
             additionalProperties: false,
           },
         },
@@ -77,25 +88,42 @@ const TOOLS = [
 let client = null;
 const getClient = () => (client ??= new Anthropic()); // ANTHROPIC_API_KEY 환경변수에서 읽는다
 
-// ---------- 자동 처리: 디스패처를 백그라운드로 실행 ----------
-// 즉시 처리 가능한 이슈(agent:codex|opencode, 승인 불필요)가 생기거나 승인되면 호출한다.
-// 동시에 하나만 돌리고, 실행 중 요청이 또 오면 끝난 뒤 한 번 더 돈다. DEV_AUTO_DISPATCH=0 이면 끈다.
-const ROOT = path.join(here, '..', '..');
-let dispatching = false;
-let dispatchAgain = false;
-export function triggerDispatch() {
-  if (process.env.DEV_AUTO_DISPATCH === '0') return;
-  if (dispatching) { dispatchAgain = true; return; }
-  dispatching = true;
-  const child = spawn(process.execPath, [path.join(ROOT, 'scripts', 'dev-dispatcher.mjs'), '--run', '--all'], {
-    cwd: ROOT, stdio: ['ignore', 'inherit', 'inherit'],
-  });
-  const done = () => {
-    dispatching = false;
-    if (dispatchAgain) { dispatchAgain = false; triggerDispatch(); }
-  };
-  child.on('close', done);
-  child.on('error', (e) => { console.error('[dispatch] 실행 실패:', e.message); done(); });
+// ---------- 첨부 파일 ----------
+
+async function ownedFiles(ids, ctx) {
+  const list = [...new Set((ids ?? []).map(Number).filter((n) => Number.isSafeInteger(n) && n > 0))];
+  if (!list.length) return [];
+  const { rows } = await query(
+    `SELECT id, filename, media_type, file_size, local_key FROM dev_chat_files
+      WHERE id = ANY($1::bigint[]) AND user_id = $2 AND ($3::text IS NULL OR author = $3) ORDER BY id`,
+    [list, ctx.userId, ctx.proxied ? ctx.author : null]);
+  return rows;
+}
+
+const kb = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.ceil(n / 1024) + 'KB');
+
+// 저장된 {type:'dev_file'} 자리표시를 API용 블록으로 펼친다 (DB에는 base64를 넣지 않는다).
+// 같은 파일은 항상 같은 블록으로 펼쳐지므로 대화 캐시 접두가 유지된다.
+async function expandFile(fileId) {
+  const { rows } = await query(
+    `SELECT id, filename, media_type, file_size, local_key FROM dev_chat_files WHERE id = $1`, [fileId]);
+  const f = rows[0];
+  if (!f) return [{ type: 'text', text: `[첨부 #${fileId}: 삭제된 파일]` }];
+  const head = { type: 'text', text: `[첨부 #${f.id}: ${f.filename} (${f.media_type ?? '알 수 없는 형식'}, ${kb(Number(f.file_size))})]` };
+  const size = Number(f.file_size);
+  let data;
+  try { data = await readFile(path.join(DATA_DIR, f.local_key)); } catch { return [head]; }
+  if (IMAGE_TYPES.has(f.media_type) && size <= 5 * 1024 * 1024) {
+    return [head, { type: 'image', source: { type: 'base64', media_type: f.media_type, data: data.toString('base64') } }];
+  }
+  if (f.media_type === 'application/pdf' && size <= 10 * 1024 * 1024) {
+    return [head, { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: data.toString('base64') } }];
+  }
+  if ((f.media_type?.startsWith('text/') || /json|xml|yaml/.test(f.media_type ?? '') || TEXT_EXT.test(f.filename))
+      && size <= 100 * 1024) {
+    return [head, { type: 'text', text: `<file name="${f.filename}">\n${data.toString('utf8')}\n</file>` }];
+  }
+  return [{ type: 'text', text: head.text.replace(/\]$/, ' — 내용은 볼 수 없는 형식이거나 너무 큼. 이슈에는 첨부 가능]') }];
 }
 
 // ---------- 도구 구현 ----------
@@ -152,8 +180,20 @@ async function toolCreate({ items }, ctx, textToAdf) {
        // 에이전트가 처리할 이슈는 프로젝트 기본 담당자(GIRA 에이전트), 사람 담당은 비워 둔다
        it.executor === 'human' ? null : (pr.default_assignee_id ?? null)]);
     byRef.set(it.ref, { id: rows[0].id, key: rows[0].issue_key });
+    // 사용자가 올린 파일을 이슈 첨부로 복사 (본인 파일만)
+    const files = await ownedFiles(it.attach_files, ctx);
+    for (const f of files) {
+      const localKey = path.join('jira-att', String(rows[0].id), `${f.id}-${f.filename.replace(/[^\w.\-]+/g, '_')}`);
+      await mkdir(path.join(DATA_DIR, 'jira-att', String(rows[0].id)), { recursive: true });
+      await copyFile(path.join(DATA_DIR, f.local_key), path.join(DATA_DIR, localKey));
+      await query(
+        `INSERT INTO jira_attachments (id, issue_id, filename, media_type, file_size, local_key, author_id, created_at)
+         VALUES (nextval('jira_attachment_id_seq'), $1, $2, $3, $4, $5, $6, now())`,
+        [rows[0].id, f.filename, f.media_type, f.file_size, localKey, ctx.userId]);
+    }
     created.push({ ref: it.ref, key: rows[0].issue_key, type: it.type, summary: it.summary.trim(),
-      executor: it.executor, needsApproval: !!it.needs_approval, parent: it.parent || null });
+      executor: it.executor, needsApproval: !!it.needs_approval, parent: it.parent || null,
+      attachments: files.map((f) => f.filename) });
   }
   // 2차: 상위 연결 (같은 호출의 ref 또는 기존 이슈 키)
   for (const c of created) {
@@ -176,10 +216,19 @@ async function toolCreate({ items }, ctx, textToAdf) {
 
 // ---------- 대화 ----------
 
-async function loadHistory(sessionId) {
+async function loadHistory(sessionId, { expand = false } = {}) {
   const { rows } = await query(
     `SELECT role, content FROM dev_chat_messages WHERE session_id = $1 ORDER BY id`, [sessionId]);
-  return rows.map((r) => ({ role: r.role, content: r.content }));
+  const out = rows.map((r) => ({ role: r.role, content: r.content }));
+  if (expand) {
+    for (const m of out) {
+      if (m.role !== 'user' || !Array.isArray(m.content)) continue;
+      const blocks = [];
+      for (const b of m.content) blocks.push(...(b.type === 'dev_file' ? await expandFile(b.file_id) : [b]));
+      m.content = blocks;
+    }
+  }
+  return out;
 }
 
 const saveMessage = (sessionId, role, content, usage = null) => query(
@@ -190,13 +239,37 @@ const textOf = (content) => (Array.isArray(content) ? content : [])
   .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
 
 export function registerDevChat(app, { textToAdf }) {
+  // 첨부 올리기 (multipart, 파일 1개 + 선택 필드 author — Gonfluence 프록시가 파일보다 먼저 보낸다)
+  app.post('/api/dev-chat/files', async (req, reply) => {
+    const file = await req.file();
+    if (!file) return reply.code(400).send({ error: '파일이 없습니다' });
+    const buf = await file.toBuffer();
+    if (buf.length > MAX_UPLOAD) return reply.code(413).send({ error: '파일이 너무 큽니다 (20MB 이내)' });
+    if (!buf.length) return reply.code(400).send({ error: '빈 파일입니다' });
+    const author = file.fields?.author?.value || null;
+    const safe = file.filename.replace(/[^\w.\-]+/g, '_').slice(-120) || 'file';
+    const dir = path.join('dev-chat', String(req.access.userId));
+    await mkdir(path.join(DATA_DIR, dir), { recursive: true });
+    const localKey = path.join(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`);
+    await writeFile(path.join(DATA_DIR, localKey), buf);
+    const { rows } = await query(
+      `INSERT INTO dev_chat_files (user_id, author, filename, media_type, file_size, local_key)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [req.access.userId, author, file.filename, file.mimetype ?? null, buf.length, localKey]);
+    return { id: Number(rows[0].id), filename: file.filename, mediaType: file.mimetype ?? null, size: buf.length };
+  });
+
   // 대화 진행: { sessionId?, message, author?, source? } → { sessionId, reply, created[] }
   app.post('/api/dev-chat', async (req, reply) => {
     if (!process.env.ANTHROPIC_API_KEY) {
       return reply.code(503).send({ error: '챗봇이 아직 설정되지 않았습니다 (ANTHROPIC_API_KEY 미설정 — 관리자에게 문의)' });
     }
     const message = String(req.body?.message ?? '').trim();
-    if (!message) return reply.code(400).send({ error: '메시지를 입력하세요' });
+    const fileIds = Array.isArray(req.body?.fileIds) ? req.body.fileIds.slice(0, MAX_FILES_PER_MESSAGE + 1) : [];
+    if (!message && !fileIds.length) return reply.code(400).send({ error: '메시지를 입력하세요' });
+    if (fileIds.length > MAX_FILES_PER_MESSAGE) {
+      return reply.code(400).send({ error: `첨부는 한 번에 ${MAX_FILES_PER_MESSAGE}개까지입니다` });
+    }
     // 비용 상한: 1인당 하루 메시지 수 (작성자 기준 — Gonfluence 프록시는 author로 구분)
     const who = req.body?.author ?? null;
     const { rows: used } = await query(
@@ -222,7 +295,10 @@ export function registerDevChat(app, { textToAdf }) {
       userId: req.access.userId,
       author: req.body?.author || me[0]?.display_name || null,
       source: req.body?.source === 'Gonfluence' ? 'Gonfluence' : 'Gira',
+      proxied: !!req.body?.author,
     };
+    const files = await ownedFiles(fileIds, ctx);
+    if (files.length !== fileIds.length) return reply.code(400).send({ error: '첨부 파일을 찾을 수 없습니다 — 다시 올려 주세요' });
     if (!sessionId) {
       const { rows } = await query(
         `INSERT INTO dev_chat_sessions (user_id, author, source) VALUES ($1, $2, $3) RETURNING id`,
@@ -230,10 +306,15 @@ export function registerDevChat(app, { textToAdf }) {
       sessionId = Number(rows[0].id);
     }
 
-    const messages = await loadHistory(sessionId);
-    const userTurn = [{ type: 'text', text: `[${ctx.author ?? '사용자'} · ${ctx.source}에서]\n${message}` }];
-    messages.push({ role: 'user', content: userTurn });
+    const messages = await loadHistory(sessionId, { expand: true });
+    const userTurn = [
+      ...files.map((f) => ({ type: 'dev_file', file_id: Number(f.id), filename: f.filename })),
+      { type: 'text', text: `[${ctx.author ?? '사용자'} · ${ctx.source}에서]\n${message || '(첨부 파일만 보냄)'}` },
+    ];
     await saveMessage(sessionId, 'user', userTurn);
+    const expanded = [];
+    for (const b of userTurn) expanded.push(...(b.type === 'dev_file' ? await expandFile(b.file_id) : [b]));
+    messages.push({ role: 'user', content: expanded });
 
     const created = [];
     let finalText = '';
@@ -300,13 +381,7 @@ export function registerDevChat(app, { textToAdf }) {
       }
       throw e;
     }
-    // 바로 처리 가능한 이슈가 생겼으면 하위 에이전트 처리를 시작한다
-    const autoRun = created.filter((c) => c.executor !== 'human' && !c.needsApproval && c.type !== 'epic');
-    if (autoRun.length) triggerDispatch();
-    return {
-      sessionId, reply: finalText || '(응답 없음)',
-      created: created.map((c) => ({ ...c, autoStarted: autoRun.includes(c) && process.env.DEV_AUTO_DISPATCH !== '0' })),
-    };
+    return { sessionId, reply: finalText || '(응답 없음)', created };
   });
 
   // 대화 다시 불러오기 (화면 표시용: 사용자·어시스턴트의 텍스트만)
@@ -319,7 +394,11 @@ export function registerDevChat(app, { textToAdf }) {
     }
     const rows = await loadHistory(req.params.id);
     return rows
-      .map((m) => ({ role: m.role, text: textOf(m.content).replace(/^\[[^\]\n]*에서\]\n/, '') }))
-      .filter((m) => m.text);
+      .map((m) => ({
+        role: m.role,
+        text: textOf(m.content).replace(/^\[[^\]\n]*에서\]\n/, '').replace(/^\(첨부 파일만 보냄\)$/, ''),
+        files: (Array.isArray(m.content) ? m.content : []).filter((b) => b.type === 'dev_file').map((b) => b.filename),
+      }))
+      .filter((m) => m.text || m.files.length);
   });
 }
