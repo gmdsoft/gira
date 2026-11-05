@@ -341,6 +341,34 @@ app.delete('/api/content/:id/draft', async (req, reply) => {
   return { ok: true };
 });
 
+// 편집 중 표시 (실시간 공동 편집 대신 알림만): 편집 화면이 하트비트를 보내고, 보기·편집 화면이 조회한다.
+// EDIT_PRESENCE_TTL 안에 신호가 없으면 해제된 것으로 본다 (창을 그냥 닫아도 1~2분 안에 사라진다)
+const EDIT_PRESENCE_TTL = '90 seconds';
+async function otherEditors(contentId, userId) {
+  const { rows } = await query(
+    `SELECT u.id, u.display_name AS name, p.seen_at FROM edit_presence p JOIN users u ON u.id = p.user_id
+      WHERE p.content_id = $1 AND p.user_id <> $2 AND p.seen_at > now() - $3::interval
+      ORDER BY p.seen_at DESC`, [contentId, userId, EDIT_PRESENCE_TTL]);
+  return rows;
+}
+app.get('/api/content/:id/editing', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id)) return;
+  return { editors: await otherEditors(req.params.id, req.access.userId) };
+});
+app.post('/api/content/:id/editing', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
+  await query(
+    `INSERT INTO edit_presence (content_id, user_id, seen_at) VALUES ($1, $2, now())
+     ON CONFLICT (content_id, user_id) DO UPDATE SET seen_at = now()`, [req.params.id, req.access.userId]);
+  // 오래된 신호 정리 (테이블이 커지지 않게)
+  await query(`DELETE FROM edit_presence WHERE seen_at < now() - interval '1 day'`);
+  return { editors: await otherEditors(req.params.id, req.access.userId) };
+});
+app.delete('/api/content/:id/editing', async (req) => {
+  await query(`DELETE FROM edit_presence WHERE content_id = $1 AND user_id = $2`, [req.params.id, req.access.userId]);
+  return { ok: true };
+});
+
 // 게시: 초안(또는 본문 직접 전달)을 새 버전으로
 app.post('/api/content/:id/publish', async (req, reply) => {
   const id = req.params.id;

@@ -749,3 +749,9 @@ span.cf-macro-slot { display: inline; margin: 0; }
 /* 개발참여 챗봇 — 새 탭 전용 페이지 */
 .devchat-page { min-height: 100vh; background: var(--bg); display: flex; justify-content: center; padding: 16px; box-sizing: border-box; }
 .devchat-page .devchat { width: 880px; max-width: 100%; height: calc(100vh - 32px); background: var(--panel); border-radius: 12px; box-shadow: 0 2px 12px rgba(9,30,66,.12); }
+
+/* 편집 중 표시 (edit-presence.jsx) */
+.editing-badge { font-size: 12px; color: #7a5a00; background: #fff7d6; border: 1px solid #e2c94f;
+  border-radius: 3px; padding: 1px 6px; }
+.editing-warning { background: #fff7d6; border: 1px solid #e2c94f; color: #292a2e; border-radius: 4px;
+  padding: 8px 12px; margin: 8px 0; font-size: 13px; }
