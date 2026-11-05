@@ -500,6 +500,24 @@ h1.inline-edit { margin: 0 -6px 8px; }
 .epic-chip .epic-key { color: var(--accent); flex: none; }
 .epic-chip .epic-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .epic-chip .jicon { color: var(--text2); flex: none; }
+button.epic-chip { font: inherit; font-size: 12px; text-align: left; }
+.epic-chip .epic-sq { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.epic-chip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+/* 상위 항목 메뉴 (body에 띄움) */
+.parent-menu { position: fixed; z-index: 300; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-pop); padding: 8px 0 4px; font-size: 13px; color: var(--text); }
+.parent-menu .pm-search { display: flex; align-items: center; gap: 8px; margin: 0 8px 6px; padding: 6px 10px; border: 2px solid var(--accent); border-radius: 4px; }
+.parent-menu .pm-search input, .parent-menu .pm-search input:focus { flex: 1; min-width: 0; height: auto; padding: 0; border: 0; outline: none; box-shadow: none; background: transparent; color: var(--text); font: inherit; }
+.parent-menu .pm-search input::placeholder { color: var(--text); opacity: .85; }
+.parent-menu .pm-sq { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.parent-menu .pm-list { max-height: 300px; overflow-y: auto; }
+.parent-menu .pm-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 14px; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.parent-menu .pm-item.on, .parent-menu .pm-item:hover { background: var(--hover); }
+.parent-menu .pm-text { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.parent-menu .pm-note { padding: 8px 14px; color: var(--text2); font-size: 12px; }
+.parent-menu .pm-foot { border-top: 1px solid var(--line-soft, var(--line)); margin-top: 4px; padding-top: 4px; display: flex; flex-direction: column; }
+.parent-menu .pm-foot button { padding: 7px 14px; border: 0; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.parent-menu .pm-foot button:hover:not(:disabled) { background: var(--hover); }
+.parent-menu .pm-foot button:disabled { color: var(--text2); opacity: .55; cursor: default; }
 .chip-ver { color: var(--text); }
 .card { position: relative; background: var(--panel); border: 0; border-radius: 4px; padding: 9px 10px 8px 14px; margin-bottom: 8px; cursor: grab; box-shadow: var(--shadow-card); }
 .card:hover { background: var(--panel); box-shadow: 0 2px 4px rgba(9, 30, 66, .18), 0 0 1px rgba(9, 30, 66, .2); }
