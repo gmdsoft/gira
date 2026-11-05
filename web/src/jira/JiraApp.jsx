@@ -42,7 +42,7 @@ export default function JiraApp() {
   const [me, setMe] = useState(null);
   const [meta, setMeta] = useState(null);
   const [project, setProject] = useState('');
-  const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [], labels: [], components: [] });
+  const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [], labels: [], components: [], people: [] });
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [savedFilters, setSavedFilters] = useState([]);
   const [savedSel, setSavedSel] = useState('');
@@ -103,10 +103,11 @@ export default function JiraApp() {
   const reloadPdata = async () => {
     if (!project) return;
     const proj = encodeURIComponent(project);
-    const [sprints, versions, boards, tags] = await Promise.all([
+    const [sprints, versions, boards, tags, people] = await Promise.all([
       api('/api/sprints?project=' + proj), api('/api/versions?project=' + proj),
-      api('/api/boards?project=' + proj), api('/api/labels?project=' + proj)]);
-    setPdata({ sprints, versions, boards, ...tags });
+      api('/api/boards?project=' + proj), api('/api/labels?project=' + proj),
+      api('/api/people?project=' + proj)]);
+    setPdata({ sprints, versions, boards, people, ...tags });
   };
   useEffect(() => { if (authed) reloadPdata(); }, [project, authed]);
 
@@ -427,7 +428,7 @@ export default function JiraApp() {
               </select>
               <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
                 <option value="">담당자: 전체</option>
-                {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                {(pdata.people ?? []).map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
               </select>
               <select value={filters.priority} onChange={(e) => setF('priority', e.target.value)}>
                 <option value="">우선순위: 전체</option>
@@ -449,13 +450,15 @@ export default function JiraApp() {
                 placeholder='JQL — 예: status != "완료" AND assignee = currentUser() ORDER BY updated DESC' />
               <button className="primary" onClick={() => applyJql(jqlInput)}>적용</button>
             </>}
-            <span className="avstack" title="담당자로 빠르게 필터">
-              {meta.assignees.slice(0, 6).map((u) => (
+            <span className="avstack" title="이 프로젝트의 최근 활동자 — 클릭하면 담당 이슈로 필터">
+              {(pdata.people ?? []).slice(0, 6).map((u) => (
                 <button key={u.id} className={`avbtn${String(filters.assignee) === String(u.id) ? ' on' : ''}`}
                   onClick={() => setF('assignee', String(filters.assignee) === String(u.id) ? '' : u.id)} title={u.display_name}>
                   <Avatar name={u.display_name} />
                 </button>))}
-              {meta.assignees.length > 6 && <span className="avmore" title={`담당자 ${meta.assignees.length}명`}>+{meta.assignees.length - 6}</span>}
+              {(pdata.people ?? []).length > 6 && (
+                <span className="avmore" title={`관련 인물 ${pdata.people.length}명+`}>+{pdata.people.length - 6}</span>
+              )}
             </span>
             <select className={`filter-select${filters.group ? ' active' : ''}`} value={filters.group} onChange={(e) => setF('group', e.target.value)} title="행을 묶어 보기">
               <option value="">그룹화: 없음</option>

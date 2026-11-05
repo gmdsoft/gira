@@ -137,6 +137,28 @@ app.get('/api/meta', async (req) => {
   };
 });
 
+// 프로젝트 관련 인물 — 보고·담당·처리(기록) 이력이 있는 사용자를 최근 활동순으로.
+// 아바타 빠른 필터와 담당자 필터가 프로젝트 범위의 사람만 보여주도록 한다.
+app.get('/api/people', async (req, reply) => {
+  const pr = await requireProject(req, reply, req.query.project);
+  if (!pr) return;
+  const { rows } = await query(
+    `SELECT u.id, u.display_name, max(x.at) AS last_at FROM (
+       SELECT assignee_id AS uid, updated_at AS at FROM jira_issues
+        WHERE project_id = $1 AND assignee_id IS NOT NULL
+       UNION ALL
+       SELECT reporter_id, created_at FROM jira_issues
+        WHERE project_id = $1 AND reporter_id IS NOT NULL
+       UNION ALL
+       SELECT h.author_id, h.created_at FROM jira_changelog h
+         JOIN jira_issues i ON i.id = h.issue_id
+        WHERE i.project_id = $1 AND h.author_id IS NOT NULL
+     ) x JOIN users u ON u.id = x.uid AND u.active
+     GROUP BY u.id, u.display_name
+     ORDER BY max(x.at) DESC NULLS LAST LIMIT 30`, [pr.id]);
+  return rows.map((r) => ({ id: r.id, display_name: r.display_name }));
+});
+
 // 프로젝트 버전 목록 (수정 버전 선택용)
 app.get('/api/versions', async (req, reply) => {
   if (!await requireProject(req, reply, req.query.project)) return;
