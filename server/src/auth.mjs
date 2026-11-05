@@ -23,7 +23,7 @@ async function apiKeyUser(token) {
   return rows.length ? Number(rows[0].user_id) : null;
 }
 
-async function cookieSecret() {
+export async function cookieSecret() {
   if (process.env.COOKIE_SECRET) return process.env.COOKIE_SECRET;
   const file = path.join(DATA_DIR, '.cookie-secret');
   try { return (await readFile(file, 'utf8')).trim(); } catch { /* 최초 실행 */ }

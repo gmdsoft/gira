@@ -16,6 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
 import { spaceRole, contentAccess, filterViewable, visibleTreeSet } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
+import { registerSelfMigrate } from './self-migrate.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -53,6 +54,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerSelfMigrate(app, { kind: 'conf' }); // 팀장 셀프 이관 (원본 Confluence → 이 인스턴스)
 
 // 자주 쓰는 권한 검사: 보기/편집 불가 시 403(없으면 404)을 보내고 null 반환
 async function requireAccess(req, reply, contentId, need = 'view') {

@@ -13,6 +13,7 @@ import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
+import { registerSelfMigrate } from './self-migrate.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
@@ -55,6 +56,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
 
 // React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)
 const DIST = path.join(here, '..', '..', 'web', 'dist-jira-app');

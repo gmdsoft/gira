@@ -9,6 +9,7 @@ import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
 import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, ApiKeysModal, ImportSpaceModal } from './access.jsx';
 import { IconSettings } from './jira/icons.jsx';
+import { MigrateModal } from './migrate-ui.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
@@ -334,6 +335,7 @@ function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }
   const [open, setOpen] = useState(false);
   const [showKeys, setShowKeys] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showMigrate, setShowMigrate] = useState(false);
   return (
     <span className="setwrap">
       <button className="set-btn" title="설정" onClick={() => setOpen((v) => !v)}><IconSettings size={20} /></button>
@@ -363,11 +365,16 @@ function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }
           {me.can_create && (
             <button onClick={() => { setShowImport(true); setOpen(false); }}><span>스페이스 가져오기…</span></button>
           )}
+          {me.can_create && (
+            <button onClick={() => { setShowMigrate(true); setOpen(false); }}><span>원본 Confluence에서 가져오기…</span></button>
+          )}
         </div>
       </>}
       {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}
       {showImport && <ImportSpaceModal onClose={() => setShowImport(false)}
         onDone={(r) => navigate(`/s/${r.spaceKey}`)} />}
+      {showMigrate && <MigrateModal api={api} title="원본 Confluence에서 가져오기" resourceLabel="스페이스"
+        onClose={() => setShowMigrate(false)} />}
     </span>
   );
 }

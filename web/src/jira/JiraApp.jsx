@@ -4,6 +4,7 @@ import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
 import { ProjectPermissionsModal, InboxModal, AccessGate, ApiKeysModal, ImportProjectModal } from './perm.jsx';
+import { MigrateModal } from '../migrate-ui.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -71,6 +72,7 @@ export default function JiraApp() {
   const [showInbox, setShowInbox] = useState(false); // 접근 요청 승인함
   const [showKeys, setShowKeys] = useState(false);   // 내 API 키
   const [showImport, setShowImport] = useState(false); // 프로젝트 가져오기
+  const [showMigrate, setShowMigrate] = useState(false); // 원본 Jira 셀프 이관
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
@@ -400,6 +402,9 @@ export default function JiraApp() {
                 {me?.can_create && (
                   <button onClick={() => { setShowImport(true); setShowSet(false); }}><span>프로젝트 가져오기…</span></button>
                 )}
+                {me?.can_create && (
+                  <button onClick={() => { setShowMigrate(true); setShowSet(false); }}><span>원본 Jira에서 가져오기…</span></button>
+                )}
               </div>
             </>}
           </span>
@@ -511,6 +516,8 @@ export default function JiraApp() {
       {showInbox && <InboxModal onClose={() => setShowInbox(false)} />}
       {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}
       {showImport && <ImportProjectModal onClose={() => setShowImport(false)} onDone={() => boot()} />}
+      {showMigrate && <MigrateModal api={api} title="원본 Jira에서 가져오기" resourceLabel="프로젝트"
+        btn="plain linklike" btnPrimary="primary" onClose={() => setShowMigrate(false)} onDone={() => boot()} />}
     </>
   );
 }

@@ -640,3 +640,21 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .key-issued { background: var(--bg-subtle); border-radius: 6px; padding: 10px 12px; margin: 8px 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .key-issued code { word-break: break-all; font-size: 13px; }
 .key-issued .muted { width: 100%; }
+
+/* 셀프 이관 모달 */
+.mg-muted { color: var(--muted2); font-size: 13px; }
+.mg-token { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.mg-token input { padding: 7px 10px; border: 1px solid var(--line2); border-radius: 4px; font: inherit; background: var(--panel); color: var(--text); }
+.perm-modal h3 { font-size: 14px; margin: 14px 0 6px; }
+.mg-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+.mg-list li { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.mg-key { font-weight: 600; min-width: 96px; }
+.mg-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-exists { font-size: 12px; color: var(--muted2); }
+.mg-jobs { list-style: none; margin: 0; padding: 0; }
+.mg-jobs li { display: flex; align-items: center; gap: 10px; padding: 6px 0; flex-wrap: wrap; }
+.mg-status { font-size: 12px; font-weight: 700; }
+.mg-running { color: var(--accent); }
+.mg-done { color: #216e4e; }
+.mg-error { color: #ae2a19; }
+.mg-log { background: var(--bg-subtle); border-radius: 6px; padding: 10px; font-size: 11.5px; line-height: 1.5; max-height: 220px; overflow: auto; white-space: pre-wrap; width: 100%; margin: 4px 0 0; }
