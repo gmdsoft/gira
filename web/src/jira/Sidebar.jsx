@@ -2,9 +2,10 @@
 import React, { useEffect, useState } from 'react';
 import { hashColor } from './util.jsx';
 import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, IconBacklog, IconFilter, IconStar, IconGrid, IconDashboard, IconSpace, IconProject } from './icons.jsx';
+import { SPEC_URL } from '../dev-feedback-ui.jsx';
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent,
-  onProjView, onBoard, onBoards, onIssue, onFilter }) {
+  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback }) {
   const [open, setOpen] = useState(() => new Set([project]));
   useEffect(() => { setOpen((s) => s.has(project) ? s : new Set(s).add(project)); }, [project]);
   const toggle = (pk) => setOpen((s) => { const n = new Set(s); n.has(pk) ? n.delete(pk) : n.add(pk); return n; });
@@ -57,7 +58,13 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
           </div>))}
       </>}
       <div className="snav snav-bottom">
-        <a className="sitem snav-top" href="http://172.21.1.1:3001" target="_blank" rel="noreferrer" title="Gonfluence 열기">
+        <div className="sitem snav-top" onClick={onDevFeedback} title="신규 기능·수정·버그 제안 (GIRA 프로젝트에 이슈로 등록)">
+          <span className="sglyph">💡</span><span className="strunc">개발참여</span>
+        </div>
+        <a className="sitem" href={SPEC_URL} target="_blank" rel="noreferrer" title="개발 명세서 열기">
+          <span className="sglyph">📘</span><span className="strunc">개발 명세서</span><span className="sext">↗</span>
+        </a>
+        <a className="sitem" href="http://172.21.1.1:3001" target="_blank" rel="noreferrer" title="Gonfluence 열기">
           <IconSpace size={16} /><span className="strunc">Gonfluence</span><span className="sext">↗</span>
         </a>
       </div>

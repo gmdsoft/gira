@@ -644,6 +644,39 @@ app.delete('/api/filters/:id', async (req, reply) => {
   return { ok: true };
 });
 
+// ---------- 개발참여: 신규/수정/버그 제안을 GIRA 개발 프로젝트 이슈로 등록 ----------
+// 명세 '의견·버그 리포트' — 로그인한 누구나 등록 가능. Gonfluence는 서비스 키로 프록시 호출하며
+// 이때 author(작성자 표시)·source(출처 앱)를 설명에 남긴다.
+const DEV_PROJECT_KEY = 'GIRA';
+app.post('/api/dev-feedback', async (req, reply) => {
+  const KINDS = { feature: '신규 기능', change: '수정 요청', bug: '버그' };
+  const { kind, title, detail, author, source } = req.body ?? {};
+  if (!KINDS[kind] || !title?.trim()) return reply.code(400).send({ error: '유형과 제목을 입력하세요' });
+  const { rows: pr } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [DEV_PROJECT_KEY]);
+  if (!pr.length) return reply.code(500).send({ error: '개발 프로젝트가 없습니다 (관리자에게 문의)' });
+  const typeName = kind === 'bug' ? '버그' : '작업';
+  const { rows: tp } = await query(
+    `SELECT id FROM jira_issue_types WHERE name = $1 AND NOT subtask ORDER BY id LIMIT 1`, [typeName]);
+  const { rows: st } = await query(`SELECT id FROM jira_statuses WHERE category = 'new' ORDER BY id LIMIT 1`);
+  const { rows: mx } = await query(
+    `SELECT COALESCE(MAX(split_part(issue_key, '-', 2)::int), 0) + 1 AS n
+       FROM jira_issues WHERE project_id = $1`, [pr[0].id]);
+  const body = [
+    detail?.trim() || title.trim(),
+    author ? `— 작성: ${author}` : null,
+    source ? `— 출처: ${source}` : null,
+  ].filter(Boolean).join('\n\n');
+  const { rows } = await query(
+    `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary,
+       description_adf, labels, reporter_id, created_at, updated_at, fields_raw)
+     VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, now(), now(), '{}')
+     RETURNING issue_key`,
+    [pr[0].id, `${pr[0].key}-${mx[0].n}`, tp[0]?.id ?? null, st[0]?.id ?? null,
+     `[${KINDS[kind]}] ${title.trim()}`, JSON.stringify(textToAdf(body)),
+     ['dev-feedback', kind], req.access.userId]);
+  return { issueKey: rows[0].issue_key };
+});
+
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
 
 // 내보내기: 프로젝트 관리자(또는 사이트 관리자)

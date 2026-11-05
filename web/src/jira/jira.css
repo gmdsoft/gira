@@ -710,3 +710,12 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .hub-pane .perm-rows { flex: 1; min-height: 100px; overflow: auto; }
 .hub-pane .mg-body { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
 .setmenu-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+
+/* 개발참여 모달 */
+.devfb-hint { font-size: 13px; }
+.devfb-done { font-size: 14px; }
+.devfb-form { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; }
+.devfb-form select, .devfb-form input, .devfb-form textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); resize: vertical; }
+.devfb-form button { align-self: flex-start; }
+.devfb-hint { color: var(--text2); }
+.sglyph { width: 16px; text-align: center; flex: none; }

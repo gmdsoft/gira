@@ -798,6 +798,25 @@ app.put('/api/content/:id/restrictions', async (req, reply) => {
   return { ok: true };
 });
 
+// ---------- 개발참여: Gira의 GIRA 개발 프로젝트로 프록시 ----------
+// 서비스 키(GIRA_SERVICE_KEY)로 Gira에 이슈를 만들고, 실제 작성자 이름을 설명에 남긴다.
+app.post('/api/dev-feedback', async (req, reply) => {
+  const giraUrl = (process.env.GIRA_URL ?? 'http://localhost:3002').replace(/\/$/, '');
+  const key = process.env.GIRA_SERVICE_KEY;
+  if (!key) return reply.code(500).send({ error: 'GIRA_SERVICE_KEY가 설정되지 않았습니다 (관리자에게 문의)' });
+  const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+  const res = await fetch(giraUrl + '/api/dev-feedback', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      kind: req.body?.kind, title: req.body?.title, detail: req.body?.detail,
+      author: me[0]?.display_name ?? null, source: 'Gonfluence',
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  return reply.code(res.status).send(body);
+});
+
 // ---------- 스페이스 패키지 내보내기/가져오기 ----------
 
 // 내보내기: 스페이스 관리자(또는 사이트 관리자)

@@ -9,6 +9,7 @@ import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
 import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, GonfSettingsHub } from './access.jsx';
 import { IconSettings } from './jira/icons.jsx';
+import { DevFeedbackModal, SPEC_URL } from './dev-feedback-ui.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
@@ -31,6 +32,7 @@ export default function App() {
   const [space, setSpace] = useState(null);
   const [spaceErr, setSpaceErr] = useState(null); // 403(접근 요청 가능) 등
   const [permOpen, setPermOpen] = useState(false); // 스페이스 권한 편집
+  const [devFbOpen, setDevFbOpen] = useState(false); // 개발참여 (GIRA 프로젝트 이슈 등록)
   const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
   const [me, setMe] = useState(undefined); // undefined=확인 중, null=로그인 필요
   const dragStart = useRef(null);
@@ -172,7 +174,18 @@ export default function App() {
   if (me === undefined) return <div className="page-loading">불러오는 중…</div>;
   if (me === null) return <Login onLogin={setMe} />;
 
-  if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} theme={theme} setTheme={setTheme} />;
+  const devFbModal = devFbOpen && (
+    <DevFeedbackModal api={api} giraOrigin={`//${location.hostname}:3002`}
+      onClose={() => setDevFbOpen(false)} />
+  );
+
+  if (route.view === 'home') {
+    return <>
+      <Home navigate={navigate} me={me} logout={logout} theme={theme} setTheme={setTheme}
+        openDevFb={() => setDevFbOpen(true)} />
+      {devFbModal}
+    </>;
+  }
   // 조직 관리(사용자·팀·그룹)는 관리 서비스(3003)로 분리 — 여기서는 접근 요청 승인함만
   if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
   // 권한 없는 스페이스: 접근 요청 화면
@@ -210,6 +223,8 @@ export default function App() {
             <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
           )}
         </>}
+        <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setDevFbOpen(true); }}>💡 개발참여</a>
+        <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up
@@ -224,6 +239,7 @@ export default function App() {
       {movePage && <MoveDialog page={movePage} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMovePage(null)} />}
       {permOpen && space && <SpacePermissionsModal spaceKey={space.key} onClose={() => setPermOpen(false)} />}
+      {devFbModal}
     </div>
   );
 }
@@ -350,7 +366,7 @@ function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }
   );
 }
 
-function Home({ navigate, me, logout, theme, setTheme }) {
+function Home({ navigate, me, logout, theme, setTheme, openDevFb }) {
   const [spaces, setSpaces] = useState(null);
   const [feed, setFeed] = useState(null);
   const [q, setQ] = useState('');
@@ -364,6 +380,8 @@ function Home({ navigate, me, logout, theme, setTheme }) {
   return (
     <div className="home home-wide">
       <div className="home-user muted">
+        <a href="#" onClick={(e) => { e.preventDefault(); openDevFb(); }}>💡 개발참여</a>
+        <a href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서</a>
         <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
       </div>
