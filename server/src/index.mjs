@@ -837,9 +837,26 @@ async function proxyDevChat(req, reply, method, pathName, body) {
 app.post('/api/dev-chat', async (req, reply) => {
   const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
   return proxyDevChat(req, reply, 'POST', '/api/dev-chat', {
-    sessionId: req.body?.sessionId, message: req.body?.message,
+    sessionId: req.body?.sessionId, message: req.body?.message, fileIds: req.body?.fileIds,
     author: me[0]?.display_name ?? null, source: 'Gonfluence',
   });
+});
+// 첨부 올리기: 작성자 이름을 파일보다 먼저 넣어 Gira로 전달 (Gira가 작성자 기준으로 소유를 구분)
+app.post('/api/dev-chat/files', async (req, reply) => {
+  const giraUrl = (process.env.GIRA_URL ?? 'http://localhost:3002').replace(/\/$/, '');
+  const key = process.env.GIRA_SERVICE_KEY;
+  if (!key) return reply.code(500).send({ error: 'GIRA_SERVICE_KEY가 설정되지 않았습니다 (관리자에게 문의)' });
+  const file = await req.file();
+  if (!file) return reply.code(400).send({ error: '파일이 없습니다' });
+  const buf = await file.toBuffer();
+  const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+  const form = new FormData();
+  form.append('author', me[0]?.display_name ?? '');
+  form.append('file', new Blob([buf], { type: file.mimetype || 'application/octet-stream' }), file.filename);
+  const res = await fetch(giraUrl + '/api/dev-chat/files', {
+    method: 'POST', headers: { authorization: `Bearer ${key}` }, body: form,
+  });
+  return reply.code(res.status).send(await res.json().catch(() => ({})));
 });
 app.get('/api/dev-chat/:id', async (req, reply) => {
   const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);

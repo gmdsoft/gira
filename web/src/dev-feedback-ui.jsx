@@ -1,12 +1,13 @@
-// 개발참여 챗봇 (Gira/Gonfluence 공용): 바라는 점·버그를 자연어로 말하면 AI가 답하고,
-// 필요한 작업은 GIRA 개발 프로젝트에 이슈(에픽~작업)로 자동 생성한다. 대화는 서버에 저장되어 이어진다.
+// 개발참여 챗봇 (Gira/Gonfluence 공용): 바라는 점·버그를 자연어(+스크린샷·로그 첨부)로 말하면 AI가 답하고,
+// 필요한 작업은 GIRA 개발 프로젝트에 이슈(에픽~작업)로 등록한다(등록까지만). 대화는 서버에 저장되어 이어진다.
 import React, { useEffect, useRef, useState } from 'react';
 
 export const SPEC_URL = 'https://claude.ai/artifact/RhWSzPu8SU2nTfhEJqHLDY';
 const SESSION_KEY = 'devchat.session';
 
 const TYPE_LABEL = { epic: '에픽', story: '스토리', task: '작업', subtask: '하위 작업', bug: '버그' };
-const EXEC_LABEL = { codex: 'Codex', opencode: 'OpenCode', human: '사람' };
+const MAX_FILES = 5;
+const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB');
 
 // 개발참여를 새 탭으로 연다 — 같은 이름의 탭을 재사용 (수정 확인을 위해 원래 화면을 새로고침해도 대화가 유지됨)
 export function openDevChat() { window.open('/dev-chat', 'gira-devchat'); }
@@ -19,7 +20,35 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
   const [msgs, setMsgs] = useState([]); // {role, text, created?}
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [files, setFiles] = useState([]); // 보낼 첨부 {tmp, id?, filename, size, error?}
+  const [dragging, setDragging] = useState(false);
   const listRef = useRef(null);
+  const fileInput = useRef(null);
+  const uploading = files.some((f) => !f.id && !f.error);
+
+  // 파일 선택·붙여넣기·끌어놓기 → 바로 올리고 번호를 받아 둔다
+  const addFiles = (list) => {
+    const picked = [...list].slice(0, Math.max(0, MAX_FILES - files.length));
+    if (list.length > picked.length) alert(`첨부는 한 번에 ${MAX_FILES}개까지입니다`);
+    for (const file of picked) {
+      const tmp = Math.random().toString(36).slice(2);
+      const filename = file.name || `붙여넣은 이미지.${(file.type.split('/')[1] || 'png')}`;
+      setFiles((fs) => [...fs, { tmp, filename, size: file.size }]);
+      if (file.size > 20 * 1024 * 1024) {
+        setFiles((fs) => fs.map((f) => (f.tmp === tmp ? { ...f, error: '20MB 초과' } : f)));
+        continue;
+      }
+      const form = new FormData();
+      form.append('file', file, filename);
+      api('/api/dev-chat/files', { method: 'POST', body: form, quiet: true })
+        .then((r) => setFiles((fs) => fs.map((f) => (f.tmp === tmp ? { ...f, id: r.id } : f))))
+        .catch((err) => setFiles((fs) => fs.map((f) => (f.tmp === tmp ? { ...f, error: err.message } : f))));
+    }
+  };
+  const onPaste = (e) => {
+    const list = [...(e.clipboardData?.files ?? [])];
+    if (list.length) { e.preventDefault(); addFiles(list); }
+  };
 
   // 이전 대화 불러오기
   useEffect(() => {
@@ -30,14 +59,18 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
   }, []);
   useEffect(() => { listRef.current?.scrollTo(0, listRef.current.scrollHeight); }, [msgs, busy]);
 
+  const ready = files.filter((f) => f.id);
   const send = async () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && !ready.length) || busy || uploading) return;
     setInput('');
-    setMsgs((m) => [...m, { role: 'user', text }]);
+    setFiles([]);
+    setMsgs((m) => [...m, { role: 'user', text, files: ready.map((f) => f.filename) }]);
     setBusy(true);
     try {
-      const r = await api('/api/dev-chat', { method: 'POST', json: { sessionId, message: text }, quiet: true });
+      const r = await api('/api/dev-chat', {
+        method: 'POST', json: { sessionId, message: text, fileIds: ready.map((f) => f.id) }, quiet: true,
+      });
       if (r.sessionId !== sessionId) {
         setSessionId(r.sessionId);
         try { localStorage.setItem(SESSION_KEY, String(r.sessionId)); } catch { /* 무시 */ }
@@ -49,13 +82,16 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
   };
 
   const newChat = () => {
-    setSessionId(null); setMsgs([]);
+    setSessionId(null); setMsgs([]); setFiles([]);
     try { localStorage.removeItem(SESSION_KEY); } catch { /* 무시 */ }
   };
 
   return (
     <div className="devchat-page">
-      <div className="devchat">
+      <div className={'devchat' + (dragging ? ' devchat-drop' : '')}
+        onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setDragging(true); } }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false); }}
+        onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); } }}>
         <div className="devchat-head">
           <h2>개발참여</h2>
           <a href={SPEC_URL} target="_blank" rel="noreferrer">개발 명세서 ↗</a>
@@ -67,13 +103,17 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
             <div className="devchat-empty">
               <strong>거 참 많이 답답하시죠?</strong><br />
               Gira·Gonfluence에 바라는 기능, 불편한 점, 버그를 편하게 말해 주세요.<br />
-              필요한 작업은 GIRA 개발 프로젝트에 이슈로 등록되고, 처리 과정은 그 이슈에서 볼 수 있습니다.
+              내용을 정리해 GIRA 개발 프로젝트에 이슈로 등록해 드리고, 개발 담당자가 확인 후 처리합니다.<br />
+              스크린샷이나 로그는 📎 버튼, 붙여넣기(Ctrl+V), 끌어놓기로 첨부할 수 있습니다.
               <div className="devchat-ex">예) "이슈 목록에서 마감일 순으로 정렬하고 싶어요" · "보드에서 카드를 끌면 가끔 원래 자리로 돌아가요"</div>
             </div>
           )}
           {msgs.map((m, i) => (
             <div key={i} className={'devchat-msg devchat-' + m.role}>
-              <div className="devchat-bubble">{m.text}</div>
+              {(m.text || !m.files?.length) && <div className="devchat-bubble">{m.text}</div>}
+              {m.files?.length > 0 && (
+                <div className="devchat-files">{m.files.map((f, j) => <span key={j} className="devchat-file">📎 {f}</span>)}</div>
+              )}
               {m.created?.length > 0 && (
                 <div className="devchat-issues">
                   {m.created.map((c) => (
@@ -81,8 +121,8 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
                       title={c.summary}>
                       <strong>{c.key}</strong> <span>{TYPE_LABEL[c.type] ?? c.type}</span>
                       <span className="devchat-sum">{c.summary}</span>
-                      <span className="devchat-exec">{EXEC_LABEL[c.executor] ?? c.executor}
-                        {c.needsApproval ? ' · 승인 필요' : c.autoStarted ? ' · 처리 시작됨' : ''}</span>
+                      <span className="devchat-exec">{c.needsApproval ? '승인 필요' : '등록됨'}
+                        {c.attachments?.length ? ` · 첨부 ${c.attachments.length}` : ''}</span>
                     </a>
                   ))}
                 </div>
@@ -91,13 +131,29 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
           ))}
           {busy && <div className="devchat-msg devchat-assistant"><div className="devchat-bubble devchat-typing">생각 중…</div></div>}
         </div>
+        {files.length > 0 && (
+          <div className="devchat-files devchat-pending">
+            {files.map((f) => (
+              <span key={f.tmp} className={'devchat-file' + (f.error ? ' devchat-file-err' : '')}
+                title={f.error ?? ''}>
+                📎 {f.filename} <span className="devchat-fsize">{f.error ? f.error : f.id ? fmtSize(f.size) : '올리는 중…'}</span>
+                <button type="button" aria-label="첨부 빼기" onClick={() => setFiles((fs) => fs.filter((x) => x.tmp !== f.tmp))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
         <div className="devchat-input">
-          <textarea rows={3} value={input} onChange={(e) => setInput(e.target.value)} autoFocus
-            placeholder="메시지 입력 (Enter 보내기, Shift+Enter 줄바꿈)"
+          <button type="button" className={btn + ' devchat-attach'} title="파일 첨부 (스크린샷·로그 등, 최대 5개)"
+            onClick={() => fileInput.current?.click()} disabled={busy || files.length >= MAX_FILES}>📎</button>
+          <input ref={fileInput} type="file" multiple hidden
+            onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+          <textarea rows={3} value={input} onChange={(e) => setInput(e.target.value)} autoFocus onPaste={onPaste}
+            placeholder="메시지 입력 (Enter 보내기, Shift+Enter 줄바꿈, 이미지 붙여넣기 가능)"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
             }} />
-          <button className={btnPrimary} onClick={send} disabled={busy || !input.trim()}>보내기</button>
+          <button className={btnPrimary} onClick={send}
+            disabled={busy || uploading || (!input.trim() && !ready.length)}>보내기</button>
         </div>
       </div>
     </div>

@@ -18,8 +18,13 @@
   `ORG_MIRROR_DATABASE_URL`(콤마 구분)로 다른 앱 DB에 복제. 관리 SPA는 `npm --workspace web run build:admin`(→ dist-admin, 재시작 불필요).
 - 개발참여 챗봇(server/src/dev-chat.mjs): 지침은 `server/src/dev-agent/guidelines.md`(시스템 프롬프트),
   처리 에이전트 지침은 `dev-agent/worker.md`. 키는 `.env`의 `ANTHROPIC_API_KEY`.
-  이슈 처리는 `scripts/dev-dispatcher.mjs`(codex/opencode 헤드리스, ../gira-work/<KEY> worktree, 커밋까지만) —
-  챗봇이 즉시 처리 가능한 이슈를 만들거나 needs-approval이 제거되면 Gira 서버가 자동 실행(`DEV_AUTO_DISPATCH=0`으로 끔).
+  **챗봇은 이슈 등록(+첨부)까지만** 한다. 처리는 개발 세션(이 Claude Code)에서 사람이 지시할 때:
+  `node scripts/gira-issue.mjs [KEY]`로 이슈를 읽고, 직접 구현하거나
+  `node scripts/dev-dispatcher.mjs --run --issue <KEY> [--executor codex|opencode] [--note "지시"]`로 맡긴다
+  (codex/opencode 헤드리스, ../gira-work/<KEY> worktree, 커밋 후 푸시·PR까지, 머지는 사람이). 자동 실행 없음.
+  처리 절차는 `server/src/dev-agent/daily-run.md` (하루 한 번 확인·처리할 때와 직접 요청받았을 때 공통).
+  매일 04:17 KST 시스템 cron이 `scripts/dev-daily-run.sh`(claude -p 헤드리스, 로그 logs/dev-daily/)로 실행 —
+  무인 로그인은 `.env`의 `CLAUDE_CODE_OAUTH_TOKEN`(`claude setup-token`으로 발급).
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).

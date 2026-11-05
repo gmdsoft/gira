@@ -171,6 +171,17 @@ CREATE TABLE IF NOT EXISTS dev_chat_messages (
 CREATE INDEX IF NOT EXISTS dev_chat_messages_session ON dev_chat_messages(session_id, id);
 -- 비용 측정: assistant 응답의 토큰 사용량(model, input/output/cache_read/cache_creation)
 ALTER TABLE dev_chat_messages ADD COLUMN IF NOT EXISTS usage jsonb;
+-- 챗봇에 올린 첨부 파일 (스크린샷·로그 등): 대화에서 모델이 보고, 만든 이슈에 첨부로 복사된다
+CREATE TABLE IF NOT EXISTS dev_chat_files (
+  id bigserial PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES users(id),
+  author text,                    -- Gonfluence 프록시(서비스 키)는 작성자 이름으로 구분
+  filename text NOT NULL,
+  media_type text,
+  file_size bigint NOT NULL,
+  local_key text NOT NULL,        -- DATA_DIR 아래 경로
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 
 -- 저장된 필터 (사용자별)
 CREATE TABLE IF NOT EXISTS jira_filters (
