@@ -11,6 +11,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
+import { projectRole, projectRoles } from './perm.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -64,9 +65,39 @@ async function issueByKey(key) {
   return rows[0] ?? null;
 }
 
+// ---------- 프로젝트 접근 판정 ----------
+// 규칙 없음 = 비공개(사이트 관리자만). need 미달이면 403/404를 보내고 null을 반환한다.
+const roleOk = (role, need) =>
+  !!role && !(need === 'editor' && role === 'viewer') && !(need === 'admin' && role !== 'admin');
+
+function denyProject(reply, role, projectKey, need) {
+  reply.code(403).send({
+    error: role ? '이 작업을 할 권한이 없습니다' : '이 프로젝트에 접근할 수 없습니다',
+    canRequest: !role, projectKey, need,
+  });
+  return null;
+}
+
+async function requireProject(req, reply, projectKey, need = 'viewer') {
+  const { rows } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [projectKey]);
+  if (!rows.length) { reply.code(404).send({ error: 'project not found' }); return null; }
+  const role = await projectRole(req.access, rows[0].id);
+  if (!roleOk(role, need)) return denyProject(reply, role, rows[0].key, need);
+  return { ...rows[0], role };
+}
+
+async function requireProjectId(req, reply, projectId, need = 'viewer') {
+  const { rows } = await query(`SELECT id, key FROM jira_projects WHERE id = $1`, [projectId]);
+  if (!rows.length) { reply.code(404).send({ error: 'project not found' }); return null; }
+  const role = await projectRole(req.access, rows[0].id);
+  if (!roleOk(role, need)) return denyProject(reply, role, rows[0].key, need);
+  return { ...rows[0], role };
+}
+
 // ---------- 메타 ----------
 
-app.get('/api/meta', async () => {
+app.get('/api/meta', async (req) => {
+  const roles = await projectRoles(req.access);
   const [projects, statuses, types, assignees, priorities, resolutions] = await Promise.all([
     query(`SELECT id, key, name FROM jira_projects ORDER BY key`),
     query(`SELECT id, name, category FROM jira_statuses ORDER BY
@@ -79,14 +110,19 @@ app.get('/api/meta', async () => {
     query(`SELECT DISTINCT resolution FROM jira_issues WHERE resolution IS NOT NULL`),
   ]);
   return {
-    projects: projects.rows, statuses: statuses.rows, types: types.rows,
+    // 접근 가능한 프로젝트만 노출 (role 포함)
+    projects: projects.rows
+      .filter((p) => roles.has(String(p.id)))
+      .map((p) => ({ ...p, role: roles.get(String(p.id)) })),
+    statuses: statuses.rows, types: types.rows,
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
     resolutions: resolutions.rows.map((r) => r.resolution),
   };
 });
 
 // 프로젝트 버전 목록 (수정 버전 선택용)
-app.get('/api/versions', async (req) => {
+app.get('/api/versions', async (req, reply) => {
+  if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
     `SELECT v.id, v.name, v.released FROM jira_versions v
        JOIN jira_projects p ON p.id = v.project_id
@@ -95,7 +131,8 @@ app.get('/api/versions', async (req) => {
 });
 
 // 프로젝트의 레이블·컴포넌트 목록 (JQL 자동완성 값 제안용)
-app.get('/api/labels', async (req) => {
+app.get('/api/labels', async (req, reply) => {
+  if (!await requireProject(req, reply, req.query.project)) return;
   const one = async (col) => (await query(
     `SELECT DISTINCT unnest(i.${col}) AS v FROM jira_issues i
        JOIN jira_projects p ON p.id = i.project_id WHERE p.key = $1 ORDER BY v`, [req.query.project]))
@@ -123,9 +160,13 @@ const ISSUE_SORT_COLS = {
 
 app.get('/api/issues', async (req, reply) => {
   const { project, status, type, assignee, priority, sprint, q } = req.query;
-  const cond = ['1=1'];
+  // 접근 가능한 프로젝트로 범위 제한 (JQL 임의 조건도 이 범위를 벗어날 수 없다)
+  const myRoles = await projectRoles(req.access);
+  if (!myRoles.size) return { total: 0, rows: [] };
+  const cond = [];
   const params = [];
   const p = (v) => { params.push(v); return `$${params.length}`; };
+  cond.push(`i.project_id = ANY(${p([...myRoles.keys()])}::bigint[])`);
   if (project) cond.push(`pr.key = ${p(project)}`);
   let jqlOrder = null;
   // jql 파라미터는 여러 개 가능 (보드 필터 + 사용자 필터 AND 결합), ORDER BY는 마지막 것 적용
@@ -205,6 +246,9 @@ app.get('/api/issue/:key', async (req, reply) => {
       WHERE i.issue_key = $1`, [req.params.key]);
   const issue = rows[0];
   if (!issue) return reply.code(404).send({ error: 'not found' });
+  const proj = await requireProjectId(req, reply, issue.project_id);
+  if (!proj) return;
+  issue.project_role = proj.role;
   delete issue.fields_raw;
 
   const [comments, attachments, links, subtasks, history] = await Promise.all([
@@ -244,9 +288,8 @@ app.post('/api/issues', async (req, reply) => {
   if (!projectKey || !typeId || !summary?.trim()) {
     return reply.code(400).send({ error: 'projectKey, typeId, summary는 필수입니다' });
   }
-  const { rows: pr } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [projectKey]);
-  if (!pr.length) return reply.code(404).send({ error: 'project not found' });
-  const project = pr[0];
+  const project = await requireProject(req, reply, projectKey, 'editor');
+  if (!project) return;
   let parentId = null;
   if (parentKey?.trim()) {
     const parent = await issueByKey(parentKey.trim().toUpperCase());
@@ -281,6 +324,7 @@ app.post('/api/issues', async (req, reply) => {
 app.patch('/api/issue/:key', async (req, reply) => {
   const issue = await issueByKey(req.params.key);
   if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   const b = req.body ?? {};
   const sets = [];
   const params = [issue.id];
@@ -364,6 +408,7 @@ async function issueSnapshot(id) {
 app.post('/api/issue/:key/comments', async (req, reply) => {
   const issue = await issueByKey(req.params.key);
   if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   const text = req.body?.text?.trim();
   if (!text) return reply.code(400).send({ error: '내용을 입력하세요' });
   const { rows } = await query(
@@ -377,6 +422,16 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
 app.patch('/api/comments/:id', async (req, reply) => {
   const text = req.body?.text?.trim();
   if (!text) return reply.code(400).send({ error: '내용을 입력하세요' });
+  const { rows: cm } = await query(
+    `SELECT c.author_id, i.project_id FROM jira_comments c JOIN jira_issues i ON i.id = c.issue_id
+      WHERE c.id = $1`, [req.params.id]);
+  if (!cm.length) return reply.code(404).send({ error: 'not found' });
+  const proj = await requireProjectId(req, reply, cm[0].project_id, 'editor');
+  if (!proj) return;
+  // 남의 댓글은 프로젝트 관리자만 수정 가능
+  if (Number(cm[0].author_id) !== req.access.userId && proj.role !== 'admin') {
+    return reply.code(403).send({ error: '본인 댓글만 수정할 수 있습니다' });
+  }
   const { rowCount } = await query(
     `UPDATE jira_comments SET body_adf = $2, updated_at = now() WHERE id = $1`,
     [req.params.id, JSON.stringify(textToAdf(text))]);
@@ -389,6 +444,7 @@ app.patch('/api/comments/:id', async (req, reply) => {
 app.post('/api/issue/:key/attachments', async (req, reply) => {
   const issue = await issueByKey(req.params.key);
   if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   const file = await req.file();
   if (!file) return reply.code(400).send({ error: 'file required' });
   const buf = await file.toBuffer();
@@ -408,9 +464,11 @@ app.post('/api/issue/:key/attachments', async (req, reply) => {
 // 첨부 서빙: 로컬 업로드는 파일에서, 이관분은 원본 Jira 읽기 전용 프록시
 app.get('/api/attachment/:id', async (req, reply) => {
   const { rows } = await query(
-    `SELECT filename, media_type, source_url, local_key FROM jira_attachments WHERE id = $1`, [req.params.id]);
+    `SELECT a.filename, a.media_type, a.source_url, a.local_key, i.project_id
+       FROM jira_attachments a JOIN jira_issues i ON i.id = a.issue_id WHERE a.id = $1`, [req.params.id]);
   const att = rows[0];
   if (!att) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, att.project_id)) return;
   reply.header('content-type', att.media_type ?? 'application/octet-stream');
   reply.header('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(att.filename)}`);
   if (att.local_key) return reply.send(createReadStream(path.join(DATA_DIR, att.local_key)));
@@ -422,7 +480,8 @@ app.get('/api/attachment/:id', async (req, reply) => {
 
 // ---------- 스프린트 ----------
 
-app.get('/api/sprints', async (req) => {
+app.get('/api/sprints', async (req, reply) => {
+  if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
     `SELECT s.*, (SELECT count(*) FROM jira_issues i WHERE i.sprint_id = s.id) AS issue_count
        FROM jira_sprints s JOIN jira_projects p ON p.id = s.project_id
@@ -436,17 +495,18 @@ app.get('/api/sprints', async (req) => {
 app.post('/api/sprints', async (req, reply) => {
   const { projectKey, name, goal } = req.body ?? {};
   if (!projectKey || !name?.trim()) return reply.code(400).send({ error: 'projectKey, name은 필수입니다' });
-  const { rows: pr } = await query(`SELECT id FROM jira_projects WHERE key = $1`, [projectKey]);
-  if (!pr.length) return reply.code(404).send({ error: 'project not found' });
+  const pr = await requireProject(req, reply, projectKey, 'editor');
+  if (!pr) return;
   const { rows } = await query(
     `INSERT INTO jira_sprints (project_id, name, goal) VALUES ($1, $2, $3) RETURNING *`,
-    [pr[0].id, name.trim(), goal?.trim() || null]);
+    [pr.id, name.trim(), goal?.trim() || null]);
   return rows[0];
 });
 
 app.patch('/api/sprints/:id', async (req, reply) => {
   const { rows: cur } = await query(`SELECT * FROM jira_sprints WHERE id = $1`, [req.params.id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, cur[0].project_id, 'editor')) return;
   const b = req.body ?? {};
   if (b.state === 'active') {
     // 같은 프로젝트에 활성 스프린트는 하나만
@@ -491,7 +551,8 @@ function jqlErrorOf(jql) {
   catch (e) { return e instanceof JqlError ? `JQL 오류: ${e.message}` : (() => { throw e; })(); }
 }
 
-app.get('/api/boards', async (req) => {
+app.get('/api/boards', async (req, reply) => {
+  if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
     `SELECT b.id, b.name, b.columns, b.type, b.jql FROM jira_boards b
        JOIN jira_projects p ON p.id = b.project_id
@@ -504,16 +565,19 @@ app.post('/api/boards', async (req, reply) => {
   if (!projectKey || !name?.trim()) return reply.code(400).send({ error: 'projectKey, name은 필수입니다' });
   const err = validColumns(columns) ?? (jql?.trim() ? jqlErrorOf(jql.trim()) : null);
   if (err) return reply.code(400).send({ error: err });
-  const { rows: pr } = await query(`SELECT id FROM jira_projects WHERE key = $1`, [projectKey]);
-  if (!pr.length) return reply.code(404).send({ error: 'project not found' });
+  const pr = await requireProject(req, reply, projectKey, 'editor');
+  if (!pr) return;
   const { rows } = await query(
     `INSERT INTO jira_boards (project_id, name, columns, jql) VALUES ($1, $2, $3, $4)
      RETURNING id, name, columns, type, jql`,
-    [pr[0].id, name.trim(), JSON.stringify(columns), jql?.trim() || null]);
+    [pr.id, name.trim(), JSON.stringify(columns), jql?.trim() || null]);
   return rows[0];
 });
 
 app.patch('/api/boards/:id', async (req, reply) => {
+  const { rows: bd } = await query(`SELECT project_id FROM jira_boards WHERE id = $1`, [req.params.id]);
+  if (!bd.length) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, bd[0].project_id, 'editor')) return;
   const b = req.body ?? {};
   if ('columns' in b) {
     const err = validColumns(b.columns);
@@ -532,8 +596,10 @@ app.patch('/api/boards/:id', async (req, reply) => {
 });
 
 app.delete('/api/boards/:id', async (req, reply) => {
-  const { rowCount } = await query(`DELETE FROM jira_boards WHERE id = $1`, [req.params.id]);
-  if (!rowCount) return reply.code(404).send({ error: 'not found' });
+  const { rows: bd } = await query(`SELECT project_id FROM jira_boards WHERE id = $1`, [req.params.id]);
+  if (!bd.length) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, bd[0].project_id, 'editor')) return;
+  await query(`DELETE FROM jira_boards WHERE id = $1`, [req.params.id]);
   return { ok: true };
 });
 
@@ -558,6 +624,148 @@ app.delete('/api/filters/:id', async (req, reply) => {
   const { rowCount } = await query(
     `DELETE FROM jira_filters WHERE id = $1 AND owner_id = $2`, [req.params.id, req.access.userId]);
   if (!rowCount) return reply.code(404).send({ error: 'not found' });
+  return { ok: true };
+});
+
+// ---------- 프로젝트 권한 ----------
+
+// 권한 부여 대상 검색 (사용자/그룹/팀 — 조직 데이터는 Gonfluence 관리에서 미러링됨)
+app.get('/api/principals', async (req) => {
+  const q = (req.query.q ?? '').trim();
+  const { rows: users } = await query(
+    `SELECT id, display_name, email FROM users
+      WHERE active AND display_name IS NOT NULL
+        AND confluence_account_id IS DISTINCT FROM 'test-login'
+        AND ($1 = '' OR display_name ILIKE '%' || $1 || '%' OR email ILIKE '%' || $1 || '%')
+      ORDER BY display_name LIMIT 10`, [q]);
+  const { rows: groups } = await query(
+    `SELECT id, name FROM groups WHERE $1 = '' OR name ILIKE '%' || $1 || '%' ORDER BY name LIMIT 10`, [q]);
+  const { rows: teams } = await query(
+    `SELECT t.id, t.name, p.name AS parent_name
+       FROM teams t LEFT JOIN teams p ON p.id = t.parent_id
+      WHERE $1 = '' OR t.name ILIKE '%' || $1 || '%' OR p.name ILIKE '%' || $1 || '%'
+      ORDER BY coalesce(p.name, t.name), t.parent_id NULLS FIRST, t.name LIMIT 15`, [q]);
+  return {
+    users: users.map((u) => ({ type: 'user', id: u.id, name: u.display_name, email: u.email })),
+    groups: groups.map((g) => ({ type: 'group', id: g.id, name: g.name })),
+    teams: teams.map((t) => ({ type: 'team', id: t.id, name: t.parent_name ? `${t.parent_name} / ${t.name}` : t.name })),
+  };
+});
+
+app.get('/api/projects/:key/permissions', async (req, reply) => {
+  const pr = await requireProject(req, reply, req.params.key, 'admin');
+  if (!pr) return;
+  const { rows } = await query(
+    `SELECT p.principal_type, p.principal_id, p.role,
+            CASE p.principal_type
+              WHEN 'user' THEN u.display_name
+              WHEN 'group' THEN g.name
+              WHEN 'team' THEN CASE WHEN tp.id IS NULL THEN t.name ELSE tp.name || ' / ' || t.name END
+              ELSE '로그인한 모든 사용자' END AS name
+       FROM jira_project_permissions p
+       LEFT JOIN users u ON p.principal_type = 'user' AND u.id = p.principal_id
+       LEFT JOIN groups g ON p.principal_type = 'group' AND g.id = p.principal_id
+       LEFT JOIN teams t ON p.principal_type = 'team' AND t.id = p.principal_id
+       LEFT JOIN teams tp ON tp.id = t.parent_id
+      WHERE p.project_id = $1 ORDER BY p.role DESC, name`, [pr.id]);
+  return rows;
+});
+
+app.put('/api/projects/:key/permissions', async (req, reply) => {
+  const pr = await requireProject(req, reply, req.params.key, 'admin');
+  if (!pr) return;
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  for (const r of rows) {
+    if (!['user', 'group', 'team', 'anyone'].includes(r.principalType) || !['viewer', 'editor', 'admin'].includes(r.role)) {
+      return reply.code(400).send({ error: '잘못된 권한 행입니다' });
+    }
+  }
+  // 요청자 자신이 잠기지 않도록 본인을 admin으로 보강 (사이트 관리자는 제외)
+  if (rows.length && !req.access.isAdmin) {
+    const self = rows.some((r) => r.principalType === 'user' && Number(r.principalId) === req.access.userId && r.role === 'admin');
+    if (!self) rows.push({ principalType: 'user', principalId: req.access.userId, role: 'admin' });
+  }
+  await query(`DELETE FROM jira_project_permissions WHERE project_id = $1`, [pr.id]);
+  for (const r of rows) {
+    await query(
+      `INSERT INTO jira_project_permissions (project_id, principal_type, principal_id, role)
+       VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+      [pr.id, r.principalType, r.principalType === 'anyone' ? 0 : Number(r.principalId), r.role]);
+  }
+  return { ok: true, count: rows.length };
+});
+
+// ---------- 접근 권한 요청 ----------
+
+app.post('/api/access-requests', async (req, reply) => {
+  const { projectKey, want, reason } = req.body ?? {};
+  const w = ['viewer', 'editor'].includes(want) ? want : 'viewer';
+  const { rows: pr } = await query(`SELECT id FROM jira_projects WHERE key = $1`, [projectKey]);
+  if (!pr.length) return reply.code(404).send({ error: 'project not found' });
+  const role = await projectRole(req.access, pr[0].id);
+  if (role) return reply.code(400).send({ error: '이미 접근 권한이 있습니다', role });
+  const { rows: dup } = await query(
+    `SELECT id FROM access_requests
+      WHERE resource_type = 'project' AND resource_id = $1 AND user_id = $2 AND status = 'pending'`,
+    [pr[0].id, req.access.userId]);
+  if (dup.length) return { ok: true, id: dup[0].id, duplicated: true };
+  const { rows } = await query(
+    `INSERT INTO access_requests (resource_type, resource_id, user_id, want, reason)
+     VALUES ('project', $1, $2, $3, $4) RETURNING id`,
+    [pr[0].id, req.access.userId, w, (reason ?? '').slice(0, 2000) || null]);
+  return { ok: true, id: rows[0].id };
+});
+
+app.get('/api/access-requests/mine', async (req) => {
+  const { rows } = await query(
+    `SELECT r.id, r.want, r.reason, r.status, r.created_at, r.decided_at,
+            p.key AS project_key, d.display_name AS decided_by_name
+       FROM access_requests r
+       JOIN jira_projects p ON p.id = r.resource_id
+       LEFT JOIN users d ON d.id = r.decided_by
+      WHERE r.resource_type = 'project' AND r.user_id = $1
+      ORDER BY r.created_at DESC LIMIT 50`, [req.access.userId]);
+  return rows;
+});
+
+app.get('/api/access-requests/inbox', async (req) => {
+  const { rows } = await query(
+    `SELECT r.id, r.want, r.reason, r.status, r.created_at, r.resource_id,
+            p.key AS project_key, p.name AS project_name,
+            u.display_name AS user_name, u.email AS user_email
+       FROM access_requests r
+       JOIN jira_projects p ON p.id = r.resource_id
+       JOIN users u ON u.id = r.user_id
+      WHERE r.resource_type = 'project' AND r.status = 'pending'
+      ORDER BY r.created_at`);
+  const out = [];
+  const cache = new Map();
+  for (const r of rows) {
+    let role = cache.get(r.resource_id);
+    if (role === undefined) { role = await projectRole(req.access, r.resource_id); cache.set(r.resource_id, role); }
+    if (role === 'admin') out.push(r);
+  }
+  return out;
+});
+
+app.post('/api/access-requests/:id/decide', async (req, reply) => {
+  const approve = !!req.body?.approve;
+  const { rows: rq } = await query(
+    `SELECT id, resource_id, user_id, want, status FROM access_requests
+      WHERE id = $1 AND resource_type = 'project'`, [req.params.id]);
+  if (!rq.length) return reply.code(404).send({ error: 'not found' });
+  if (rq[0].status !== 'pending') return reply.code(400).send({ error: '이미 처리된 요청입니다' });
+  const role = await projectRole(req.access, rq[0].resource_id);
+  if (role !== 'admin') return reply.code(403).send({ error: '이 프로젝트의 관리자만 처리할 수 있습니다' });
+  if (approve) {
+    await query(
+      `INSERT INTO jira_project_permissions (project_id, principal_type, principal_id, role)
+       VALUES ($1, 'user', $2, $3) ON CONFLICT DO NOTHING`,
+      [rq[0].resource_id, rq[0].user_id, rq[0].want]);
+  }
+  await query(
+    `UPDATE access_requests SET status = $2, decided_by = $3, decided_at = now() WHERE id = $1`,
+    [req.params.id, approve ? 'approved' : 'denied', req.access.userId]);
   return { ok: true };
 });
 

@@ -27,6 +27,38 @@ CREATE TABLE IF NOT EXISTS user_groups (
   PRIMARY KEY (user_id, group_id)
 );
 
+-- 팀·파트 (2단 조직: parent_id가 NULL이면 팀, 있으면 그 팀의 파트)
+CREATE TABLE IF NOT EXISTS teams (
+  id bigserial PRIMARY KEY,
+  name text NOT NULL,
+  parent_id bigint REFERENCES teams(id),
+  position int
+);
+
+-- 사용자 조직 속성: 주 소속(team_id: 파트 또는 팀 직속), 직책(duty: 권한 판정), 직급(rank: 표시용)
+ALTER TABLE users ADD COLUMN IF NOT EXISTS team_id bigint REFERENCES teams(id);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS duty text NOT NULL DEFAULT 'member';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS rank text;
+
+-- 생성 권한 그룹 (예: 'PM들'): 멤버는 프로젝트/스페이스를 만들 수 있다
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_create boolean NOT NULL DEFAULT false;
+
+-- 접근 권한 요청 (space = Gonfluence, project = Gira — 각 앱 DB에서 자기 리소스만 사용)
+CREATE TABLE IF NOT EXISTS access_requests (
+  id bigserial PRIMARY KEY,
+  resource_type text NOT NULL CHECK (resource_type IN ('space','project')),
+  resource_id bigint NOT NULL,
+  user_id bigint NOT NULL REFERENCES users(id),
+  want text NOT NULL DEFAULT 'viewer' CHECK (want IN ('viewer','editor')),
+  reason text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','denied')),
+  decided_by bigint REFERENCES users(id),
+  decided_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS access_requests_resource ON access_requests(resource_type, resource_id, status);
+CREATE INDEX IF NOT EXISTS access_requests_user ON access_requests(user_id, created_at);
+
 -- API 키: Authorization: Bearer 로 쿠키 세션 대신 인증 (키는 해시로만 저장, 발급 시 1회 표시)
 CREATE TABLE IF NOT EXISTS api_keys (
   id bigserial PRIMARY KEY,

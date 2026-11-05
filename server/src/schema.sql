@@ -98,20 +98,27 @@ CREATE TABLE IF NOT EXISTS content_labels (
 
 CREATE TABLE IF NOT EXISTS space_permissions (
   space_id bigint NOT NULL REFERENCES spaces(id),
-  principal_type text NOT NULL CHECK (principal_type IN ('user','group','anyone')),
+  principal_type text NOT NULL CHECK (principal_type IN ('user','group','team','anyone')),
   principal_id bigint NOT NULL DEFAULT 0,
   role text NOT NULL CHECK (role IN ('viewer','editor','admin')),
   PRIMARY KEY (space_id, principal_type, principal_id, role)
 );
+-- 기존 DB의 CHECK에 'team' 추가 (멱등: 매 기동마다 재생성)
+ALTER TABLE space_permissions DROP CONSTRAINT IF EXISTS space_permissions_principal_type_check;
+ALTER TABLE space_permissions ADD CONSTRAINT space_permissions_principal_type_check
+  CHECK (principal_type IN ('user','group','team','anyone'));
 
 -- 페이지 접근 제한 (Confluence 제한과 동일 의미: view 제한은 하위 페이지에 상속, edit 제한은 해당 페이지만)
 CREATE TABLE IF NOT EXISTS content_restrictions (
   content_id bigint NOT NULL REFERENCES content(id),
   rtype text NOT NULL CHECK (rtype IN ('view','edit')),
-  principal_type text NOT NULL CHECK (principal_type IN ('user','group')),
+  principal_type text NOT NULL CHECK (principal_type IN ('user','group','team')),
   principal_id bigint NOT NULL,
   PRIMARY KEY (content_id, rtype, principal_type, principal_id)
 );
+ALTER TABLE content_restrictions DROP CONSTRAINT IF EXISTS content_restrictions_principal_type_check;
+ALTER TABLE content_restrictions ADD CONSTRAINT content_restrictions_principal_type_check
+  CHECK (principal_type IN ('user','group','team'));
 CREATE INDEX IF NOT EXISTS content_restrictions_content ON content_restrictions(content_id);
 
 -- 새로 만드는 콘텐츠의 ID 발급. 이관된 Confluence ID보다 큰 값에서 시작하도록 서버 기동 시 보정한다.

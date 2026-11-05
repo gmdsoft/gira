@@ -10,7 +10,7 @@ import { createReadStream } from 'node:fs';
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query, DATA_DIR, closeDb } from './db.mjs';
+import { query, DATA_DIR, closeDb, mirrorQuery } from './db.mjs';
 import { decodeTinyToken } from './tinylink.mjs';
 import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
@@ -83,6 +83,44 @@ app.get('/api/spaces', async (req) => {
   return out;
 });
 
+// 스페이스 생성 — 정책(알파): 팀장·파트장 직책, can_create 그룹 멤버, 사이트 관리자는 일반 스페이스를,
+// 일반 구성원은 자신의 개인 스페이스 1개만 만들 수 있다. 생성자는 그 스페이스의 관리자가 된다.
+app.post('/api/spaces', async (req, reply) => {
+  const userId = req.access.userId;
+  const personal = req.body?.type === 'personal';
+  const name = req.body?.name?.trim();
+  if (personal) {
+    const key = '~' + userId;
+    const { rows: exist } = await query(`SELECT key FROM spaces WHERE key = $1`, [key]);
+    if (exist.length) return reply.code(409).send({ error: '개인 스페이스는 1개만 만들 수 있습니다', key });
+    const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [userId]);
+    const spName = name || `${me[0]?.display_name ?? '내'}의 스페이스`;
+    const { rows } = await query(
+      `INSERT INTO spaces (id, key, name, type, status, created_at)
+       VALUES ((SELECT coalesce(max(id), 0) + 1 FROM spaces), $1, $2, 'personal', 'current', now())
+       RETURNING id, key, name`, [key, spName]);
+    await query(`INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
+                 VALUES ($1, 'user', $2, 'admin')`, [rows[0].id, userId]);
+    return rows[0];
+  }
+  if (!req.access.canCreate) {
+    return reply.code(403).send({ error: '스페이스를 만들 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
+  }
+  const key = req.body?.key?.trim()?.toUpperCase();
+  if (!name || !key || !/^[A-Z][A-Z0-9]{1,19}$/.test(key)) {
+    return reply.code(400).send({ error: '이름과 키(영문 시작, 대문자·숫자 2~20자)를 입력하세요' });
+  }
+  const { rows: dup } = await query(`SELECT 1 FROM spaces WHERE key = $1`, [key]);
+  if (dup.length) return reply.code(409).send({ error: '이미 사용 중인 키입니다' });
+  const { rows } = await query(
+    `INSERT INTO spaces (id, key, name, type, status, created_at)
+     VALUES ((SELECT coalesce(max(id), 0) + 1 FROM spaces), $1, $2, 'global', 'current', now())
+     RETURNING id, key, name`, [key, name]);
+  await query(`INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
+               VALUES ($1, 'user', $2, 'admin')`, [rows[0].id, userId]);
+  return rows[0];
+});
+
 // 홈 '최근 업데이트' 피드 — 접근 가능한 스페이스의 최신 수정 페이지 (마지막 편집자 포함)
 app.get('/api/home/recent', async (req) => {
   const { rows } = await query(
@@ -111,7 +149,7 @@ app.get('/api/spaces/:key', async (req, reply) => {
   if (!rows.length) return reply.code(404).send({ error: 'space not found' });
   const space = rows[0];
   const role = await spaceRole(req.access, space.id);
-  if (!role) return reply.code(403).send({ error: '이 스페이스를 볼 수 있는 권한이 없습니다' });
+  if (!role) return reply.code(403).send({ error: '이 스페이스를 볼 수 있는 권한이 없습니다', canRequest: true, key: req.params.key });
   const { rows: tree } = await query(
     `SELECT id, parent_id, type, title, position, status, current_version
        FROM content WHERE space_id = $1 AND status = 'current'
@@ -622,9 +660,15 @@ app.get('/api/principals', async (req) => {
       ORDER BY display_name LIMIT 10`, [q]);
   const { rows: groups } = await query(
     `SELECT id, name FROM groups WHERE $1 = '' OR name ILIKE '%' || $1 || '%' ORDER BY name LIMIT 10`, [q]);
+  const { rows: teams } = await query(
+    `SELECT t.id, t.name, p.name AS parent_name
+       FROM teams t LEFT JOIN teams p ON p.id = t.parent_id
+      WHERE $1 = '' OR t.name ILIKE '%' || $1 || '%' OR p.name ILIKE '%' || $1 || '%'
+      ORDER BY coalesce(p.name, t.name), t.parent_id NULLS FIRST, t.name LIMIT 15`, [q]);
   return {
     users: users.map((u) => ({ type: 'user', id: u.id, name: u.display_name, email: u.email, accountId: u.confluence_account_id })),
     groups: groups.map((g) => ({ type: 'group', id: g.id, name: g.name })),
+    teams: teams.map((t) => ({ type: 'team', id: t.id, name: t.parent_name ? `${t.parent_name} / ${t.name}` : t.name })),
   };
 });
 
@@ -632,10 +676,15 @@ app.get('/api/admin/users', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const q = (req.query.q ?? '').trim();
   const { rows } = await query(
-    `SELECT u.id, u.display_name, u.email, u.active, u.is_admin,
+    `SELECT u.id, u.display_name, u.email, u.active, u.is_admin, u.rank, u.duty, u.team_id,
+            CASE WHEN t.id IS NULL THEN NULL
+                 WHEN tp.id IS NULL THEN t.name
+                 ELSE tp.name || ' / ' || t.name END AS team_name,
             coalesce((SELECT array_agg(g.name ORDER BY g.name) FROM user_groups ug JOIN groups g ON g.id = ug.group_id
                        WHERE ug.user_id = u.id), '{}') AS groups
        FROM users u
+       LEFT JOIN teams t ON t.id = u.team_id
+       LEFT JOIN teams tp ON tp.id = t.parent_id
       WHERE u.confluence_account_id IS DISTINCT FROM 'local-dev'
         AND ($1 = '' OR u.display_name ILIKE '%' || $1 || '%' OR u.email ILIKE '%' || $1 || '%')
       ORDER BY u.active DESC, u.display_name NULLS LAST LIMIT 200`, [q]);
@@ -644,22 +693,94 @@ app.get('/api/admin/users', async (req, reply) => {
 
 app.post('/api/admin/users/:id', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
-  const { active, isAdmin } = req.body ?? {};
+  const { active, isAdmin, rank, duty, teamId } = req.body ?? {};
   if (Number(req.params.id) === req.access.userId && isAdmin === false) {
     return reply.code(400).send({ error: '자기 자신의 관리자 권한은 해제할 수 없습니다' });
   }
-  const { rows } = await query(
-    `UPDATE users SET active = COALESCE($2, active), is_admin = COALESCE($3, is_admin)
-      WHERE id = $1 RETURNING id, display_name, active, is_admin`,
-    [req.params.id, active ?? null, isAdmin ?? null]);
+  if (duty != null && !['team_lead', 'part_lead', 'member'].includes(duty)) {
+    return reply.code(400).send({ error: 'duty는 team_lead/part_lead/member 중 하나입니다' });
+  }
+  if (teamId != null && teamId !== undefined) {
+    const { rows: t } = await query(`SELECT id FROM teams WHERE id = $1`, [teamId]);
+    if (!t.length) return reply.code(404).send({ error: 'team not found' });
+  }
+  const sql = `UPDATE users SET
+       active = COALESCE($2, active),
+       is_admin = COALESCE($3, is_admin),
+       rank = CASE WHEN $4 THEN NULLIF($5, '') ELSE rank END,
+       duty = COALESCE($6, duty),
+       team_id = CASE WHEN $7 THEN $8::bigint ELSE team_id END
+     WHERE id = $1 RETURNING id, display_name, active, is_admin, rank, duty, team_id`;
+  const params = [req.params.id, active ?? null, isAdmin ?? null,
+    rank !== undefined, rank ?? null, duty ?? null, teamId !== undefined, teamId ?? null];
+  const { rows } = await query(sql, params);
   if (!rows.length) return reply.code(404).send({ error: 'user not found' });
+  mirrorQuery(sql, params); // Gira DB에도 반영
   return rows[0];
+});
+
+// 팀·파트 관리 (사이트 관리자). parent_id 없으면 팀, 있으면 그 팀의 파트 — 2단까지만.
+app.get('/api/admin/teams', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const { rows } = await query(
+    `SELECT t.id, t.name, t.parent_id, t.position,
+            (SELECT count(*)::int FROM users u WHERE u.team_id = t.id AND u.active) AS member_count
+       FROM teams t ORDER BY t.parent_id NULLS FIRST, t.position NULLS LAST, t.name`);
+  return rows;
+});
+
+app.post('/api/admin/teams', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const name = req.body?.name?.trim();
+  const parentId = req.body?.parentId ?? null;
+  if (!name) return reply.code(400).send({ error: 'name required' });
+  if (parentId != null) {
+    const { rows: p } = await query(`SELECT parent_id FROM teams WHERE id = $1`, [parentId]);
+    if (!p.length) return reply.code(404).send({ error: 'parent team not found' });
+    if (p[0].parent_id != null) return reply.code(400).send({ error: '파트 아래에는 만들 수 없습니다 (팀 > 파트 2단까지)' });
+  }
+  const { rows } = await query(
+    `INSERT INTO teams (name, parent_id) VALUES ($1, $2) RETURNING id, name, parent_id`, [name, parentId]);
+  mirrorQuery(`INSERT INTO teams (id, name, parent_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+    [rows[0].id, name, parentId]);
+  mirrorQuery(`SELECT setval('teams_id_seq', (SELECT coalesce(max(id), 1) FROM teams))`);
+  return rows[0];
+});
+
+app.post('/api/admin/teams/:id', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const name = req.body?.name?.trim();
+  if (!name) return reply.code(400).send({ error: 'name required' });
+  const { rows } = await query(
+    `UPDATE teams SET name = $2 WHERE id = $1 RETURNING id, name, parent_id`, [req.params.id, name]);
+  if (!rows.length) return reply.code(404).send({ error: 'not found' });
+  mirrorQuery(`UPDATE teams SET name = $2 WHERE id = $1`, [req.params.id, name]);
+  return rows[0];
+});
+
+app.delete('/api/admin/teams/:id', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const id = req.params.id;
+  const { rows: busy } = await query(
+    `SELECT (SELECT count(*) FROM users WHERE team_id = $1 AND active) +
+            (SELECT count(*) FROM teams WHERE parent_id = $1) AS n`, [id]);
+  if (Number(busy[0].n) > 0) {
+    return reply.code(400).send({ error: '소속원이나 하위 파트가 있는 조직은 삭제할 수 없습니다' });
+  }
+  await query(`DELETE FROM space_permissions WHERE principal_type = 'team' AND principal_id = $1`, [id]);
+  await query(`DELETE FROM content_restrictions WHERE principal_type = 'team' AND principal_id = $1`, [id]);
+  await query(`UPDATE users SET team_id = NULL WHERE team_id = $1`, [id]);
+  await query(`DELETE FROM teams WHERE id = $1`, [id]);
+  mirrorQuery(`DELETE FROM jira_project_permissions WHERE principal_type = 'team' AND principal_id = $1`, [id]);
+  mirrorQuery(`UPDATE users SET team_id = NULL WHERE team_id = $1`, [id]);
+  mirrorQuery(`DELETE FROM teams WHERE id = $1`, [id]);
+  return { ok: true };
 });
 
 app.get('/api/admin/groups', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const { rows } = await query(
-    `SELECT g.id, g.name, count(ug.user_id)::int AS member_count
+    `SELECT g.id, g.name, g.can_create, count(ug.user_id)::int AS member_count
        FROM groups g LEFT JOIN user_groups ug ON ug.group_id = g.id
       GROUP BY g.id ORDER BY g.name`);
   return rows;
@@ -669,7 +790,23 @@ app.post('/api/admin/groups', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const name = req.body?.name?.trim();
   if (!name) return reply.code(400).send({ error: 'name required' });
-  const { rows } = await query(`INSERT INTO groups (name) VALUES ($1) RETURNING id, name`, [name]);
+  const { rows } = await query(`INSERT INTO groups (name) VALUES ($1) RETURNING id, name, can_create`, [name]);
+  mirrorQuery(`INSERT INTO groups (id, name) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [rows[0].id, name]);
+  mirrorQuery(`SELECT setval('groups_id_seq', (SELECT coalesce(max(id), 1) FROM groups))`);
+  return rows[0];
+});
+
+// 그룹 속성 변경: 이름, 생성 권한(can_create — 멤버가 프로젝트/스페이스를 만들 수 있는 그룹)
+app.post('/api/admin/groups/:id', async (req, reply) => {
+  if (!requireAdmin(req, reply)) return;
+  const name = req.body?.name?.trim();
+  const canCreate = req.body?.canCreate;
+  const sql = `UPDATE groups SET name = COALESCE($2, name), can_create = COALESCE($3, can_create)
+      WHERE id = $1 RETURNING id, name, can_create`;
+  const params = [req.params.id, name || null, canCreate ?? null];
+  const { rows } = await query(sql, params);
+  if (!rows.length) return reply.code(404).send({ error: 'not found' });
+  mirrorQuery(sql, params);
   return rows[0];
 });
 
@@ -680,6 +817,9 @@ app.delete('/api/admin/groups/:id', async (req, reply) => {
   await query(`DELETE FROM space_permissions WHERE principal_type = 'group' AND principal_id = $1`, [id]);
   await query(`DELETE FROM content_restrictions WHERE principal_type = 'group' AND principal_id = $1`, [id]);
   await query(`DELETE FROM groups WHERE id = $1`, [id]);
+  mirrorQuery(`DELETE FROM user_groups WHERE group_id = $1`, [id]);
+  mirrorQuery(`DELETE FROM jira_project_permissions WHERE principal_type = 'group' AND principal_id = $1`, [id]);
+  mirrorQuery(`DELETE FROM groups WHERE id = $1`, [id]);
   return { ok: true };
 });
 
@@ -697,12 +837,16 @@ app.post('/api/admin/groups/:id/members', async (req, reply) => {
   if (!userId) return reply.code(400).send({ error: 'userId required' });
   await query(`INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [userId, req.params.id]);
+  mirrorQuery(`INSERT INTO user_groups (user_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [userId, req.params.id]);
   return { ok: true };
 });
 
 app.delete('/api/admin/groups/:id/members/:userId', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   await query(`DELETE FROM user_groups WHERE group_id = $1 AND user_id = $2`,
+    [req.params.id, req.params.userId]);
+  mirrorQuery(`DELETE FROM user_groups WHERE group_id = $1 AND user_id = $2`,
     [req.params.id, req.params.userId]);
   return { ok: true };
 });
@@ -749,10 +893,16 @@ app.get('/api/spaces/:key/permissions', async (req, reply) => {
   if (!spaceId) return;
   const { rows } = await query(
     `SELECT p.principal_type, p.principal_id, p.role,
-            CASE p.principal_type WHEN 'user' THEN u.display_name WHEN 'group' THEN g.name ELSE '로그인한 모든 사용자' END AS name
+            CASE p.principal_type
+              WHEN 'user' THEN u.display_name
+              WHEN 'group' THEN g.name
+              WHEN 'team' THEN CASE WHEN tp.id IS NULL THEN t.name ELSE tp.name || ' / ' || t.name END
+              ELSE '로그인한 모든 사용자' END AS name
        FROM space_permissions p
        LEFT JOIN users u ON p.principal_type = 'user' AND u.id = p.principal_id
        LEFT JOIN groups g ON p.principal_type = 'group' AND g.id = p.principal_id
+       LEFT JOIN teams t ON p.principal_type = 'team' AND t.id = p.principal_id
+       LEFT JOIN teams tp ON tp.id = t.parent_id
       WHERE p.space_id = $1 ORDER BY p.role DESC, name`, [spaceId]);
   return rows;
 });
@@ -762,7 +912,7 @@ app.put('/api/spaces/:key/permissions', async (req, reply) => {
   if (!spaceId) return;
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
   for (const r of rows) {
-    if (!['user', 'group', 'anyone'].includes(r.principalType) || !['viewer', 'editor', 'admin'].includes(r.role)) {
+    if (!['user', 'group', 'team', 'anyone'].includes(r.principalType) || !['viewer', 'editor', 'admin'].includes(r.role)) {
       return reply.code(400).send({ error: '잘못된 권한 행입니다' });
     }
   }
@@ -788,10 +938,15 @@ app.get('/api/content/:id/restrictions', async (req, reply) => {
   if (!acc) return;
   const { rows } = await query(
     `SELECT r.rtype, r.principal_type, r.principal_id,
-            CASE r.principal_type WHEN 'user' THEN u.display_name ELSE g.name END AS name
+            CASE r.principal_type
+              WHEN 'user' THEN u.display_name
+              WHEN 'group' THEN g.name
+              ELSE CASE WHEN tp.id IS NULL THEN t.name ELSE tp.name || ' / ' || t.name END END AS name
        FROM content_restrictions r
        LEFT JOIN users u ON r.principal_type = 'user' AND u.id = r.principal_id
        LEFT JOIN groups g ON r.principal_type = 'group' AND g.id = r.principal_id
+       LEFT JOIN teams t ON r.principal_type = 'team' AND t.id = r.principal_id
+       LEFT JOIN teams tp ON tp.id = t.parent_id
       WHERE r.content_id = $1 ORDER BY r.rtype, name`, [req.params.id]);
   // 조상에 걸린 보기 제한(상속)도 함께 보여준다
   const { rows: inherited } = await query(
@@ -810,7 +965,7 @@ app.put('/api/content/:id/restrictions', async (req, reply) => {
   if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
   const list = Array.isArray(req.body?.restrictions) ? req.body.restrictions : [];
   for (const r of list) {
-    if (!['view', 'edit'].includes(r.rtype) || !['user', 'group'].includes(r.principalType) || !Number(r.principalId)) {
+    if (!['view', 'edit'].includes(r.rtype) || !['user', 'group', 'team'].includes(r.principalType) || !Number(r.principalId)) {
       return reply.code(400).send({ error: '잘못된 제한 행입니다' });
     }
   }
@@ -827,6 +982,82 @@ app.put('/api/content/:id/restrictions', async (req, reply) => {
        VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
       [req.params.id, r.rtype, r.principalType, Number(r.principalId)]);
   }
+  return { ok: true };
+});
+
+// ---------- 접근 권한 요청 ----------
+// 권한 없는 스페이스에 보기/편집을 요청한다. 리소스의 제목·내용은 요청자에게 노출하지 않는다.
+app.post('/api/access-requests', async (req, reply) => {
+  const { spaceKey, want, reason } = req.body ?? {};
+  const w = ['viewer', 'editor'].includes(want) ? want : 'viewer';
+  const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
+  if (!sp.length) return reply.code(404).send({ error: 'space not found' });
+  const role = await spaceRole(req.access, sp[0].id);
+  if (role) return reply.code(400).send({ error: '이미 접근 권한이 있습니다', role });
+  const { rows: dup } = await query(
+    `SELECT id FROM access_requests
+      WHERE resource_type = 'space' AND resource_id = $1 AND user_id = $2 AND status = 'pending'`,
+    [sp[0].id, req.access.userId]);
+  if (dup.length) return { ok: true, id: dup[0].id, duplicated: true };
+  const { rows } = await query(
+    `INSERT INTO access_requests (resource_type, resource_id, user_id, want, reason)
+     VALUES ('space', $1, $2, $3, $4) RETURNING id`,
+    [sp[0].id, req.access.userId, w, (reason ?? '').slice(0, 2000) || null]);
+  return { ok: true, id: rows[0].id };
+});
+
+// 내 요청 이력 (스페이스 이름은 승인 전 비노출 — 키만 보여준다)
+app.get('/api/access-requests/mine', async (req) => {
+  const { rows } = await query(
+    `SELECT r.id, r.want, r.reason, r.status, r.created_at, r.decided_at,
+            s.key AS space_key, d.display_name AS decided_by_name
+       FROM access_requests r
+       JOIN spaces s ON s.id = r.resource_id
+       LEFT JOIN users d ON d.id = r.decided_by
+      WHERE r.resource_type = 'space' AND r.user_id = $1
+      ORDER BY r.created_at DESC LIMIT 50`, [req.access.userId]);
+  return rows;
+});
+
+// 승인함: 내가 관리자인 스페이스의 대기 요청 (사이트 관리자는 전체)
+app.get('/api/access-requests/inbox', async (req) => {
+  const { rows } = await query(
+    `SELECT r.id, r.want, r.reason, r.status, r.created_at, r.resource_id,
+            s.key AS space_key, s.name AS space_name,
+            u.display_name AS user_name, u.email AS user_email
+       FROM access_requests r
+       JOIN spaces s ON s.id = r.resource_id
+       JOIN users u ON u.id = r.user_id
+      WHERE r.resource_type = 'space' AND r.status = 'pending'
+      ORDER BY r.created_at`);
+  const out = [];
+  const cache = new Map();
+  for (const r of rows) {
+    let role = cache.get(r.resource_id);
+    if (role === undefined) { role = await spaceRole(req.access, r.resource_id); cache.set(r.resource_id, role); }
+    if (role === 'admin') out.push(r);
+  }
+  return out;
+});
+
+app.post('/api/access-requests/:id/decide', async (req, reply) => {
+  const approve = !!req.body?.approve;
+  const { rows: rq } = await query(
+    `SELECT id, resource_id, user_id, want, status FROM access_requests
+      WHERE id = $1 AND resource_type = 'space'`, [req.params.id]);
+  if (!rq.length) return reply.code(404).send({ error: 'not found' });
+  if (rq[0].status !== 'pending') return reply.code(400).send({ error: '이미 처리된 요청입니다' });
+  const role = await spaceRole(req.access, rq[0].resource_id);
+  if (role !== 'admin') return reply.code(403).send({ error: '이 스페이스의 관리자만 처리할 수 있습니다' });
+  if (approve) {
+    await query(
+      `INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
+       VALUES ($1, 'user', $2, $3) ON CONFLICT DO NOTHING`,
+      [rq[0].resource_id, rq[0].user_id, rq[0].want]);
+  }
+  await query(
+    `UPDATE access_requests SET status = $2, decided_by = $3, decided_at = now() WHERE id = $1`,
+    [req.params.id, approve ? 'approved' : 'denied', req.access.userId]);
   return { ok: true };
 });
 

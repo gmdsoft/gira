@@ -8,32 +8,82 @@ import { query } from './db.mjs';
 
 const ROLE_ORDER = { viewer: 1, editor: 2, admin: 3 };
 
-// 요청 사용자 → { userId, isAdmin, groups } (비활성 사용자는 null)
+// 요청 사용자 → { userId, isAdmin, groups, teams, duty, canCreate } (비활성 사용자는 null)
+// teams: 주 소속(파트)과 그 상위 팀의 id — 팀에 준 권한은 하위 파트 소속원에게도 적용된다.
+// canCreate: 프로젝트/스페이스 생성 가능 (팀장·파트장 직책 또는 can_create 그룹 멤버)
 export async function getAccess(userId) {
-  const { rows: u } = await query(`SELECT id, is_admin FROM users WHERE id = $1 AND active`, [userId]);
+  const { rows: u } = await query(
+    `SELECT u.id, u.is_admin, u.duty, u.team_id, t.parent_id AS team_parent
+       FROM users u LEFT JOIN teams t ON t.id = u.team_id
+      WHERE u.id = $1 AND u.active`, [userId]);
   if (!u.length) return null;
-  const { rows: g } = await query(`SELECT group_id FROM user_groups WHERE user_id = $1`, [userId]);
-  return { userId: Number(userId), isAdmin: u[0].is_admin, groups: g.map((r) => Number(r.group_id)) };
+  const { rows: g } = await query(
+    `SELECT ug.group_id, g.can_create FROM user_groups ug JOIN groups g ON g.id = ug.group_id
+      WHERE ug.user_id = $1`, [userId]);
+  const teams = [];
+  if (u[0].team_id != null) teams.push(Number(u[0].team_id));
+  if (u[0].team_parent != null) teams.push(Number(u[0].team_parent));
+  const duty = u[0].duty ?? 'member';
+  return {
+    userId: Number(userId),
+    isAdmin: u[0].is_admin,
+    groups: g.map((r) => Number(r.group_id)),
+    teams,
+    duty,
+    canCreate: u[0].is_admin || duty === 'team_lead' || duty === 'part_lead' || g.some((r) => r.can_create),
+  };
 }
 
 function principalMatch(access, rows) {
   return rows.some((r) =>
     (r.principal_type === 'user' && Number(r.principal_id) === access.userId) ||
-    (r.principal_type === 'group' && access.groups.includes(Number(r.principal_id))));
+    (r.principal_type === 'group' && access.groups.includes(Number(r.principal_id))) ||
+    (r.principal_type === 'team' && (access.teams ?? []).includes(Number(r.principal_id))));
 }
 
-// 스페이스에서의 역할. null = 접근 불가
+// 스페이스에서의 역할. null = 접근 불가. 규칙이 하나도 없으면 비공개(사이트 관리자만) —
+// 알파 결정: 이관 데이터는 기본 비공개, 시스템 관리자가 접근 팀을 지정해 연다.
 export async function spaceRole(access, spaceId) {
   if (access.isAdmin) return 'admin';
   const { rows } = await query(
     `SELECT principal_type, principal_id, role FROM space_permissions WHERE space_id = $1`, [spaceId]);
-  if (!rows.length) return 'editor'; // 규칙 없음 = 전체 공개
+  return bestRole(access, rows);
+}
+
+function bestRole(access, rows) {
   let best = null;
   for (const r of rows) {
     const match = r.principal_type === 'anyone' || principalMatch(access, [r]);
     if (match && (!best || ROLE_ORDER[r.role] > ROLE_ORDER[best])) best = r.role;
   }
   return best;
+}
+
+// Gira: 프로젝트에서의 역할. null = 접근 불가 (규칙 없음 = 비공개)
+export async function projectRole(access, projectId) {
+  if (access.isAdmin) return 'admin';
+  const { rows } = await query(
+    `SELECT principal_type, principal_id, role FROM jira_project_permissions WHERE project_id = $1`, [projectId]);
+  return bestRole(access, rows);
+}
+
+// Gira: 접근 가능한 프로젝트 id 목록 (role 포함)
+export async function projectRoles(access) {
+  const { rows: projects } = await query(`SELECT id FROM jira_projects`);
+  if (access.isAdmin) return new Map(projects.map((p) => [String(p.id), 'admin']));
+  const { rows } = await query(`SELECT project_id, principal_type, principal_id, role FROM jira_project_permissions`);
+  const byProject = new Map();
+  for (const r of rows) {
+    const k = String(r.project_id);
+    if (!byProject.has(k)) byProject.set(k, []);
+    byProject.get(k).push(r);
+  }
+  const out = new Map();
+  for (const p of projects) {
+    const role = bestRole(access, byProject.get(String(p.id)) ?? []);
+    if (role) out.set(String(p.id), role);
+  }
+  return out;
 }
 
 // 한 페이지에 대한 접근: { exists, view, edit, role, spaceId }

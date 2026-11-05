@@ -57,6 +57,27 @@ export async function query(sql, params) {
   return (await getDb()).query(sql, params);
 }
 
+// 조직 데이터(users/teams/groups/user_groups) 미러링: 두 앱의 DB가 분리되어 있어,
+// 조직 변경(Gonfluence 관리 화면)을 Gira DB에도 반영한다. ORG_MIRROR_DATABASE_URL 미설정 시 no-op.
+// INSERT는 호출부에서 id를 명시해 양쪽 id가 일치하도록 한다. 실패는 로그만 남긴다(주 DB가 원본).
+let mirrorPool = null;
+
+export async function mirrorQuery(sql, params) {
+  const url = process.env.ORG_MIRROR_DATABASE_URL;
+  if (!url) return null;
+  if (!mirrorPool) {
+    mirrorPool = new pg.Pool({ connectionString: url, max: 2, idleTimeoutMillis: 30_000 });
+    mirrorPool.on('error', (err) => console.error('[db] mirror idle client error', err.message));
+  }
+  try {
+    return await mirrorPool.query(sql, params);
+  } catch (err) {
+    console.error('[db] org mirror failed:', err.message, '--', sql.slice(0, 80));
+    return null;
+  }
+}
+
 export async function closeDb() {
   if (pool) await pool.end();
+  if (mirrorPool) await mirrorPool.end();
 }
