@@ -467,16 +467,41 @@ h1.inline-edit { margin: 0 -6px 8px; }
 /* ---------- 보드 ---------- */
 .bbar { padding: 12px 24px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; background: var(--panel); border-bottom: 1px solid var(--line-soft); }
 .bbar select { height: 32px; }
-#board { flex: 1; display: flex; gap: 8px; padding: 8px 24px 24px; overflow-x: auto; align-items: flex-start; background: var(--panel); }
-.col { background: var(--hover); border-radius: var(--radius-lg); flex: 0 0 280px; min-width: 280px; max-height: 100%; display: flex; flex-direction: column; }
-.col h4 { margin: 0; padding: 10px 12px 6px; font-size: 12px; color: var(--text2); font-weight: 700; display: flex; gap: 6px; align-items: center; text-transform: none; }
-.col h4 .dim { margin-left: auto; }
-.col .cards { padding: 0 6px 8px; overflow-y: auto; min-height: 60px; }
-.col.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; }
-.card { position: relative; background: var(--panel); border: 0; border-radius: 4px; padding: 9px 10px 8px 14px; margin-bottom: 6px; cursor: grab; box-shadow: var(--shadow-card); }
+#board { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 12px 24px 32px; overflow: auto; background: var(--panel); }
+/* 스크럼 보드 스프린트 머리 */
+.sprintbar { display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; border: 1px solid var(--line-soft, #dfe1e6); border-radius: var(--radius-lg); background: var(--panel); }
+.sprintbar-main { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.sprintbar-goal { font-size: 13px; color: var(--text2); }
+.badge.cat-overdue { background: #ffebe6; color: #ae2a19; }
+/* 스윔레인: 머리글(접기) + 컬럼 칸들. 칸은 화면 폭을 나눠 쓰고 좁으면 가로 스크롤 */
+.lane { display: flex; flex-direction: column; gap: 8px; min-width: min-content; }
+.lane-head { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--text); cursor: pointer; user-select: none; padding: 2px 0; }
+.lane-twisty { display: inline-flex; color: var(--text2); width: 18px; justify-content: center; }
+.lane-sq { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.lane-key { font-weight: 500; }
+.lane-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
+.lane-count { color: var(--text2); font-weight: 400; font-size: 13px; }
+.lane-head .badge { font-size: 11px; }
+.lane-cols { display: flex; gap: 12px; align-items: stretch; }
+.bcell { background: var(--hover); border-radius: var(--radius-lg); flex: 1 1 0; min-width: 260px; display: flex; flex-direction: column; padding-bottom: 6px; }
+.bcell.dragover { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.bcell-head { padding: 12px 12px 8px; font-size: 12px; font-weight: 600; color: var(--text2); display: flex; gap: 8px; align-items: center; }
+.bcell-n { font-weight: 400; }
+.bcell .cards { padding: 0 6px; min-height: 40px; flex: 1; }
+/* 칸 아래 + : 점선 테두리 전체 폭 버튼 */
+.bcell-add { margin: 4px 6px 0; height: 26px; border: 1px dashed var(--line, #c2c7d0); border-radius: 4px; background: transparent; color: var(--text2); font-size: 16px; line-height: 1; cursor: pointer; }
+.bcell-add:hover { background: var(--panel); color: var(--text); border-style: solid; }
+.cell-create { margin: 4px 6px 0; background: var(--panel); border-radius: 4px; box-shadow: var(--shadow-card); padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.cell-create textarea { font: inherit; font-size: 13px; border: 0; outline: none; resize: none; background: transparent; color: var(--text); }
+.cell-create-row { display: flex; gap: 6px; align-items: center; }
+.cell-create-row select { height: 28px; font-size: 12px; }
+.epic-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; font-size: 11px; color: var(--text); background: var(--panel); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.epic-chip .lane-sq { width: 10px; height: 10px; border-radius: 2px; }
+.chip-ver { color: var(--text); }
+.card { position: relative; background: var(--panel); border: 0; border-radius: 4px; padding: 10px 12px 8px; margin-bottom: 6px; cursor: grab; box-shadow: var(--shadow-card); }
 .card:hover { background: var(--panel); box-shadow: 0 2px 4px rgba(9, 30, 66, .18), 0 0 1px rgba(9, 30, 66, .2); }
 .card .sum { font-size: 13px; line-height: 1.35; margin-bottom: 6px; }
-.card .labels { margin: 2px 0 6px; display: flex; flex-wrap: wrap; gap: 3px; }
+.card .labels { margin: 2px 0 8px; display: flex; flex-wrap: wrap; gap: 4px; }
 .card .meta { display: flex; gap: 6px; font-size: 11px; color: var(--dim); align-items: center; justify-content: space-between; }
 .card.dragging { opacity: .4; }
 .card .epicbar { border-radius: 4px 0 0 4px; }

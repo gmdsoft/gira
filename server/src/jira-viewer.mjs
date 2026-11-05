@@ -263,7 +263,7 @@ app.get('/api/issues', async (req, reply) => {
     `SELECT count(*)::int AS n ${JOINS} WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
   const { rows } = await query(
     `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
-            i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions,
+            i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions, i.assignee_id,
             t.name AS type_name, t.subtask,
             s.id AS status_id, s.name AS status_name, s.category AS status_category,
             u.display_name AS assignee_name, ur.display_name AS reporter_name,
@@ -333,7 +333,7 @@ app.get('/api/issue/:key', async (req, reply) => {
 
 app.post('/api/issues', async (req, reply) => {
   const { projectKey, typeId, summary, description, assigneeId, reporterId, priority, parentKey, sprintId,
-    labels, components, fixVersions } = req.body ?? {};
+    labels, components, fixVersions, statusId } = req.body ?? {};
   if (!projectKey || !typeId || !summary?.trim()) {
     return reply.code(400).send({ error: 'projectKey, typeId, summary는 필수입니다' });
   }
@@ -351,9 +351,11 @@ app.post('/api/issues', async (req, reply) => {
     `SELECT COALESCE(MAX(split_part(issue_key, '-', 2)::int), 0) + 1 AS n
        FROM jira_issues WHERE project_id = $1`, [project.id]);
   const issueKey = `${project.key}-${mx[0].n}`;
-  // 기본 상태: 'new' 카테고리 첫 상태
-  const { rows: st } = await query(
-    `SELECT id FROM jira_statuses WHERE category = 'new' ORDER BY id LIMIT 1`);
+  // 상태: 지정값(보드 컬럼의 + 만들기) 또는 'new' 카테고리 첫 상태
+  const { rows: st } = statusId
+    ? await query(`SELECT id FROM jira_statuses WHERE id = $1`, [statusId])
+    : await query(`SELECT id FROM jira_statuses WHERE category = 'new' ORDER BY id LIMIT 1`);
+  if (statusId && !st.length) return reply.code(400).send({ error: '없는 상태입니다' });
   const userId = req.access.userId;
   const arr = (v) => Array.isArray(v) ? [...new Set(v.map((x) => String(x).trim()).filter(Boolean))] : [];
   const { rows } = await query(
@@ -368,6 +370,9 @@ app.post('/api/issues', async (req, reply) => {
      // 담당자를 비우면 프로젝트 기본 담당자 (GIRA → GIRA 에이전트)
      priority || null, assigneeId || project.default_assignee_id || null, reporterId || userId, parentId, sprintId || null,
      arr(labels), arr(components), arr(fixVersions)]);
+  // 완료 컬럼에서 바로 만든 경우 해결 시각도 기록
+  await query(`UPDATE jira_issues SET resolved_at = now()
+                WHERE id = $1 AND (SELECT category FROM jira_statuses WHERE id = status_id) = 'done'`, [rows[0].id]);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
 
@@ -564,7 +569,9 @@ app.patch('/api/sprints/:id', async (req, reply) => {
       `SELECT id FROM jira_sprints WHERE project_id = $1 AND state = 'active' AND id != $2`,
       [cur[0].project_id, req.params.id]);
     if (act.length) return reply.code(409).send({ error: '이미 활성 스프린트가 있습니다. 먼저 완료하세요.' });
-    await query(`UPDATE jira_sprints SET state = 'active', start_at = now() WHERE id = $1`, [req.params.id]);
+    // 시작 시 예정 종료일이 없으면 2주 뒤로 (Jira 기본 기간) — 보드의 남은 일수 표시용
+    await query(`UPDATE jira_sprints SET state = 'active', start_at = now(),
+                   end_at = CASE WHEN end_at > now() THEN end_at ELSE now() + interval '14 days' END WHERE id = $1`, [req.params.id]);
   } else if (b.state === 'closed') {
     await query(`UPDATE jira_sprints SET state = 'closed', end_at = now() WHERE id = $1`, [req.params.id]);
     // Jira 기본 동작: 미완료 이슈는 백로그로 되돌린다 (done은 스프린트에 남김)

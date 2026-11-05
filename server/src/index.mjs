@@ -19,6 +19,7 @@ import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
+import { bodyDoc } from './markdown-doc.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -36,6 +37,8 @@ const app = Fastify({
   rewriteUrl(req) {
     const u = req.url;
     if (!u.startsWith('/api/v1/')) return u;
+    // POST /api/v1/pages(새 페이지)는 생성 라우트로 — GET /api/v1/pages(검색)와 경로가 같아 메서드로 가른다
+    if (req.method === 'POST' && /^\/api\/v1\/pages\/?(\?|$)/.test(u)) return u.replace(/^\/api\/v1\/pages\/?/, '/api/content');
     return u
       .replace(/^\/api\/v1\/pages\/([^/?]+)/, '/api/content/$1')
       .replace(/^\/api\/v1\//, '/api/');
@@ -118,7 +121,7 @@ app.post('/api/spaces', async (req, reply) => {
     const spName = name || `${me[0]?.display_name ?? '내'}의 스페이스`;
     const { rows } = await query(
       `INSERT INTO spaces (id, key, name, type, status, created_at)
-       VALUES ((SELECT coalesce(max(id), 0) + 1 FROM spaces), $1, $2, 'personal', 'current', now())
+       VALUES ((SELECT GREATEST(coalesce(max(id), 0) + 1, ${LOCAL_ID_FLOOR}) FROM spaces), $1, $2, 'personal', 'current', now())
        RETURNING id, key, name`, [key, spName]);
     await query(`INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
                  VALUES ($1, 'user', $2, 'admin')`, [rows[0].id, userId]);
@@ -135,7 +138,7 @@ app.post('/api/spaces', async (req, reply) => {
   if (dup.length) return reply.code(409).send({ error: '이미 사용 중인 키입니다' });
   const { rows } = await query(
     `INSERT INTO spaces (id, key, name, type, status, created_at)
-     VALUES ((SELECT coalesce(max(id), 0) + 1 FROM spaces), $1, $2, 'global', 'current', now())
+     VALUES ((SELECT GREATEST(coalesce(max(id), 0) + 1, ${LOCAL_ID_FLOOR}) FROM spaces), $1, $2, 'global', 'current', now())
      RETURNING id, key, name`, [key, name]);
   await query(`INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
                VALUES ($1, 'user', $2, 'admin')`, [rows[0].id, userId]);
@@ -301,7 +304,9 @@ app.post('/api/content/:id/publish', async (req, reply) => {
   const { rows: cur } = await query(`SELECT current_version FROM content WHERE id = $1`, [id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
   const { rows: dr } = await query(`SELECT doc, title, base_version FROM drafts WHERE content_id = $1`, [id]);
-  const doc = req.body?.doc ?? dr[0]?.doc;
+  // 본문: doc(JSON) 또는 markdown(REST API) — 없으면 저장된 초안
+  let doc;
+  try { doc = bodyDoc(req.body) ?? dr[0]?.doc; } catch (e) { return reply.code(400).send({ error: e.message }); }
   if (!doc) return reply.code(400).send({ error: 'no draft to publish' });
   const newTitle = (req.body?.title ?? dr[0]?.title)?.trim();
   const baseVersion = req.body?.baseVersion ?? dr[0]?.base_version;
@@ -323,8 +328,11 @@ app.post('/api/content/:id/publish', async (req, reply) => {
 });
 
 // 새 페이지 생성 (Confluence처럼 제목 없이 먼저 만들고 편집기에서 입력)
+// REST API: doc 또는 markdown을 함께 보내면 본문까지 게시된 상태(버전 1)로 만든다
 app.post('/api/content', async (req, reply) => {
   const { spaceKey, parentId } = req.body ?? {};
+  let initialDoc;
+  try { initialDoc = bodyDoc(req.body); } catch (e) { return reply.code(400).send({ error: e.message }); }
   const title = req.body?.title?.trim() || '제목 없는 문서';
   if (!spaceKey) return reply.code(400).send({ error: 'spaceKey required' });
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
@@ -335,10 +343,17 @@ app.post('/api/content', async (req, reply) => {
   const userId = req.access.userId;
   const { rows } = await query(
     `INSERT INTO content (id, space_id, parent_id, type, title, status, author_id, owner_id, current_version, created_at, updated_at)
-     VALUES (nextval('content_id_seq'), $1, $2, 'page', $3, 'current', $4, $4, 0, now(), now())
+     VALUES (nextval('content_id_seq'), $1, $2, 'page', $3, 'current', $4, $4, $5, now(), now())
      RETURNING id`,
-    [sp[0].id, parentId ?? null, title, userId]);
-  return { id: rows[0].id, spaceKey };
+    [sp[0].id, parentId ?? null, title, userId, initialDoc ? 1 : 0]);
+  if (initialDoc) {
+    await query(
+      `INSERT INTO content_versions (content_id, version, doc, message, minor_edit, author_id, created_at)
+       VALUES ($1, 1, $2, $3, false, $4, now())`,
+      [rows[0].id, JSON.stringify(initialDoc), req.body?.message ?? null, userId]);
+    reindex(rows[0].id);
+  }
+  return { id: rows[0].id, spaceKey, version: initialDoc ? 1 : 0 };
 });
 
 // 첨부 업로드 (로컬 저장. 운영 전환 시 MinIO로 교체)
