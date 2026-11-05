@@ -42,7 +42,7 @@ function Login({ onLogin }) {
   };
   return (
     <div className="home login">
-      <h1>관리 <span className="poc-badge">PoC</span></h1>
+      <h1>관리 <span className="poc-badge">Alpha</span></h1>
       <p className="muted">계정명(이름 또는 이메일)을 입력하세요. 관리자가 허용한 계정만 로그인할 수 있습니다.</p>
       <form className="search-form" onSubmit={login}>
         <input className="search-input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="계정명" />
