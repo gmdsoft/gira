@@ -33,6 +33,21 @@ export default function App() {
   const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
   const [me, setMe] = useState(undefined); // undefined=확인 중, null=로그인 필요
   const dragStart = useRef(null);
+  // 테마: light | dark | system (Gira와 동일한 방식, localStorage gonf.theme)
+  const [theme, setTheme] = useState(() => {
+    try { const t = localStorage.getItem('gonf.theme'); return ['light', 'dark', 'system'].includes(t) ? t : 'system'; }
+    catch { return 'system'; }
+  });
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => {
+      document.documentElement.dataset.theme = theme === 'system' ? (mq.matches ? 'dark' : 'light') : theme;
+    };
+    apply();
+    try { localStorage.setItem('gonf.theme', theme); } catch { /* 무시 */ }
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, [theme]);
 
   // 마우스 드래그(텍스트 선택) 후 click이 링크 탐색으로 이어지지 않게 한다.
   // Confluence와 동일하게, 드래그가 4px 이상 움직이면 click을 취소한다.
@@ -156,7 +171,7 @@ export default function App() {
   if (me === undefined) return <div className="page-loading">불러오는 중…</div>;
   if (me === null) return <Login onLogin={setMe} />;
 
-  if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} />;
+  if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} theme={theme} setTheme={setTheme} />;
   // 조직 관리(사용자·팀·그룹)는 관리 서비스(3003)로 분리 — 여기서는 접근 요청 승인함만
   if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
   // 권한 없는 스페이스: 접근 요청 화면
@@ -196,6 +211,7 @@ export default function App() {
         </>}
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
+          <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up />
           <button className="btn btn-xs" onClick={logout}>로그아웃</button>
         </div>
       </aside>
@@ -311,7 +327,35 @@ const ago = (t) => {
   return new Date(t).toLocaleDateString('ko-KR');
 };
 
-function Home({ navigate, me, logout }) {
+// 설정(톱니) 메뉴: 테마 + 관리 진입점 (Gira 설정 메뉴와 동일 구성)
+function SettingsMenu({ me, navigate, theme, setTheme, up }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="setwrap">
+      <button className="btn btn-xs set-btn" title="설정" onClick={() => setOpen((v) => !v)}>⚙</button>
+      {open && <>
+        <div className="menu-overlay" onClick={() => setOpen(false)} />
+        <div className={'setmenu' + (up ? ' setmenu-up' : '')}>
+          <div className="setmenu-title">테마</div>
+          {[['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(([v, name]) => (
+            <button key={v} onClick={() => { setTheme(v); setOpen(false); }}>
+              <span>{name}</span>{theme === v && <span className="chk">✓</span>}
+            </button>
+          ))}
+          {me.is_admin && <>
+            <div className="setmenu-title">관리</div>
+            <button onClick={() => { setOpen(false); navigate('/admin'); }}><span>접근 요청 승인함</span></button>
+            <button onClick={() => { setOpen(false); window.open(`//${location.hostname}:3003/`, '_blank'); }}>
+              <span>조직 관리 ↗</span>
+            </button>
+          </>}
+        </div>
+      </>}
+    </span>
+  );
+}
+
+function Home({ navigate, me, logout, theme, setTheme }) {
   const [spaces, setSpaces] = useState(null);
   const [feed, setFeed] = useState(null);
   const [q, setQ] = useState('');
@@ -325,8 +369,7 @@ function Home({ navigate, me, logout }) {
   return (
     <div className="home home-wide">
       <div className="home-user muted">
-        {me.is_admin && <a href="/admin" onClick={(e) => { e.preventDefault(); navigate('/admin'); }}>⚙ 접근 요청</a>}
-        {me.is_admin && <a href={`//${location.hostname}:3003/`} target="_blank" rel="noreferrer">🏢 조직 관리</a>}
+        <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
       </div>
       <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
