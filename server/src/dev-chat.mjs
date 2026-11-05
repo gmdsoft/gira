@@ -128,6 +128,31 @@ async function expandFile(fileId) {
   return [{ type: 'text', text: head.text.replace(/\]$/, ' — 내용은 볼 수 없는 형식이거나 너무 큼. 이슈에는 첨부 가능]') }];
 }
 
+// ---------- 환경 정보 ----------
+
+// 챗봇을 연 화면·브라우저 정보 (클라이언트가 보낸 값 — 문자열만, 길이 제한)
+function cleanEnv(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = (v, n = 300) => (typeof v === 'string' ? v.replace(/[\r\n]+/g, ' ').trim().slice(0, n) : '');
+  const env = {
+    url: /^https?:\/\//i.test(s(raw.url, 1000)) ? s(raw.url, 1000) : '',
+    app: s(raw.app, 40), build: s(raw.build, 80), userAgent: s(raw.userAgent, 400),
+    platform: s(raw.platform, 60), language: s(raw.language, 40), screen: s(raw.screen, 80),
+  };
+  return Object.values(env).some(Boolean) ? env : null;
+}
+
+// 이슈 설명 끝에 붙이는 '환경 정보' 블록
+function envText(env) {
+  if (!env) return '';
+  const rows = [
+    ['화면 URL', env.url || '(알 수 없음 — 챗봇을 직접 열었음)'],
+    ['앱', [env.app, env.build && `빌드 ${env.build}`].filter(Boolean).join(' · ')],
+    ['브라우저', env.userAgent], ['OS', env.platform], ['언어', env.language], ['화면', env.screen],
+  ].filter(([, v]) => v);
+  return ['환경 정보', ...rows.map(([k, v]) => `- ${k}: ${v}`)].join('\n');
+}
+
 // ---------- 도구 구현 ----------
 
 async function devProject() {
@@ -171,7 +196,8 @@ async function toolCreate({ items }, ctx, textToAdf) {
     if (it.needs_approval) labels.push('needs-approval');
     if (it.spec_update) labels.push('spec-update');
     const body = [it.description?.trim() || it.summary,
-      `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`].join('\n\n');
+      `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`, envText(ctx.env)]
+      .filter(Boolean).join('\n\n');
     const { rows } = await query(
       `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
          labels, reporter_id, assignee_id, priority, created_at, updated_at, fields_raw)
@@ -299,6 +325,7 @@ export function registerDevChat(app, { textToAdf }) {
       author: req.body?.author || me[0]?.display_name || null,
       source: req.body?.source === 'Gonfluence' ? 'Gonfluence' : 'Gira',
       proxied: !!req.body?.author,
+      env: cleanEnv(req.body?.env),
     };
     const files = await ownedFiles(fileIds, ctx);
     if (files.length !== fileIds.length) return reply.code(400).send({ error: '첨부 파일을 찾을 수 없습니다 — 다시 올려 주세요' });
@@ -312,7 +339,8 @@ export function registerDevChat(app, { textToAdf }) {
     const messages = await loadHistory(sessionId, { expand: true });
     const userTurn = [
       ...files.map((f) => ({ type: 'dev_file', file_id: Number(f.id), filename: f.filename })),
-      { type: 'text', text: `[${ctx.author ?? '사용자'} · ${ctx.source}에서]\n${message || '(첨부 파일만 보냄)'}` },
+      { type: 'text', text: `[${ctx.author ?? '사용자'} · ${ctx.source}에서${ctx.env?.url ? ` · 보던 화면 ${ctx.env.url}` : ''}]\n`
+        + (message || '(첨부 파일만 보냄)') },
     ];
     await saveMessage(sessionId, 'user', userTurn);
     const expanded = [];
@@ -399,7 +427,7 @@ export function registerDevChat(app, { textToAdf }) {
     return rows
       .map((m) => ({
         role: m.role,
-        text: textOf(m.content).replace(/^\[[^\]\n]*에서\]\n/, '').replace(/^\(첨부 파일만 보냄\)$/, ''),
+        text: textOf(m.content).replace(/^\[[^\n]*에서(?: · 보던 화면 [^\n]*)?\]\n/, '').replace(/^\(첨부 파일만 보냄\)$/, ''),
         files: (Array.isArray(m.content) ? m.content : []).filter((b) => b.type === 'dev_file').map((b) => b.filename),
       }))
       .filter((m) => m.text || m.files.length);

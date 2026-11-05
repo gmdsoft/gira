@@ -896,7 +896,7 @@ async function proxyDevChat(req, reply, method, pathName, body) {
 app.post('/api/dev-chat', async (req, reply) => {
   const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
   return proxyDevChat(req, reply, 'POST', '/api/dev-chat', {
-    sessionId: req.body?.sessionId, message: req.body?.message, fileIds: req.body?.fileIds,
+    sessionId: req.body?.sessionId, message: req.body?.message, fileIds: req.body?.fileIds, env: req.body?.env,
     author: me[0]?.display_name ?? null, source: 'Gonfluence',
   });
 });
