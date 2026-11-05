@@ -1,0 +1,273 @@
+// 접근 제어 UI 공용: 대상(사용자/그룹/팀) 검색, 스페이스 권한 편집, 문서 제한 편집,
+// 접근 요청 화면, 스페이스 만들기 다이얼로그
+import React, { useEffect, useState } from 'react';
+import { api } from './api.js';
+
+export const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
+export const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
+
+// 사용자·그룹·팀 통합 검색 → onPick({type, id, name})
+export function PrincipalPicker({ onPick, includeUsers = true }) {
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState(null);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api('/api/principals?q=' + encodeURIComponent(q)).then(setRes).catch(() => setRes(null));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [q]);
+  const items = res ? [...(res.teams ?? []), ...(res.groups ?? []), ...(includeUsers ? res.users ?? [] : [])] : [];
+  return (
+    <div className="ppicker">
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="사용자·그룹·팀 검색해서 추가" />
+      {!!items.length && (
+        <ul className="ppicker-list">
+          {items.slice(0, 10).map((i) => (
+            <li key={i.type + i.id}>
+              <button type="button" onClick={() => { onPick(i); setQ(''); }}>
+                <span className={'ptag ptag-' + i.type}>{TYPE_LABEL[i.type]}</span> {i.name}
+                {i.email && <span className="muted"> {i.email}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// 스페이스 권한 편집 (role: viewer/editor/admin, 대상: user/group/team/anyone)
+export function SpacePermissionsModal({ spaceKey, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api(`/api/spaces/${spaceKey}/permissions`)
+      .then((rs) => setRows(rs.map((r) => ({ type: r.principal_type, id: Number(r.principal_id), role: r.role, name: r.name }))))
+      .catch((e) => { alert(e.message); onClose(); });
+  }, [spaceKey]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/spaces/${spaceKey}/permissions`, {
+        method: 'PUT',
+        json: { rows: rows.map((r) => ({ principalType: r.type, principalId: r.id, role: r.role })) },
+      });
+      onClose(true);
+    } catch (e) { alert(e.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>스페이스 권한 — {spaceKey}</h2>
+        <p className="muted">규칙이 하나도 없으면 사이트 관리자만 접근할 수 있는 비공개 상태입니다.
+          팀에 준 권한은 하위 파트 소속원에게도 적용됩니다.</p>
+        {!rows ? <p className="muted">불러오는 중…</p> : (
+          <PermRows rows={rows} setRows={setRows} allowAnyone roles={['viewer', 'editor', 'admin']} />
+        )}
+        <div className="modal-actions">
+          <button className="btn" onClick={() => onClose()}>취소</button>
+          <button className="btn btn-primary" disabled={busy || !rows} onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PermRows({ rows, setRows, allowAnyone, roles }) {
+  const upd = (i, patch) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const del = (i) => setRows(rows.filter((_, j) => j !== i));
+  const add = (p) => {
+    if (rows.some((r) => r.type === p.type && r.id === Number(p.id))) return;
+    setRows([...rows, { type: p.type, id: Number(p.id), role: 'viewer', name: p.name }]);
+  };
+  return (
+    <>
+      <table className="perm-table">
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={r.type + r.id}>
+              <td><span className={'ptag ptag-' + r.type}>{TYPE_LABEL[r.type]}</span></td>
+              <td className="perm-name">{r.name}</td>
+              <td>
+                <select value={r.role} onChange={(e) => upd(i, { role: e.target.value })}>
+                  {roles.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
+                </select>
+              </td>
+              <td><button className="btn btn-xs" onClick={() => del(i)}>삭제</button></td>
+            </tr>
+          ))}
+          {!rows.length && <tr><td colSpan={4} className="muted">부여된 권한이 없습니다 (비공개)</td></tr>}
+        </tbody>
+      </table>
+      <div className="perm-add">
+        <PrincipalPicker onPick={add} />
+        {allowAnyone && !rows.some((r) => r.type === 'anyone') && (
+          <button className="btn btn-xs" onClick={() => add({ type: 'anyone', id: 0, name: '로그인한 모든 사용자' })}>
+            + 전체 공개 규칙
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// 문서(페이지) 접근 제한 편집: 보기 제한(하위 상속) / 편집 제한(해당 문서만)
+export function RestrictionsModal({ pageId, onClose }) {
+  const [data, setData] = useState(null); // {restrictions, inheritedFrom, canEdit}
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api(`/api/content/${pageId}/restrictions`).then((d) => {
+      setData(d);
+      setRows(d.restrictions.map((r) => ({ rtype: r.rtype, type: r.principal_type, id: Number(r.principal_id), name: r.name })));
+    }).catch((e) => { alert(e.message); onClose(); });
+  }, [pageId]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api(`/api/content/${pageId}/restrictions`, {
+        method: 'PUT',
+        json: { restrictions: rows.map((r) => ({ rtype: r.rtype, principalType: r.type, principalId: r.id })) },
+      });
+      onClose(true);
+    } catch (e) { alert(e.message); } finally { setBusy(false); }
+  };
+
+  const section = (rtype, title, hint) => (
+    <section className="restr-sec">
+      <h3>{title} <span className="muted">{hint}</span></h3>
+      <ul className="restr-list">
+        {rows.filter((r) => r.rtype === rtype).map((r) => (
+          <li key={r.type + r.id}>
+            <span className={'ptag ptag-' + r.type}>{TYPE_LABEL[r.type]}</span> {r.name}
+            <button className="btn btn-xs" onClick={() => setRows(rows.filter((x) => !(x.rtype === rtype && x.type === r.type && x.id === r.id)))}>삭제</button>
+          </li>
+        ))}
+        {!rows.some((r) => r.rtype === rtype) && <li className="muted">제한 없음 — 스페이스 권한을 따릅니다</li>}
+      </ul>
+      <PrincipalPicker onPick={(p) => {
+        if (rows.some((r) => r.rtype === rtype && r.type === p.type && r.id === Number(p.id))) return;
+        setRows([...rows, { rtype, type: p.type, id: Number(p.id), name: p.name }]);
+      }} />
+    </section>
+  );
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>접근 제한</h2>
+        {!data ? <p className="muted">불러오는 중…</p> : <>
+          {data.inheritedFrom?.length > 0 && (
+            <p className="muted">상위 페이지의 보기 제한이 상속됩니다: {data.inheritedFrom.map((p) => p.title).join(', ')}</p>
+          )}
+          {section('view', '보기 제한', '(지정하면 이 사람들만 — 하위 페이지에 상속)')}
+          {section('edit', '편집 제한', '(지정하면 이 사람들만 — 이 문서에만 적용)')}
+        </>}
+        <div className="modal-actions">
+          <button className="btn" onClick={() => onClose()}>취소</button>
+          <button className="btn btn-primary" disabled={busy || !data} onClick={save}>저장</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 권한 없는 스페이스 → 접근 요청 화면
+export function RequestAccessView({ spaceKey }) {
+  const [want, setWant] = useState('viewer');
+  const [reason, setReason] = useState('');
+  const [mine, setMine] = useState(null);
+  const [sent, setSent] = useState(false);
+  const load = () => api('/api/access-requests/mine').then(setMine).catch(() => setMine([]));
+  useEffect(() => { load(); }, []);
+  const pending = mine?.find((r) => r.space_key === spaceKey && r.status === 'pending');
+  const decided = mine?.filter((r) => r.space_key === spaceKey && r.status !== 'pending') ?? [];
+
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('/api/access-requests', { method: 'POST', json: { spaceKey, want, reason } });
+      setSent(true); load();
+    } catch (err) { alert(err.message); }
+  };
+
+  return (
+    <article className="page request-access">
+      <h1>🔒 접근 권한이 필요합니다</h1>
+      <p>스페이스 <strong>{spaceKey}</strong> 를 볼 수 있는 권한이 없습니다.
+        관리자에게 접근을 요청할 수 있습니다.</p>
+      {pending || sent ? (
+        <p className="req-sent">✅ 요청을 보냈습니다. 관리자가 승인하면 접근할 수 있습니다.</p>
+      ) : (
+        <form className="req-form" onSubmit={submit}>
+          <label>필요한 권한
+            <select value={want} onChange={(e) => setWant(e.target.value)}>
+              <option value="viewer">보기</option>
+              <option value="editor">편집</option>
+            </select>
+          </label>
+          <label>요청 사유
+            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
+              placeholder="어떤 업무로 필요한지 적어주세요" />
+          </label>
+          <button className="btn btn-primary" type="submit">접근 요청 보내기</button>
+        </form>
+      )}
+      {decided.length > 0 && (
+        <p className="muted">이전 요청: {decided.map((r) =>
+          `${r.status === 'approved' ? '승인됨' : '거절됨'} (${new Date(r.decided_at).toLocaleDateString('ko-KR')})`).join(', ')}</p>
+      )}
+    </article>
+  );
+}
+
+// 스페이스 만들기: 일반(생성 권한 필요) / 개인(1개)
+export function CreateSpaceDialog({ me, onClose, onCreated }) {
+  const [type, setType] = useState(me.can_create ? 'global' : 'personal');
+  const [name, setName] = useState('');
+  const [key, setKey] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const body = type === 'personal' ? { type: 'personal', name } : { name, key };
+      const sp = await api('/api/spaces', { method: 'POST', json: body });
+      onCreated(sp);
+    } catch (err) { alert(err.message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>스페이스 만들기</h2>
+        <form className="req-form" onSubmit={submit}>
+          <label>유형
+            <select value={type} onChange={(e) => setType(e.target.value)}>
+              {me.can_create && <option value="global">일반 스페이스</option>}
+              <option value="personal">개인 스페이스 (1개)</option>
+            </select>
+          </label>
+          {!me.can_create && <p className="muted">일반 스페이스는 팀장·파트장 또는 지정 그룹만 만들 수 있습니다.</p>}
+          <label>이름
+            <input value={name} onChange={(e) => setName(e.target.value)}
+              placeholder={type === 'personal' ? '(비우면 "이름의 스페이스")' : '예: 개발1팀 위키'} />
+          </label>
+          {type === 'global' && (
+            <label>키
+              <input value={key} onChange={(e) => setKey(e.target.value.toUpperCase())} placeholder="예: DEV1 (대문자·숫자)" />
+            </label>
+          )}
+          <div className="modal-actions">
+            <button className="btn" type="button" onClick={onClose}>취소</button>
+            <button className="btn btn-primary" type="submit" disabled={busy}>만들기</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

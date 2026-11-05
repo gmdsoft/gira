@@ -605,3 +605,32 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .create-foot .primary { height: 32px; padding: 0 14px; }
 .create-modal .empty-fields { padding: 20px 0; color: var(--dim); font-size: 13px; }
 .cf-info { color: var(--subtle); }
+
+/* ===== 접근 제어 UI (알파 2단계) ===== */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(9,30,66,.45); display: flex; align-items: center; justify-content: center; z-index: 80; }
+.perm-modal { background: var(--panel); color: var(--text); border-radius: 8px; padding: 22px 24px; width: 560px; max-width: 94vw; max-height: 86vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.perm-modal h2 { margin: 0 0 6px; font-size: 18px; }
+.muted2 { color: var(--text2); font-size: 12.5px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.perm-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+.perm-table td { padding: 6px 8px; border-bottom: 1px solid var(--line, #ebecf0); vertical-align: top; }
+.perm-name { width: 55%; }
+.perm-decide { white-space: nowrap; }
+.perm-decide button { margin-right: 6px; }
+.ptag { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px; background: var(--inset); color: var(--text2); white-space: nowrap; }
+.ptag-team { background: var(--doing, #e9f2ff); color: var(--doing-fg, #0055cc); }
+.ptag-group { background: var(--done, #dffcf0); color: var(--done-fg, #216e4e); }
+.ppicker { position: relative; margin-top: 8px; }
+.ppicker input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); }
+.ppicker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); max-height: 220px; overflow: auto; position: absolute; width: 100%; box-sizing: border-box; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
+.ppicker-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 4px; cursor: pointer; font: inherit; color: var(--text); }
+.ppicker-list button:hover { background: var(--inset); }
+.perm-add { display: flex; flex-direction: column; gap: 6px; }
+.gate { display: flex; justify-content: center; padding-top: 80px; min-height: 100vh; background: var(--bg); }
+.gate-card { background: var(--panel); color: var(--text); border-radius: 10px; padding: 28px 32px; width: 480px; max-width: 92vw; box-shadow: 0 8px 26px rgba(0,0,0,.2); height: fit-content; }
+.gate-card h2 { margin: 0 0 8px; }
+.gate-form { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; }
+.gate-form input, .gate-form select { font: inherit; padding: 7px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); }
+.gate-form input:first-child { width: 160px; }
+.gate-reqs { list-style: none; margin: 10px 0; padding: 10px 12px; background: var(--inset); border-radius: 6px; font-size: 13px; }
+.gate-reqs li { padding: 2px 0; }

@@ -6,9 +6,12 @@ import MoveDialog from './MoveDialog.jsx';
 import Editor from './Editor.jsx';
 import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
+import AdminPage from './Admin.jsx';
+import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog } from './access.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
+  if (pathname.startsWith('/admin')) return { view: 'admin' };
   let m = /^\/s\/([^/]+)\/p\/(\d+)\/edit$/.exec(pathname);
   if (m) return { view: 'edit', spaceKey: m[1], pageId: m[2] };
   m = /^\/s\/([^/]+)\/p\/(\d+)\/history$/.exec(pathname);
@@ -25,6 +28,8 @@ function parsePath(pathname) {
 export default function App() {
   const [route, setRoute] = useState(() => parsePath(location.pathname));
   const [space, setSpace] = useState(null);
+  const [spaceErr, setSpaceErr] = useState(null); // 403(접근 요청 가능) 등
+  const [permOpen, setPermOpen] = useState(false); // 스페이스 권한 편집
   const [movePage, setMovePage] = useState(null); // 트리 ⋯ 메뉴에서 이동할 문서
   const [me, setMe] = useState(undefined); // undefined=확인 중, null=로그인 필요
   const dragStart = useRef(null);
@@ -72,9 +77,11 @@ export default function App() {
 
   // 스페이스 트리 로드
   useEffect(() => {
-    if (!route.spaceKey) { setSpace(null); return; }
+    if (!route.spaceKey) { setSpace(null); setSpaceErr(null); return; }
     if (space?.key === route.spaceKey) return;
-    api(`/api/spaces/${route.spaceKey}`).then(setSpace).catch(console.error);
+    setSpaceErr(null);
+    api(`/api/spaces/${route.spaceKey}`).then((s) => { setSpace(s); setSpaceErr(null); })
+      .catch((e) => { setSpace(null); setSpaceErr(e); });
   }, [route.spaceKey]);
 
   const reloadSpace = useCallback(() => {
@@ -150,6 +157,22 @@ export default function App() {
   if (me === null) return <Login onLogin={setMe} />;
 
   if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} />;
+  if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} />;
+  // 권한 없는 스페이스: 접근 요청 화면
+  if (route.spaceKey && spaceErr?.status === 403 && spaceErr.body?.canRequest) {
+    return (
+      <div className="app">
+        <aside className="sidebar">
+          <a className="sidebar-home" href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>← 스페이스 목록</a>
+          <div className="sidebar-user">
+            <span title={me.email}>👤 {me.display_name}</span>
+            <button className="btn btn-xs" onClick={logout}>로그아웃</button>
+          </div>
+        </aside>
+        <main className="main"><RequestAccessView spaceKey={route.spaceKey} /></main>
+      </div>
+    );
+  }
   if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
   if (route.view === 'search') return <SearchView navigate={navigate} />;
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
@@ -166,6 +189,9 @@ export default function App() {
             onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
           <a className="archive-link" href={`/s/${space.key}/archive`}
              onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
+          {space.role === 'admin' && (
+            <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
+          )}
         </>}
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
@@ -178,6 +204,7 @@ export default function App() {
       </main>
       {movePage && <MoveDialog page={movePage} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMovePage(null)} />}
+      {permOpen && space && <SpacePermissionsModal spaceKey={space.key} onClose={() => setPermOpen(false)} />}
     </div>
   );
 }
@@ -287,6 +314,7 @@ function Home({ navigate, me, logout }) {
   const [spaces, setSpaces] = useState(null);
   const [feed, setFeed] = useState(null);
   const [q, setQ] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
   const recent = (() => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } })();
   useEffect(() => {
     api('/api/spaces').then(setSpaces).catch(console.error);
@@ -295,7 +323,10 @@ function Home({ navigate, me, logout }) {
   const go = (path) => (e) => { e.preventDefault(); navigate(path); };
   return (
     <div className="home home-wide">
-      <div className="home-user muted">👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button></div>
+      <div className="home-user muted">
+        {me.is_admin && <a href="/admin" onClick={(e) => { e.preventDefault(); navigate('/admin'); }}>⚙ 관리</a>}
+        👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
+      </div>
       <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`); }}>
         <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="문서 검색 (한국어 형태소 분석)" />
@@ -331,7 +362,9 @@ function Home({ navigate, me, logout }) {
           )}
         </div>
         <div className="home-side">
-          <h2 className="home-sec">스페이스</h2>
+          <h2 className="home-sec">스페이스
+            <button className="btn btn-xs space-new" onClick={() => setCreateOpen(true)}>+ 만들기</button>
+          </h2>
           {!spaces ? <p className="muted">불러오는 중…</p> : (
             <ul className="space-tiles">
               {spaces.map((s) => (
@@ -345,6 +378,8 @@ function Home({ navigate, me, logout }) {
           )}
         </div>
       </div>
+      {createOpen && <CreateSpaceDialog me={me} onClose={() => setCreateOpen(false)}
+        onCreated={(sp) => { setCreateOpen(false); navigate(`/s/${sp.key}`); }} />}
     </div>
   );
 }

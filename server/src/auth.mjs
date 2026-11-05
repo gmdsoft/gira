@@ -103,7 +103,8 @@ export async function registerAuth(app) {
       const { rows } = await query(
         `SELECT id, display_name, email, is_admin FROM users WHERE id = $1 AND active`, [userId]);
       if (!rows.length) return reply.code(401).send({ error: 'not logged in' });
-      return rows[0];
+      const access = await getAccess(userId);
+      return { ...rows[0], can_create: !!access?.canCreate };
     }
     const signed = req.cookies?.[COOKIE];
     const unsigned = signed ? req.unsignCookie(signed) : { valid: false };
@@ -111,6 +112,7 @@ export async function registerAuth(app) {
     const { rows } = await query(
       `SELECT id, display_name, email, is_admin FROM users WHERE id = $1 AND active`, [Number(unsigned.value)]);
     if (!rows.length) return reply.code(401).send({ error: 'not logged in' });
-    return rows[0];
+    const access = await getAccess(Number(unsigned.value));
+    return { ...rows[0], can_create: !!access?.canCreate };
   });
 }
