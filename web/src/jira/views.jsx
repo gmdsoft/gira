@@ -1,6 +1,6 @@
 // 뷰 4종: 목록(분할), 전체 목록(표), 보드(칸반), 백로그(스프린트)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, hashColor, PRIORITY_ORDER } from './util.jsx';
+import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, hashColor, epicColor, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
 import { IconCheck, IconMore, IconChevronRight, IconChevronDown } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
@@ -294,7 +294,8 @@ const NO_LANE_LABEL = { epic: '에픽 없음', assignee: '미지정', priority: 
 export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
   const board = pdata.boards.find((b) => String(b.id) === boardId);
   // 보드 필터(JQL) + 스크럼 보드는 활성 스프린트만 (실제 Jira 스크럼 보드 동작)
-  const extraJql = board ? [board.jql, board.type === 'scrum' ? 'sprint IN activeSprints()' : null].filter(Boolean) : [];
+  // 칸반 보드는 하위 필터(sub_jql)까지 적용 — Jira처럼 출시된 버전의 이슈 등은 보드에서 빠진다
+  const extraJql = board ? [board.jql, board.type === 'scrum' ? 'sprint IN activeSprints()' : board.sub_jql].filter(Boolean) : [];
   const { rows, total } = useIssues(project, filters, bump, { extraJql }); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
@@ -307,7 +308,8 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
   // 기본 보드: 새 Jira 프로젝트 보드처럼 상태 범주 3컬럼(해야 할 일·진행 중·완료).
   // 칸으로 끌어놓거나 + 로 만들면 범주 이름과 같은 상태(없으면 범주의 첫 상태)가 된다.
   const cols = board
-    ? board.columns.map((c) => ({ name: c.name, statusIds: c.statusIds.map(Number), custom: true }))
+    // 상태가 하나도 없는 컬럼(Jira 칸반 백로그 사용 시 '백로그')은 Jira처럼 보드에 그리지 않는다
+    ? board.columns.filter((c) => c.statusIds?.length).map((c) => ({ name: c.name, statusIds: c.statusIds.map(Number), custom: true }))
     : DEFAULT_COLS.map(([cat, name]) => {
       const ids = meta.statuses.filter((s) => s.category === cat).map((s) => Number(s.id));
       const main = meta.statuses.find((s) => s.category === cat && s.name === name);
@@ -402,7 +404,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
     if (laneMode === 'epic') {
       const ep = epicIssues.get(lane.key);
       return <>
-        <span className="lane-sq" style={{ background: hashColor(r.epic_id) }} />
+        <span className="lane-sq" style={{ background: epicColor(r.epic_color) }} />
         <span className="lane-key ilink" onClick={(e) => { e.stopPropagation(); onOpen(r.epic_key); }}>{r.epic_key}</span>
         <span className="lane-title">{r.epic_summary}</span>
         {ep && <span className={`badge cat-${ep.status_category}`}>{ep.status_name}</span>}
@@ -432,6 +434,8 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
             </select>
           )}
           {board?.jql && <span className="dim" title={board.jql} style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>필터: {board.jql}</span>}
+          {board?.type !== 'scrum' && board?.sub_jql && <span className="dim" title={`칸반 하위 필터 (Jira 보드 설정): ${board.sub_jql}`}
+            style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>하위 필터: {board.sub_jql}</span>}
           <button onClick={() => setModal({})}>+ 보드 만들기</button>
           <button onClick={() => board ? setModal({ board }) : alert('편집할 보드를 선택하세요 (기본 보드는 편집 불가)')}>편집</button>
           <button onClick={delBoard}>삭제</button>
@@ -538,9 +542,9 @@ function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta,
       onClick={() => onOpen(r.issue_key)}>
       <EpicBar r={r} />
       <div className="sum">{r.summary}</div>
-      {(r.epic_id || (r.fix_versions ?? []).length > 0 || (r.labels ?? []).length > 0) && (
+      {(r.epic_id || r.parent_id || (r.fix_versions ?? []).length > 0 || (r.labels ?? []).length > 0) && (
         <div className="labels">
-          {r.epic_id && <ParentChip r={r} project={project} meta={meta} onOpen={onOpen} onChanged={onChanged} />}
+          {(r.epic_id || r.parent_id) && <ParentChip r={r} project={project} meta={meta} onOpen={onOpen} onChanged={onChanged} />}
           {(r.fix_versions ?? []).map((v) => <span className="chip chip-ver" key={'v' + v}>{v}</span>)}
           {(r.labels ?? []).map((l) => <span className="chip" key={l}>{l}</span>)}
         </div>

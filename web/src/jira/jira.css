@@ -501,6 +501,7 @@ h1.inline-edit { margin: 0 -6px 8px; }
 .epic-chip .epic-sum { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .epic-chip .jicon { color: var(--text2); flex: none; }
 button.epic-chip { font: inherit; font-size: 12px; text-align: left; }
+.epic-chip .epic-sq { width: 10px; height: 10px; border-radius: 2px; flex: none; }
 .epic-chip.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 /* 상위 항목 메뉴 (body에 띄움) */
 .parent-menu { position: fixed; z-index: 300; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow-pop); padding: 8px 0 4px; font-size: 13px; color: var(--text); }
