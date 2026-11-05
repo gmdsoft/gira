@@ -32,6 +32,12 @@ function parseRoute(projects) {
   return null;
 }
 
+// 주소에 남기는 보기 상태 (Jira의 ?groupBy=epic 처럼): 새로고침·링크 공유에도 유지
+const urlView = () => {
+  const u = new URLSearchParams(location.search);
+  return { group: u.get('groupBy') ?? '', who: u.get('who') ?? '' };
+};
+
 const loadRecent = () => { try { return JSON.parse(localStorage.getItem('jira.recent')) ?? []; } catch { return []; } };
 const loadSideOpen = () => {
   try { const v = localStorage.getItem('jira.sidebar'); if (v != null) return v === '1'; } catch { /* 무시 */ }
@@ -44,7 +50,7 @@ export default function JiraApp() {
   const [meta, setMeta] = useState(null);
   const [project, setProject] = useState('');
   const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [], labels: [], components: [], people: [] });
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [filters, setFilters] = useState(() => ({ ...EMPTY_FILTERS, ...urlView() }));
   const [savedFilters, setSavedFilters] = useState([]);
   const [savedSel, setSavedSel] = useState('');
   const [view, setView] = useState('list');
@@ -161,10 +167,22 @@ export default function JiraApp() {
       if (!meta) return;
       const route = parseRoute(meta.projects);
       if (route) { setProject(route.project); setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
+      const uv = urlView();
+      setFilters((f) => (f.group === uv.group && f.who === uv.who ? f : { ...f, ...uv }));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, [meta]);
+
+  // 그룹화·담당자 빠른 필터를 주소(?groupBy=, ?who=)에 반영 — 뷰·보드 이동(pushState) 뒤에도 다시 붙인다
+  useEffect(() => {
+    if (!location.pathname.startsWith('/projects/')) return;
+    const u = new URLSearchParams(location.search);
+    const before = u.toString();
+    for (const [k, v] of [['groupBy', filters.group], ['who', filters.who]]) { if (v) u.set(k, v); else u.delete(k); }
+    const after = u.toString();
+    if (after !== before) history.replaceState(history.state, '', location.pathname + (after ? '?' + after : ''));
+  }, [filters.group, filters.who, view, boardId, project, selKey]);
 
   if (authed === false) return <LoginGate onLogin={() => { setAuthed(null); boot(); }} />;
   if (!authed || !meta) return <div className="placeholder" style={{ marginTop: 60, textAlign: 'center' }}>불러오는 중…</div>;
