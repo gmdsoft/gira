@@ -6,6 +6,7 @@ import { LoginGate, NewIssueModal } from './modals.jsx';
 import { DevChatPage, openDevChat } from '../dev-feedback-ui.jsx';
 import { AccessGate, SettingsHub, NewProjectModal } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
+import HomeView from './Home.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
 
@@ -56,6 +57,7 @@ export default function JiraApp() {
   const [view, setView] = useState('list');
   const [selKey, setSelKey] = useState(null);
   const [boardId, setBoardId] = useState('');
+  const [home, setHome] = useState(false); // 홈(추천) 화면 — /, /for-you
   const [count, setCount] = useState(0);
   const [bump, setBump] = useState(0);
   const [showProjectCreate, setShowProjectCreate] = useState(false);
@@ -98,6 +100,7 @@ export default function JiraApp() {
       const proj = route?.project ?? m.projects[0]?.key ?? '';
       setProject(proj);
       if (route) { setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
+      setHome(!route && location.pathname !== '/dev-chat'); // 주소가 프로젝트·이슈가 아니면 홈
       setSavedFilters(await api('/api/filters'));
       setAuthed(true);
     } catch (e) {
@@ -137,17 +140,17 @@ export default function JiraApp() {
   };
   const gotoView = (v) => {
     const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
-    setView(v); setSelKey(null);
+    setView(v); setSelKey(null); setHome(false);
     nav(`/projects/${encodeURIComponent(project)}/${v}${q}`, `${project} ${VIEW_NAMES[v]} - Gira`);
   };
   const gotoProjView = (pkey, v) => {
     switchProject(pkey);
-    setView(v); setSelKey(null); setBoardId(''); // 프로젝트 수준 이동은 보드 컨텍스트 해제
+    setView(v); setSelKey(null); setBoardId(''); setHome(false); // 프로젝트 수준 이동은 보드 컨텍스트 해제
     nav(`/projects/${encodeURIComponent(pkey)}/${v}`, `${pkey} ${VIEW_NAMES[v]} - Gira`);
   };
   const gotoBoard = (pkey, bid) => {
     switchProject(pkey);
-    setView('board'); setSelKey(null); setBoardId(bid);
+    setView('board'); setSelKey(null); setBoardId(bid); setHome(false);
     nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Gira`);
   };
   // 사이드바 '보드' 클릭: 칸반 보드를 기본 선택 (이름 '칸반' > kanban 유형 > 첫 보드 > 기본)
@@ -159,13 +162,15 @@ export default function JiraApp() {
     gotoBoard(pkey, pick ? String(pick.id) : '');
   };
   const openIssue = (key) => {
-    setView('list'); setSelKey(key);
+    setView('list'); setSelKey(key); setHome(false);
     nav('/browse/' + encodeURIComponent(key)); // 제목은 상세 로드 후 설정
   };
+  const gotoHome = () => { setHome(true); setSelKey(null); nav('/for-you', '추천 - Gira'); };
   useEffect(() => {
     const onPop = () => {
       if (!meta) return;
       const route = parseRoute(meta.projects);
+      setHome(!route);
       if (route) { setProject(route.project); setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
       const uv = urlView();
       setFilters((f) => (f.group === uv.group && f.who === uv.who ? f : { ...f, ...uv }));
@@ -211,7 +216,7 @@ export default function JiraApp() {
     return !v;
   });
   const noteSeen = (key, summary) => setRecent((prev) => {
-    const next = [{ key, summary }, ...prev.filter((r) => r.key !== key)].slice(0, 5);
+    const next = [{ key, summary }, ...prev.filter((r) => r.key !== key)].slice(0, 10); // 사이드바 5개, 홈 10개
     try { localStorage.setItem('jira.recent', JSON.stringify(next)); } catch { /* 무시 */ }
     return next;
   });
@@ -363,7 +368,7 @@ export default function JiraApp() {
     e?.preventDefault();
     const q = globalQ.trim();
     if (!q) return;
-    setView('list'); setSelKey(null); setF('q', q); setQInput(q);
+    setView('list'); setSelKey(null); setHome(false); setF('q', q); setQInput(q);
     nav(`/projects/${encodeURIComponent(project)}/list`, `${project} 목록 - Gira`);
   };
 
@@ -418,10 +423,13 @@ export default function JiraApp() {
       </header>
       <div className="shell">
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
-          pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
+          pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent.slice(0, 5)} home={home} onHome={gotoHome}
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
           onDevFeedback={openDevChat} onCreateProject={me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
         <div className="content">
+          {home ? <HomeView me={me} meta={meta} recent={recent} onIssue={openIssue}
+            onProjView={gotoProjView} onBoard={gotoBoard}
+            onMine={(pkey) => { gotoProjView(pkey, 'list'); setFilters((f) => ({ ...f, who: String(me.id) })); }} /> : <>
           <div className="chead">
             <div className="chead-top">
               <div className="crumb"><span>스페이스</span><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
@@ -514,6 +522,7 @@ export default function JiraApp() {
             {view === 'board' && <BoardView {...viewProps} boardId={boardId} onBoard={(bid) => gotoBoard(project, bid)} />}
             {view === 'backlog' && <BacklogView {...viewProps} />}
           </main>
+          </>}
         </div>
       </div>
       {projectCreateModal}
