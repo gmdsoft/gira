@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { hashColor } from './util.jsx';
 import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, IconBacklog, IconFilter, IconStar, IconGrid, IconDashboard, IconSpace, IconProject, IconRocket, IconPlus } from './icons.jsx';
-import { SPEC_URL } from '../dev-feedback-ui.jsx';
+import { SPEC_URL, REPO_URL } from '../dev-feedback-ui.jsx';
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent,
   onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback, onCreateProject }) {
@@ -66,6 +66,9 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         </div>
         <a className="sitem" href={SPEC_URL} target="_blank" rel="noreferrer" title="개발 명세서 열기">
           <span className="sglyph">📘</span><span className="strunc">개발 명세서</span><span className="sext">↗</span>
+        </a>
+        <a className="sitem" href={REPO_URL} target="_blank" rel="noreferrer" title="소스 저장소(GitHub) 열기">
+          <span className="sglyph">📦</span><span className="strunc">저장소</span><span className="sext">↗</span>
         </a>
         <a className="sitem" href="http://172.21.1.1:3001" target="_blank" rel="noreferrer" title="Gonfluence 열기">
           <IconSpace size={16} /><span className="strunc">Gonfluence</span><span className="sext">↗</span>
