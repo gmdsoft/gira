@@ -8,7 +8,8 @@
 //   node scripts/source-sync.mjs --app gira          # Gira: 이관된 Jira 프로젝트 전부
 //   node scripts/source-sync.mjs --app gonfluence    # Gonfluence: 이관된 Confluence 스페이스 전부
 //   (--key NEXT 처럼 하나만, --since <ISO> 로 기준 시각 강제 가능)
-// 서버(jira-viewer / index)가 SOURCE_SYNC_HOURS(기본 3)마다 자동 실행한다.
+// 방향: 원본 → Gira/Gonfluence 단방향 (로컬 변경을 원본에 쓰지 않는다).
+// 서버(jira-viewer / index)가 매일 SOURCE_SYNC_AT(KST, 기본 03:00)에 자동 실행한다.
 import { parseArgs } from 'node:util';
 import { spawn } from 'node:child_process';
 import path from 'node:path';

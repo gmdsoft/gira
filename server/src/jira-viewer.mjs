@@ -61,7 +61,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
-registerSourceSync(app, { appName: 'gira' }); // 원본 동기화 (SOURCE_SYNC_HOURS마다, 기본 3시간)
+registerSourceSync(app, { appName: 'gira' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
 
 // React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)

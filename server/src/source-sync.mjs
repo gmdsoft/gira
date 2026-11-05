@@ -1,6 +1,7 @@
-// 원본 동기화 스케줄러: SOURCE_SYNC_HOURS(기본 3)마다 scripts/source-sync.mjs 를 자식 프로세스로 실행한다.
+// 원본 동기화 스케줄러: 매일 SOURCE_SYNC_AT(한국 시각, 기본 03:00)에 scripts/source-sync.mjs 를 자식 프로세스로 실행한다.
 // Gira 서버는 --app gira(Jira 프로젝트), Gonfluence 서버는 --app gonfluence(Confluence 스페이스).
-// SOURCE_SYNC=0 이면 자동 실행 끔(수동 실행 API는 유지). 원본 호출은 임포터가 GET으로만 한다.
+// 방향은 원본(Jira/Confluence) → Gira/Gonfluence 단방향: 원본은 GET으로 읽기만 하고, 로컬 변경을 원본에 쓰지 않는다.
+// SOURCE_SYNC=0 이면 자동 실행 끔(수동 실행 API는 유지).
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,10 +17,20 @@ function requireAdmin(req, reply) {
   return false;
 }
 
+// 다음 'HH:MM'(한국 시각, UTC+9 고정 — 서머타임 없음) 시점. 서버/컨테이너의 TZ와 무관하게 동작한다.
+function nextKstTime(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const KST = 9 * 3600e3;
+  const nowK = new Date(Date.now() + KST);
+  let t = Date.UTC(nowK.getUTCFullYear(), nowK.getUTCMonth(), nowK.getUTCDate(), h, m) - KST;
+  if (t <= Date.now() + 1000) t += 86400e3;
+  return new Date(t);
+}
+
 export function registerSourceSync(app, { appName }) {
   const kind = appName === 'gira' ? 'jira-project' : 'conf-space';
-  const hours = Number(process.env.SOURCE_SYNC_HOURS ?? 3);
-  const delayMin = Number(process.env.SOURCE_SYNC_DELAY_MIN ?? 10);
+  const at = process.env.SOURCE_SYNC_AT ?? '03:00';
+  const enabled = process.env.SOURCE_SYNC !== '0';
   let running = null;   // 진행 중인 자식 프로세스
   let nextAt = null;
 
@@ -40,12 +51,13 @@ export function registerSourceSync(app, { appName }) {
     return true;
   }
 
-  if (process.env.SOURCE_SYNC !== '0' && hours > 0) {
-    const schedule = (ms) => {
-      nextAt = new Date(Date.now() + ms);
-      setTimeout(() => { run('정기'); schedule(hours * 3600e3); }, ms).unref();
+  if (enabled) {
+    const schedule = () => {
+      nextAt = nextKstTime(at);
+      setTimeout(() => { run('정기'); schedule(); }, nextAt - Date.now()).unref();
     };
-    schedule(delayMin * 60e3);
+    schedule();
+    console.log(`[source-sync] ${appName}: 매일 ${at}(KST) 원본 → 로컬 단방향 동기화, 다음 ${nextAt.toISOString()}`);
   }
 
   // 상태 조회 (관리자)
@@ -55,8 +67,7 @@ export function registerSourceSync(app, { appName }) {
       `SELECT key, last_synced_at, last_run_at, last_status, last_log
          FROM source_sync_state WHERE kind = $1 ORDER BY key`, [kind]);
     return {
-      enabled: process.env.SOURCE_SYNC !== '0' && hours > 0,
-      intervalHours: hours, nextAt, running: !!running, targets: rows,
+      enabled, dailyAt: `${at} KST`, nextAt, running: !!running, targets: rows,
     };
   });
 

@@ -58,7 +58,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
-registerSourceSync(app, { appName: 'gonfluence' }); // 원본 동기화 (SOURCE_SYNC_HOURS마다, 기본 3시간)
+registerSourceSync(app, { appName: 'gonfluence' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'conf' }); // 팀장 셀프 이관 (원본 Confluence → 이 인스턴스)
 
 // 자주 쓰는 권한 검사: 보기/편집 불가 시 403(없으면 404)을 보내고 null 반환
