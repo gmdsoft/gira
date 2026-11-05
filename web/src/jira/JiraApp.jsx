@@ -353,17 +353,19 @@ export default function JiraApp() {
           <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
           <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">PoC</span></span>
         </div>
-        <form className="tb-search" onSubmit={submitGlobal}>
-          <IconSearch size={17} />
-          <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
-          <kbd>/</kbd>
-        </form>
-        <div className="tb-right">
+        <div className="tb-center">
+          <form className="tb-search" onSubmit={submitGlobal}>
+            <IconSearch size={17} />
+            <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
+            <kbd>/</kbd>
+          </form>
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
+        </div>
+        <div className="tb-right">
           <button className="iconbtn bell" title="알림 (PoC 미지원)"><IconBell size={18} /><span className="bell-dot" /></button>
           <button className="iconbtn" title="도움말 (PoC 미지원)"><IconHelp size={18} /></button>
           <span className="settings-wrap">
-            <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={18} /></button>
+            <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={20} /></button>
             {showSet && <>
               <div className="menu-backdrop" onClick={() => setShowSet(false)} />
               <div className="setmenu">
