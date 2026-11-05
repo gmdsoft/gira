@@ -223,6 +223,7 @@ app.get('/api/issues', async (req, reply) => {
   if (status) cond.push(`i.status_id = ${p(status)}`);
   if (type) cond.push(`i.issue_type_id = ${p(type)}`);
   if (assignee) cond.push(`i.assignee_id = ${p(assignee)}`);
+  if (req.query.who) cond.push(`i.assignee_id = ${p(req.query.who)}`); // 아바타 빠른 필터 (모드 무관)
   if (priority) cond.push(`i.priority = ${p(priority)}`);
   if (sprint === 'none') cond.push(`i.sprint_id IS NULL`);
   else if (sprint === 'open') cond.push(`(i.sprint_id IS NULL OR i.sprint_id IN (SELECT id FROM jira_sprints WHERE state <> 'closed'))`);

@@ -12,7 +12,8 @@ import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconL
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
 // xjql: 기본 모드에서 콤보로 표현할 수 없어 그대로 유지하는 잔여 JQL (기본 필터와 AND 결합)
-const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '' };
+// who: 아바타 빠른 필터(담당자) — 기본/JQL 모드와 무관하게 AND 적용
+const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '', who: '' };
 
 function parseRoute(projects) {
   const m1 = location.pathname.match(/^\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)$/);
@@ -126,7 +127,7 @@ export default function JiraApp() {
   };
   const switchProject = (pkey) => {
     if (pkey === project) return;
-    setProject(pkey); setFilters((f) => ({ ...f, sprint: '' })); setSavedSel('');
+    setProject(pkey); setFilters((f) => ({ ...f, sprint: '', who: '' })); setSavedSel(''); // 사람 목록이 프로젝트마다 다름
   };
   const gotoView = (v) => {
     const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
@@ -293,7 +294,7 @@ export default function JiraApp() {
       // 적용 중인 JQL을 기본 선택값으로 번역하고, 못 옮긴 조건·정렬은 잔여 JQL로 유지
       const { picks, residual } = splitJqlToBasic(applied);
       setQInput(picks.q ?? '');
-      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, ...picks, xjql: residual }));
+      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, who: f.who, ...picks, xjql: residual }));
     }
   };
   const applySaved = (id) => {
@@ -452,8 +453,9 @@ export default function JiraApp() {
             </>}
             <span className="avstack" title="이 프로젝트의 최근 활동자 — 클릭하면 담당 이슈로 필터">
               {(pdata.people ?? []).slice(0, 6).map((u) => (
-                <button key={u.id} className={`avbtn${String(filters.assignee) === String(u.id) ? ' on' : ''}`}
-                  onClick={() => setF('assignee', String(filters.assignee) === String(u.id) ? '' : u.id)} title={u.display_name}>
+                <button key={u.id} className={`avbtn${String(filters.who) === String(u.id) ? ' on' : ''}`}
+                  onClick={() => setF('who', String(filters.who) === String(u.id) ? '' : String(u.id))}
+                  title={`${u.display_name} — 이 프로젝트에서 담당한 이슈만 보기 (다시 누르면 해제)`}>
                   <Avatar name={u.display_name} />
                 </button>))}
               {(pdata.people ?? []).length > 6 && (

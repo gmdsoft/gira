@@ -59,7 +59,7 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
       </>}
       <div className="snav snav-bottom">
         <div className="sitem snav-top" onClick={onDevFeedback} title="신규 기능·수정·버그 제안 (GIRA 프로젝트에 이슈로 등록)">
-          <span className="sglyph">💡</span><span className="strunc">개발참여</span>
+          <span className="sglyph">💡</span><span className="strunc">거 참 답답하네</span>
         </div>
         <a className="sitem" href={SPEC_URL} target="_blank" rel="noreferrer" title="개발 명세서 열기">
           <span className="sglyph">📘</span><span className="strunc">개발 명세서</span><span className="sext">↗</span>

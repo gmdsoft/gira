@@ -18,6 +18,8 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
       for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
       if (filters.xjql) u.append('jql', filters.xjql); // 기본 모드로 못 옮긴 잔여 JQL — AND 결합
     }
+    // 아바타 빠른 필터: 기본/JQL 모드와 무관하게 '이 프로젝트에서 이 사람이 담당' 으로 AND 적용
+    if (filters.who) u.set('who', filters.who);
     for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;
