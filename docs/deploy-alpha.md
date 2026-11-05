@@ -6,8 +6,22 @@ Gira와 Gonfluence는 **각각 독립 스택으로 배포**한다. 스택마다 
 
 | 스택 | compose 파일 | 포트 | 구성 |
 | --- | --- | --- | --- |
-| Gonfluence | docker-compose.gonfluence.yml | 3001 (`GONFLUENCE_PORT`) | app + postgres(rea DB) + opensearch |
-| Gira | docker-compose.gira.yml | 3002 (`GIRA_PORT`) | app + postgres(gira DB) |
+| Gonfluence | docker-compose.gonfluence.yml | 3001 (`GONFLUENCE_PORT`), 관리 3003 (`ADMIN_PORT`) | app + postgres(rea DB) + opensearch + admin |
+| Gira | docker-compose.gira.yml | 3002 (`GIRA_PORT`), 관리 3013 (`GIRA_ADMIN_PORT`) | app + postgres(gira DB) + admin |
+
+**관리 서비스(admin)** 는 조직(사용자·팀·파트·그룹·직책·생성 권한·API 키)의 유일한 관리 지점이다.
+자체 DB 없이 스택의 조직 테이블(schema-core)을 관리하며, 앱 서버에는 조직을 바꾸는 API가 없다.
+
+한 호스트에 **두 스택을 함께** 올릴 때는 관리 서비스를 하나만 켠다:
+
+```
+# Gonfluence 스택의 admin 이 양쪽 조직 테이블을 관리하도록
+echo 'ORG_MIRROR_DATABASE_URL=postgres://rea:<PW>@gira-postgres-1주소:5432/gira' >> .env
+docker compose -f docker-compose.gonfluence.yml up -d --build
+docker compose -f docker-compose.gira.yml up -d --build --scale admin=0
+```
+
+(개발 환경은 로컬 postgres 하나라 `.env` 의 `ORG_MIRROR_DATABASE_URL=...:5432/gira` 로 충분)
 
 ## 처음 띄우기
 

@@ -8,6 +8,8 @@
     "build": "vite build",
     "dev:jira": "vite -c vite.jira-app.config.mjs",
     "build:jira": "vite build -c vite.jira-app.config.mjs",
+    "dev:admin": "vite -c vite.admin.config.mjs",
+    "build:admin": "vite build -c vite.admin.config.mjs",
     "check": "node scripts/render-check.mjs"
   },
   "dependencies": {

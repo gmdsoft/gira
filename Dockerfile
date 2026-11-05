@@ -9,6 +9,7 @@ RUN npm ci
 COPY server server
 COPY web web
 RUN npm --workspace web run build && npm --workspace web run build:jira \
+ && npm --workspace web run build:admin \
  && npm prune --omit=dev
 
 FROM node:24-alpine
@@ -22,5 +23,6 @@ COPY --from=build /app/server/package.json server/package.json
 COPY --from=build /app/server/src server/src
 COPY --from=build /app/web/dist web/dist
 COPY --from=build /app/web/dist-jira-app web/dist-jira-app
-EXPOSE 3001 3002
+COPY --from=build /app/web/dist-admin web/dist-admin
+EXPOSE 3001 3002 3003
 CMD ["node", "server/src/index.mjs"]

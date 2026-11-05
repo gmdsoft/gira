@@ -374,7 +374,7 @@ export default function JiraApp() {
                   <button key={v} onClick={() => { setTheme(v); setShowSet(false); }}>
                     <span>{name}</span>{theme === v && <span className="chk">✓</span>}
                   </button>))}
-                {(meta.projects.find((p) => p.key === project)?.role === 'admin' || meta.projects.some((p) => p.role === 'admin')) && (
+                {(me?.is_admin || meta.projects.some((p) => p.role === 'admin')) && (
                   <div className="setmenu-title">관리</div>
                 )}
                 {meta.projects.find((p) => p.key === project)?.role === 'admin' && (
@@ -382,6 +382,11 @@ export default function JiraApp() {
                 )}
                 {meta.projects.some((p) => p.role === 'admin') && (
                   <button onClick={() => { setShowInbox(true); setShowSet(false); }}><span>접근 요청 승인함…</span></button>
+                )}
+                {me?.is_admin && (
+                  <button onClick={() => { window.open(`//${location.hostname}:3003/`, '_blank'); setShowSet(false); }}>
+                    <span>조직 관리 ↗</span>
+                  </button>
                 )}
               </div>
             </>}
