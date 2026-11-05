@@ -1,0 +1,89 @@
+# 운영 스택 (TrueNAS 등 단일 호스트). 자세한 절차: docs/deploy-alpha.md
+# 실행: docker compose -f docker-compose.prod.yml up -d --build
+# 필요한 .env 키: POSTGRES_PASSWORD (필수), ADMIN_EMAIL, ATLASSIAN_*(첨부 프록시용, 선택)
+name: gmd-tools
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rea}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}
+      POSTGRES_DB: rea
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rea} -d rea"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  gonfluence:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server/src/index.mjs"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/rea
+      SEARCH_URL: http://search:9200
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-pottery@gmdsoft.com}
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      ATLASSIAN_SITE: ${ATLASSIAN_SITE:-}
+      ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
+      ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}
+    ports:
+      - "3001:3001"
+    volumes:
+      - gonfluence-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  gira:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server/src/jira-viewer.mjs"]
+    environment:
+      GIRA_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/gira
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      ATLASSIAN_SITE: ${ATLASSIAN_SITE:-}
+      ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
+      ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}
+    ports:
+      - "3002:3002"
+    volumes:
+      - gira-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  search:
+    build: ./search
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - osdata:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  pgdata:
+  gonfluence-data:
+  gira-data:
+  osdata:
