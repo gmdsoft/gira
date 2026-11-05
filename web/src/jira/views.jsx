@@ -315,13 +315,19 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
   const colOf = new Map();
   cols.forEach((c, i) => c.statusIds.forEach((s) => colOf.set(s, i)));
   const statusName = (id) => meta.statuses.find((s) => Number(s.id) === id)?.name ?? id;
-  const activeSprint = board?.type === 'scrum' ? pdata.sprints.find((s) => s.state === 'active') : null;
+  // 스크럼 보드: 활성 스프린트(여럿이면 선택). + 로 만든 이슈는 선택된(또는 첫) 활성 스프린트에 들어간다
+  const activeSprints = board?.type === 'scrum' ? pdata.sprints.filter((s) => s.state === 'active') : [];
+  const [sprintSel, setSprintSel] = useState('');
+  useEffect(() => { if (sprintSel && !activeSprints.some((s) => String(s.id) === sprintSel)) setSprintSel(''); }, [pdata.sprints, boardId]);
+  const shownSprints = sprintSel ? activeSprints.filter((s) => String(s.id) === sprintSel) : activeSprints;
+  const activeSprint = shownSprints[0] ?? null;
 
   // ---- 레인 구성 ----
   const laneMode = LANE_MODES.includes(filters.group) ? filters.group : '';
   const epicIssues = new Map(); // 에픽 레인: 에픽 자신은 카드가 아니라 레인 머리글
   const cards = [];
   for (const r of rows) {
+    if (sprintSel && String(r.sprint_id) !== sprintSel) continue;
     if (laneMode === 'epic' && r.type_name === '에픽') epicIssues.set(String(r.id), r);
     else cards.push(r);
   }
@@ -416,8 +422,14 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
             {pdata.boards.map((b) => <option key={b.id} value={b.id}>{b.name}{b.type === 'scrum' ? ' (스크럼)' : ''}</option>)}
           </select>
           {board?.type === 'scrum' && <span className="badge cat-indeterminate" title="스크럼 보드는 활성 스프린트 이슈만 표시합니다">활성 스프린트</span>}
-          {board?.type === 'scrum' && !activeSprint &&
+          {board?.type === 'scrum' && !activeSprints.length &&
             <span className="dim">활성 스프린트가 없어 비어 있습니다 — 백로그에서 스프린트를 시작하세요</span>}
+          {activeSprints.length > 1 && (
+            <select value={sprintSel} onChange={(e) => setSprintSel(e.target.value)} title="활성 스프린트가 여러 개입니다">
+              <option value="">스프린트: 전체 ({activeSprints.length})</option>
+              {activeSprints.map((sp) => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+            </select>
+          )}
           {board?.jql && <span className="dim" title={board.jql} style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>필터: {board.jql}</span>}
           <button onClick={() => setModal({})}>+ 보드 만들기</button>
           <button onClick={() => board ? setModal({ board }) : alert('편집할 보드를 선택하세요 (기본 보드는 편집 불가)')}>편집</button>
@@ -425,6 +437,14 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
           <span className="dim">{hidden ? `컬럼에 없는 상태의 이슈 ${hidden}건 숨김` : ''}</span>
         </div>
         <div id="board">
+          {shownSprints.map((sp) => (
+            <SprintBar key={sp.id} sprint={sp} rows={rows.filter((r) => String(r.sprint_id) === String(sp.id))}
+              onComplete={async (msg) => {
+                if (!confirm(msg)) return;
+                await api('/api/sprints/' + sp.id, { method: 'PATCH', json: { state: 'closed' } });
+                await reloadPdata(); onChanged();
+              }} />
+          ))}
           {laneList.map((lane) => {
             const shut = collapsed.has(lane.key);
             return (
@@ -477,6 +497,35 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
       {modal && <BoardModal meta={meta} project={project} board={modal.board}
         onClose={() => setModal(null)}
         onSaved={(b) => { setModal(null); reloadPdata().then(() => onBoard(String(b.id))); }} />}
+    </div>
+  );
+}
+
+// 스크럼 보드 머리: 스프린트 이름·기간·남은 일수·목표 + 스프린트 완료
+const md = (d) => new Date(d).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' });
+function SprintBar({ sprint, rows, onComplete }) {
+  const done = rows.filter((r) => r.status_category === 'done').length;
+  const open = rows.length - done;
+  const left = sprint.end_at ? Math.ceil((new Date(sprint.end_at) - Date.now()) / 86400000) : null;
+  return (
+    <div className="sprintbar">
+      <div className="sprintbar-main">
+        <b>{sprint.name}</b>
+        {(sprint.start_at || sprint.end_at) && (
+          <span className="dim">{sprint.start_at ? md(sprint.start_at) : '?'} ~ {sprint.end_at ? md(sprint.end_at) : '?'}</span>
+        )}
+        {left != null && (
+          <span className={`badge ${left < 0 ? 'cat-overdue' : 'cat-indeterminate'}`}>
+            {left < 0 ? `기한 ${-left}일 지남` : left === 0 ? '오늘 종료' : `${left}일 남음`}
+          </span>
+        )}
+        <span className="dim">완료 {done} · 미완료 {open}</span>
+        <span style={{ flex: 1 }} />
+        <button onClick={() => onComplete(
+          `스프린트 '${sprint.name}'을(를) 완료할까요?\n완료된 이슈 ${done}건은 스프린트에 남고, 미완료 ${open}건은 백로그로 돌아갑니다.`)}>
+          스프린트 완료</button>
+      </div>
+      {sprint.goal && <div className="sprintbar-goal">목표: {sprint.goal}</div>}
     </div>
   );
 }

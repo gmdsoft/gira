@@ -569,7 +569,9 @@ app.patch('/api/sprints/:id', async (req, reply) => {
       `SELECT id FROM jira_sprints WHERE project_id = $1 AND state = 'active' AND id != $2`,
       [cur[0].project_id, req.params.id]);
     if (act.length) return reply.code(409).send({ error: '이미 활성 스프린트가 있습니다. 먼저 완료하세요.' });
-    await query(`UPDATE jira_sprints SET state = 'active', start_at = now() WHERE id = $1`, [req.params.id]);
+    // 시작 시 예정 종료일이 없으면 2주 뒤로 (Jira 기본 기간) — 보드의 남은 일수 표시용
+    await query(`UPDATE jira_sprints SET state = 'active', start_at = now(),
+                   end_at = CASE WHEN end_at > now() THEN end_at ELSE now() + interval '14 days' END WHERE id = $1`, [req.params.id]);
   } else if (b.state === 'closed') {
     await query(`UPDATE jira_sprints SET state = 'closed', end_at = now() WHERE id = $1`, [req.params.id]);
     // Jira 기본 동작: 미완료 이슈는 백로그로 되돌린다 (done은 스프린트에 남김)
