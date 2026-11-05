@@ -8,7 +8,11 @@ const SESSION_KEY = 'devchat.session';
 const TYPE_LABEL = { epic: '에픽', story: '스토리', task: '작업', subtask: '하위 작업', bug: '버그' };
 const EXEC_LABEL = { codex: 'Codex', opencode: 'OpenCode', human: '사람' };
 
-export function DevFeedbackModal({ api, giraOrigin = '', onClose, modalClass = 'modal', btn = 'btn', btnPrimary = 'btn btn-primary' }) {
+// 개발참여를 새 탭으로 연다 — 같은 이름의 탭을 재사용 (수정 확인을 위해 원래 화면을 새로고침해도 대화가 유지됨)
+export function openDevChat() { window.open('/dev-chat', 'gira-devchat'); }
+
+export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn', btnPrimary = 'btn btn-primary' }) {
+  useEffect(() => { document.title = `개발참여 - ${appName}`; }, []);
   const [sessionId, setSessionId] = useState(() => {
     try { return Number(localStorage.getItem(SESSION_KEY)) || null; } catch { return null; }
   });
@@ -50,14 +54,13 @@ export function DevFeedbackModal({ api, giraOrigin = '', onClose, modalClass = '
   };
 
   return (
-    <div className="modal-backdrop" onClick={() => onClose()}>
-      <div className={modalClass + ' devchat'} onClick={(e) => e.stopPropagation()}>
+    <div className="devchat-page">
+      <div className="devchat">
         <div className="devchat-head">
           <h2>개발참여</h2>
           <a href={SPEC_URL} target="_blank" rel="noreferrer">개발 명세서 ↗</a>
           <span className="devchat-sp" />
           <button className={btn} onClick={newChat} disabled={busy}>새 대화</button>
-          <button className={btn} onClick={() => onClose()}>닫기</button>
         </div>
         <div className="devchat-list" ref={listRef}>
           {!msgs.length && (

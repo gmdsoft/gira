@@ -68,6 +68,7 @@ const page = (req, reply) => reply.type('text/html')
   .send(createReadStream(path.join(DIST, 'jira.html')));
 app.get('/', page);
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
+app.get('/dev-chat', page);                    // 개발참여 챗봇 (새 탭 전용 페이지)
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
 
 // 플레인 텍스트 → 최소 ADF 문서 (PoC 입력용)

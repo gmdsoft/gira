@@ -747,3 +747,7 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .devchat-input { display: flex; gap: 8px; align-items: flex-end; }
 .devchat-input textarea { flex: 1; font: inherit; font-size: 14px; padding: 9px 11px; border: 1px solid var(--line, #c2c7d0); border-radius: 8px; resize: none; background: var(--panel); color: var(--text); }
 .perm-modal.devchat { height: min(780px, 92vh); }
+
+/* 개발참여 챗봇 — 새 탭 전용 페이지 */
+.devchat-page { min-height: 100vh; background: var(--bg); display: flex; justify-content: center; padding: 16px; box-sizing: border-box; }
+.devchat-page .devchat { width: 880px; max-width: 100%; height: calc(100vh - 32px); background: var(--panel); border-radius: 12px; box-shadow: 0 2px 12px rgba(9,30,66,.12); }

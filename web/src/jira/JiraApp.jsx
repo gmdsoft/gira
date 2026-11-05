@@ -4,7 +4,7 @@ import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
 import { AccessGate, SettingsHub } from './perm.jsx';
-import { DevFeedbackModal } from '../dev-feedback-ui.jsx';
+import { DevChatPage, openDevChat } from '../dev-feedback-ui.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -70,7 +70,6 @@ export default function JiraApp() {
   });
   const [showSet, setShowSet] = useState(false);
   const [showHub, setShowHub] = useState(false); // 설정 허브 (API 키·패키지·이관·권한·승인함)
-  const [showDevFb, setShowDevFb] = useState(false); // 개발참여 (GIRA 프로젝트 이슈 등록)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
@@ -168,6 +167,10 @@ export default function JiraApp() {
 
   if (authed === false) return <LoginGate onLogin={() => { setAuthed(null); boot(); }} />;
   if (!authed || !meta) return <div className="placeholder" style={{ marginTop: 60, textAlign: 'center' }}>불러오는 중…</div>;
+  // 개발참여 챗봇 전용 탭 (프로젝트 접근 권한과 무관하게 누구나)
+  if (location.pathname === '/dev-chat') {
+    return <DevChatPage api={api} appName="Gira" btn="plain" btnPrimary="primary" />;
+  }
   // 접근 가능한 프로젝트가 없으면 요청 게이트
   if (!meta.projects.length) {
     return <AccessGate me={me} onLogout={async () => {
@@ -391,7 +394,7 @@ export default function JiraApp() {
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
-          onDevFeedback={() => setShowDevFb(true)} />}
+          onDevFeedback={openDevChat} />}
         <div className="content">
           <div className="chead">
             <div className="chead-top">
@@ -492,8 +495,6 @@ export default function JiraApp() {
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
       {showHub && <SettingsHub me={me} meta={meta} project={project}
         onClose={() => setShowHub(false)} onChanged={() => boot()} />}
-      {showDevFb && <DevFeedbackModal api={api} modalClass="modal perm-modal"
-        btn="plain" btnPrimary="primary" onClose={() => { setShowDevFb(false); refresh(); }} />}
     </>
   );
 }
