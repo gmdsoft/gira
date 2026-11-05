@@ -24,4 +24,7 @@
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).
 - 변환기(scripts/convert-storage.mjs)를 고치면 `node scripts/reconvert.mjs`로 전 버전에 소급 적용 (source_xhtml 보관, API 재호출 불필요).
+- 원본 동기화: 각 서버가 `SOURCE_SYNC_HOURS`(기본 3)마다 `scripts/source-sync.mjs --app gira|gonfluence` 실행
+  (임포터 `--since` 증분, GET만). 상태 `GET /api/source-sync`, 즉시 실행 `POST /api/source-sync/run`(관리자), `SOURCE_SYNC=0`으로 끔.
+  로컬 생성 행은 id 1e12 이상(LOCAL_ID_FLOOR)이라 원본 id와 충돌하지 않는다.
 - 검증: `npm --workspace web run check` (전 버전 doc 스키마 직렬화 검사).
