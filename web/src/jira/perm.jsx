@@ -317,7 +317,7 @@ export function SettingsHub({ me, meta, project, onClose, onChanged }) {
 }
 
 // 접근 가능한 프로젝트가 없는 사용자용 게이트: 프로젝트 키로 접근 요청
-export function AccessGate({ me, onLogout }) {
+export function AccessGate({ me, onLogout, onCreate }) {
   const [key, setKey] = useState('');
   const [want, setWant] = useState('viewer');
   const [reason, setReason] = useState('');
@@ -338,6 +338,7 @@ export function AccessGate({ me, onLogout }) {
     <div className="gate">
       <div className="gate-card">
         <h2>🔒 접근 가능한 프로젝트가 없습니다</h2>
+        {onCreate && <button className="primary" onClick={onCreate}>프로젝트 만들기</button>}
         <p className="muted2">{me?.display_name}님, 아직 부여된 프로젝트 권한이 없습니다.
           프로젝트 키를 입력해 관리자에게 접근을 요청하세요.</p>
         <form className="gate-form" onSubmit={submit}>
@@ -363,4 +364,60 @@ export function AccessGate({ me, onLogout }) {
       </div>
     </div>
   );
+}
+
+
+export function NewProjectModal({ onClose, onCreated }) {
+  const [name, setName] = useState('');
+  const [key, setKey] = useState('');
+  const [description, setDescription] = useState('');
+  const [rows, setRows] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const add = (items) => setRows((prev) => {
+    const next = [...prev];
+    for (const p of items) if (!next.some((r) => r.type === p.type && r.id === Number(p.id))) {
+      next.push({ ...p, id: Number(p.id), role: 'viewer' });
+    }
+    return next;
+  });
+  const submit = async (e) => {
+    e.preventDefault(); setBusy(true); setError('');
+    let created;
+    try {
+      created = await api('/api/projects', { method: 'POST', quiet: true, json: {
+        name, key, description,
+        rows: rows.map((r) => ({ principalType: r.type, principalId: r.id, role: r.role })),
+      } });
+    } catch (err) { setError(err.message); setBusy(false); return; }
+    onCreated(created);
+  };
+  return <div className="overlay on"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+    <h2 id="new-project-title">프로젝트 만들기</h2>
+    <form onSubmit={submit}>
+      <fieldset disabled={busy} className="project-create-fields">
+        <label>이름<input type="text" required maxLength={200} value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label>키<input type="text" required pattern="[A-Z][A-Z0-9]{1,19}" maxLength={20} value={key}
+          onChange={(e) => setKey(e.target.value.toUpperCase())} />
+          <span className="muted2">영문 대문자로 시작하는 대문자·숫자 2~20자</span></label>
+        <label>설명<textarea maxLength={10000} value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+        <h3>접근 범위</h3>
+        <p className="muted2">생성자는 프로젝트 관리자가 됩니다. 팀 권한은 하위 파트에도 적용됩니다.</p>
+        {rows.map((r, i) => <div className="project-create-grant" key={r.type + ':' + r.id}>
+          <span>{r.name}</span>
+          <select aria-label={r.name + ' 접근 등급'} value={r.role} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, role: e.target.value } : x))}>
+            {Object.entries(ROLE_LABEL).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+          <button type="button" onClick={() => setRows(rows.filter((_, j) => j !== i))}>삭제</button>
+        </div>)}
+        {!rows.some((r) => r.type === 'anyone') && <button type="button" onClick={() => add([{ type: 'anyone', id: 0, name: '전사 공개' }])}>+ 전사 공개</button>}
+        <PrincipalPicker onAdd={add} exclude={new Set(rows.map((r) => r.type + ':' + r.id))} />
+      </fieldset>
+      {error && <p role="alert">{error}</p>}
+      <div className="modal-actions">
+        <button type="button" disabled={busy} onClick={onClose}>취소</button>
+        <button className="primary" disabled={busy} type="submit">{busy ? '만드는 중…' : '프로젝트 만들기'}</button>
+      </div>
+    </form>
+  </section></div>;
 }

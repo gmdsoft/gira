@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
-import { AccessGate, SettingsHub } from './perm.jsx';
+import { AccessGate, SettingsHub, NewProjectModal } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -50,6 +50,7 @@ export default function JiraApp() {
   const [boardId, setBoardId] = useState('');
   const [count, setCount] = useState(0);
   const [bump, setBump] = useState(0);
+  const [showProjectCreate, setShowProjectCreate] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [sideOpen, setSideOpen] = useState(loadSideOpen);
   const [recent, setRecent] = useState(loadRecent);
@@ -164,11 +165,18 @@ export default function JiraApp() {
 
   if (authed === false) return <LoginGate onLogin={() => { setAuthed(null); boot(); }} />;
   if (!authed || !meta) return <div className="placeholder" style={{ marginTop: 60, textAlign: 'center' }}>불러오는 중…</div>;
+  const projectCreated = async (created) => {
+    setShowProjectCreate(false);
+    nav(`/projects/${encodeURIComponent(created.key)}/list`);
+    await boot();
+  };
+  const projectCreateModal = showProjectCreate && me?.can_create && <NewProjectModal
+    onClose={() => setShowProjectCreate(false)} onCreated={projectCreated} />;
   // 접근 가능한 프로젝트가 없으면 요청 게이트
   if (!meta.projects.length) {
-    return <AccessGate me={me} onLogout={async () => {
+    return <>{projectCreateModal}<AccessGate me={me} onCreate={me?.can_create ? () => setShowProjectCreate(true) : undefined} onLogout={async () => {
       await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/';
-    }} />;
+    }} /></>;
   }
 
   const refresh = () => setBump((b) => b + 1);
@@ -358,6 +366,7 @@ export default function JiraApp() {
             <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
             <kbd>/</kbd>
           </form>
+          {me?.can_create && <button className="primary" onClick={() => setShowProjectCreate(true)}>프로젝트 만들기</button>}
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
         </div>
         <div className="tb-right">
@@ -479,6 +488,7 @@ export default function JiraApp() {
           </main>
         </div>
       </div>
+      {projectCreateModal}
       {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
         onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}

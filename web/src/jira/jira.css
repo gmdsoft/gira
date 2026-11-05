@@ -710,3 +710,10 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .hub-pane .perm-rows { flex: 1; min-height: 100px; overflow: auto; }
 .hub-pane .mg-body { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
 .setmenu-sep { border-top: 1px solid var(--line); margin: 4px 0; }
+
+.project-create-fields { border: 0; padding: 0; min-width: 0; }
+.project-create-fields > label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.project-create-fields textarea { min-height: 75px; }
+.project-create-grant { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.project-create-grant > span { flex: 1; }
+.project-create-grant select { width: auto; }
