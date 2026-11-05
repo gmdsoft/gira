@@ -17,6 +17,7 @@ import { registerAuth, hashToken } from './auth.mjs';
 import { spaceRole, contentAccess, filterViewable, visibleTreeSet } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
+import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -42,18 +43,22 @@ const app = Fastify({
 });
 
 // 새 콘텐츠·첨부 ID가 이관된 ID와 겹치지 않도록 시퀀스 보정
+// 로컬에서 만드는 행은 1조 이상 번호를 쓴다 — 원본(Atlassian)은 계속 번호를 발급하므로, '이관 최댓값+1'부터
+// 쓰면 원본 동기화 때 같은 id로 덮어쓸 수 있다. 원본 id는 이 값보다 훨씬 작다.
+const LOCAL_ID_FLOOR = 1000000000000;
 await query(`SELECT setval('content_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM content), (SELECT last_value FROM content_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM content), (SELECT last_value FROM content_id_seq)))`);
 await query(`SELECT setval('attachment_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM attachments), (SELECT last_value FROM attachment_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM attachments), (SELECT last_value FROM attachment_id_seq)))`);
 await query(`SELECT setval('comment_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM comments), (SELECT last_value FROM comment_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM comments), (SELECT last_value FROM comment_id_seq)))`);
 
 await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 5 } });
 
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerSourceSync(app, { appName: 'gonfluence' }); // 원본 동기화 (SOURCE_SYNC_HOURS마다, 기본 3시간)
 registerSelfMigrate(app, { kind: 'conf' }); // 팀장 셀프 이관 (원본 Confluence → 이 인스턴스)
 
 // 자주 쓰는 권한 검사: 보기/편집 불가 시 403(없으면 404)을 보내고 null 반환

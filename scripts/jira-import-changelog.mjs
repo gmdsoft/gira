@@ -2,7 +2,7 @@
 // Jira Cloud 변경 이력(changelog) 이관 — 읽기 전용 GET만 사용.
 // search/jql의 expand=changelog로 페이지 단위 수집, 잘린 이슈(total > 반환)만 per-issue 추가 조회.
 //
-// 사용법: node scripts/jira-import-changelog.mjs --project NEXT [--wipe]
+// 사용법: node scripts/jira-import-changelog.mjs --project NEXT [--wipe] [--since <ISO 시각>]
 
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -10,12 +10,22 @@ import { query, closeDb } from '../server/src/db.mjs';
 try { process.loadEnvFile('.env'); } catch { /* 환경변수 직접 지정 가능 */ }
 
 const { values: args } = parseArgs({
-  options: { project: { type: 'string' }, wipe: { type: 'boolean', default: false } },
+  options: { project: { type: 'string' }, wipe: { type: 'boolean', default: false }, since: { type: 'string' } },
 });
 if (!args.project) {
   console.error('사용법: node scripts/jira-import-changelog.mjs --project <KEY> [--wipe]');
   process.exit(1);
 }
+
+// 증분 동기화: --since <ISO 시각> 이면 그 이후 수정된 이슈만 (시간대 오차 대비 1시간 앞당김)
+function sinceClause() {
+  if (!args.since) return '';
+  const t = new Date(new Date(args.since).getTime() - 60 * 60 * 1000);
+  if (Number.isNaN(t.getTime())) throw new Error(`--since 형식 오류: ${args.since}`);
+  const p = (n) => String(n).padStart(2, '0');
+  return ` AND updated >= "${t.getUTCFullYear()}/${p(t.getUTCMonth() + 1)}/${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}"`;
+}
+
 
 const SITE = (process.env.ATLASSIAN_SITE ?? '').replace(/\/$/, '');
 const AUTH = 'Basic ' + Buffer.from(`${process.env.ATLASSIAN_EMAIL}:${process.env.ATLASSIAN_API_TOKEN}`).toString('base64');
@@ -50,7 +60,8 @@ if (args.wipe) {
 }
 
 // 로컬 DB에 있는 이슈만 대상 (FK)
-const knownIds = new Set((await query(`SELECT id FROM jira_issues WHERE project_id = $1`, [projectId])).rows.map((r) => Number(r.id)));
+// 로컬에서 만든 이슈(fields_raw '{}')는 원본 이력과 무관 — 같은 id의 원본 이력이 붙지 않게 제외
+const knownIds = new Set((await query(`SELECT id FROM jira_issues WHERE project_id = $1 AND fields_raw::text <> '{}'`, [projectId])).rows.map((r) => Number(r.id)));
 
 const userIdByAccount = new Map();
 async function ensureUsers(accountMap) { // accountId → displayName
@@ -85,7 +96,7 @@ async function saveHistories(issueId, histories) {
 }
 
 console.log(`프로젝트 ${args.project} 변경 이력 수집...`);
-const jql = encodeURIComponent(`project = "${args.project}" ORDER BY created ASC`);
+const jql = encodeURIComponent(`project = "${args.project}"${sinceClause()} ORDER BY created ASC`);
 let token = null;
 for (;;) {
   const qs = `jql=${jql}&maxResults=100&fields=none&expand=changelog${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`;

@@ -14,6 +14,7 @@ import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
+import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
 import { registerDevChat, triggerDispatch } from './dev-chat.mjs';
 import { parseJql, JqlError } from './jql.mjs';
@@ -46,17 +47,21 @@ const app = Fastify({
 await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 5 } });
 
 // 신규 ID가 이관된 ID와 겹치지 않도록 시퀀스 보정
+// 로컬에서 만드는 행은 1조 이상 번호를 쓴다 — 원본(Atlassian)은 계속 번호를 발급하므로, '이관 최댓값+1'부터
+// 쓰면 원본 동기화 때 같은 id로 덮어쓸 수 있다. 원본 id는 이 값보다 훨씬 작다.
+const LOCAL_ID_FLOOR = 1000000000000;
 await query(`SELECT setval('jira_issue_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_issues), (SELECT last_value FROM jira_issue_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_issues), (SELECT last_value FROM jira_issue_id_seq)))`);
 await query(`SELECT setval('jira_comment_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_comments), (SELECT last_value FROM jira_comment_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_comments), (SELECT last_value FROM jira_comment_id_seq)))`);
 await query(`SELECT setval('jira_attachment_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_attachments), (SELECT last_value FROM jira_attachment_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_attachments), (SELECT last_value FROM jira_attachment_id_seq)))`);
 await query(`SELECT setval('jira_sprints_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerSourceSync(app, { appName: 'gira' }); // 원본 동기화 (SOURCE_SYNC_HOURS마다, 기본 3시간)
 registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
 
 // React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)

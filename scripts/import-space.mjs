@@ -2,7 +2,7 @@
 // Confluence Cloud → 새 서비스 DB 임포터 (PoC: 스페이스 단위, 최신 버전만).
 // 읽기 전용 GET 요청만 사용한다. 전체 버전 이력 이관은 파이프라인 단계에서 확장한다.
 //
-// 사용법: node scripts/import-space.mjs --space Research [--wipe]
+// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>]
 
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
@@ -14,10 +14,11 @@ const { values: args } = parseArgs({
   options: {
     space: { type: 'string' },
     wipe: { type: 'boolean', default: false },
+    since: { type: 'string' }, // 증분 동기화 (ISO 시각): 이후 수정·신규 페이지만 본문까지 받는다
   },
 });
 if (!args.space) {
-  console.error('사용법: node scripts/import-space.mjs --space <KEY> [--wipe]');
+  console.error('사용법: node scripts/import-space.mjs --space <KEY> [--wipe] [--since <ISO 시각>]');
   process.exit(1);
 }
 
@@ -78,9 +79,37 @@ const space = spaceRes.results?.[0];
 if (!space) { console.error('스페이스를 찾을 수 없습니다.'); process.exit(1); }
 console.log(`  ${space.id} ${space.key} "${space.name}" (${space.type})`);
 
-console.log('페이지 수집 (본문 포함)...');
-const pages = await getAll(`/wiki/api/v2/spaces/${space.id}/pages?body-format=storage&limit=100`);
-console.log(`  페이지 ${pages.length}건`);
+let pages;
+if (!args.since) {
+  console.log('페이지 수집 (본문 포함)...');
+  pages = await getAll(`/wiki/api/v2/spaces/${space.id}/pages?body-format=storage&limit=100`);
+  console.log(`  페이지 ${pages.length}건`);
+} else {
+  // 증분: 목록(본문 없이)만 받아 바뀐 페이지를 고르고, 그것만 본문을 받는다 (1시간 여유)
+  const since = new Date(new Date(args.since).getTime() - 60 * 60 * 1000);
+  if (Number.isNaN(since.getTime())) throw new Error(`--since 형식 오류: ${args.since}`);
+  const listed = await getAll(`/wiki/api/v2/spaces/${space.id}/pages?limit=250`);
+  const { rows: have } = await query(`SELECT id::text AS id FROM content WHERE id = ANY($1::bigint[])`,
+    [listed.map((p) => p.id)]);
+  const haveIds = new Set(have.map((r) => r.id));
+  const changed = listed.filter((p) => !haveIds.has(String(p.id))
+    || new Date(p.version?.createdAt ?? 0) >= since);
+  console.log(`  페이지 ${listed.length}건 중 변경·신규 ${changed.length}건 (기준 ${since.toISOString()})`);
+  pages = await mapLimit(changed, 6, (p) => get(`/wiki/api/v2/pages/${p.id}?body-format=storage`));
+}
+
+// 충돌 가드: 원본 페이지와 id가 같은 '로컬에서 만든 페이지'(원본 본문 버전이 하나도 없는 page/live)는
+// 덮어쓰지 않는다 — 로컬 번호가 원본 대역 위에서 발급되던 시절의 페이지 보호
+{
+  const { rows: clash } = await query(
+    `SELECT c.id::text AS id, c.title FROM content c
+      WHERE c.id = ANY($1::bigint[]) AND c.type IN ('page', 'live')
+        AND NOT EXISTS (SELECT 1 FROM content_versions v WHERE v.content_id = c.id AND v.source_xhtml IS NOT NULL)`,
+    [pages.map((p) => p.id)]);
+  const clashIds = new Set(clash.map((r) => r.id));
+  for (const c of clash) console.log(`  ⚠ 충돌 건너뜀: 원본 페이지 id ${c.id}가 로컬 페이지 "${c.title}"와 겹침`);
+  pages = pages.filter((p) => !clashIds.has(String(p.id)));
+}
 
 // 폴더: 페이지 부모 체인에 등장하는 폴더를 재귀적으로 수집
 const folders = new Map();
@@ -209,7 +238,8 @@ const spaceTypeMap = { global: 'global', personal: 'personal', collaboration: 'c
 await query(
   `INSERT INTO spaces (id, key, name, type, status, created_at)
    VALUES ($1, $2, $3, $4, $5, $6)
-   ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status`,
+   ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status
+   WHERE spaces.key = EXCLUDED.key`,
   [space.id, space.key, space.name, spaceTypeMap[space.type] ?? 'global', space.status ?? 'current', ts(space.createdAt)]);
 
 // 1차: 콘텐츠 행 (parent_id 없이), 2차: parent_id 업데이트 — FK 순서 문제 회피
@@ -217,7 +247,8 @@ for (const f of folders.values()) {
   await query(
     `INSERT INTO content (id, space_id, type, title, position, status, author_id, owner_id, created_at)
      VALUES ($1, $2, 'folder', $3, $4, 'current', $5, $6, $7)
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (id) DO UPDATE SET title = EXCLUDED.title, position = EXCLUDED.position
+     WHERE content.type = 'folder'`,
     [f.id, space.id, f.title ?? '(폴더)', f.position ?? null, uid(f.authorId), uid(f.ownerId), ts(f.createdAt)]);
 }
 for (const [i, p] of pages.entries()) {
@@ -225,24 +256,33 @@ for (const [i, p] of pages.entries()) {
   await query(
     `INSERT INTO content (id, space_id, type, title, position, status, author_id, owner_id, current_version, full_width, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (id) DO UPDATE SET
+       space_id = EXCLUDED.space_id, title = EXCLUDED.title, position = EXCLUDED.position,
+       status = EXCLUDED.status, current_version = EXCLUDED.current_version,
+       full_width = EXCLUDED.full_width, updated_at = EXCLUDED.updated_at`,
     [p.id, space.id, subtype, p.title, p.position ?? null, p.status ?? 'current',
      uid(p.authorId), uid(p.ownerId), p.version?.number ?? 1, perPage[i]?.fullWidth ?? false,
      ts(p.createdAt), ts(p.version?.createdAt)]);
 }
 const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id)]);
+// 증분 동기화에서는 부모가 이번 수집에 없을 수 있으므로 DB에 있는지도 본다
+const inDb = async (id) => (await query(`SELECT 1 FROM content WHERE id = $1`, [id])).rows.length > 0;
+const linkable = async (id) => !!id && (knownIds.has(id) || await inDb(id));
 for (const f of folders.values()) {
-  if (f.parentId && knownIds.has(f.parentId)) {
+  if (await linkable(f.parentId)) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [f.id, f.parentId]);
   }
 }
 for (const p of pages) {
-  if (p.parentId && knownIds.has(p.parentId)) {
+  if (await linkable(p.parentId)) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [p.id, p.parentId]);
   }
 }
-await query(`UPDATE spaces SET homepage_id = $2 WHERE id = $1`,
-  [space.id, knownIds.has(space.homepageId) ? space.homepageId : null]);
+if (await linkable(space.homepageId)) {
+  await query(`UPDATE spaces SET homepage_id = $2 WHERE id = $1`, [space.id, space.homepageId]);
+} else if (!args.since) {
+  await query(`UPDATE spaces SET homepage_id = NULL WHERE id = $1`, [space.id]);
+}
 
 // 버전 (최신만)
 for (let i = 0; i < pages.length; i++) {
@@ -275,7 +315,8 @@ for (let i = 0; i < pages.length; i++) {
     await query(
       `INSERT INTO attachments (id, content_id, filename, media_type, file_size, source_url, version, author_id, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       ON CONFLICT (id) DO UPDATE SET source_url = EXCLUDED.source_url`,
+       ON CONFLICT (id) DO UPDATE SET source_url = EXCLUDED.source_url
+       WHERE attachments.content_id = EXCLUDED.content_id`,
       [attId, p.id, a.title ?? '(이름 없음)', a.mediaType ?? null, a.fileSize ?? null,
        a.downloadLink ?? a._links?.download ?? null, a.version?.number ?? 1,
        uid(a.version?.authorId), ts(a.createdAt ?? a.version?.createdAt)]);
@@ -295,7 +336,8 @@ for (let i = 0; i < pages.length; i++) {
       await query(
         `INSERT INTO comments (id, content_id, kind, inline_ref, resolved, doc, author_id, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (id) DO NOTHING`,
+         ON CONFLICT (id) DO UPDATE SET doc = EXCLUDED.doc, resolved = EXCLUDED.resolved
+         WHERE comments.content_id = EXCLUDED.content_id`,
         [c.id, p.id, kind, c.properties?.['inline-marker-ref'] ?? null,
          c.resolutionStatus === 'resolved', doc ? JSON.stringify(doc) : null,
          uid(c.version?.authorId), ts(c.version?.createdAt)]);
