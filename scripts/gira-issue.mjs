@@ -81,18 +81,19 @@ try {
     await record(key);
   } else if (!key) {
     const { rows } = await query(
-      `SELECT i.issue_key, i.summary, s.name AS status, t.name AS type, i.labels, i.updated_at
+      `SELECT i.issue_key, i.summary, s.name AS status, t.name AS type, i.labels, i.updated_at, i.priority
          FROM jira_issues i JOIN jira_projects p ON p.id = i.project_id AND p.key = 'GIRA'
          LEFT JOIN jira_statuses s ON s.id = i.status_id LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
         WHERE s.category IS DISTINCT FROM 'done'
-        ORDER BY split_part(i.issue_key, '-', 2)::int`);
+        ORDER BY CASE i.priority WHEN 'Highest' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 WHEN 'Medium' THEN 2
+                   WHEN 'Low' THEN 3 WHEN 'Lowest' THEN 4 ELSE 2 END, split_part(i.issue_key, '-', 2)::int`);
     if (!rows.length) console.log('열린 GIRA 이슈가 없습니다.');
     for (const r of rows) {
-      console.log(`${r.issue_key.padEnd(8)} [${r.status}] ${r.type ?? ''} — ${r.summary}  {${r.labels.join(', ')}}`);
+      console.log(`${r.issue_key.padEnd(8)} ${(r.priority ?? '-').padEnd(7)} [${r.status}] ${r.type ?? ''} — ${r.summary}  {${r.labels.join(', ')}}`);
     }
   } else {
     const { rows } = await query(
-      `SELECT i.id, i.issue_key, i.summary, i.description_adf, i.labels, i.created_at, i.updated_at,
+      `SELECT i.id, i.issue_key, i.summary, i.description_adf, i.labels, i.created_at, i.updated_at, i.priority,
               s.name AS status, t.name AS type, p.issue_key AS parent_key, p.summary AS parent_summary,
               ra.display_name AS reporter, aa.display_name AS assignee
          FROM jira_issues i
@@ -103,7 +104,7 @@ try {
     const it = rows[0];
     if (!it) { console.log(`${key} 이슈가 없습니다.`); process.exitCode = 1; } else {
       console.log(`${it.issue_key}  ${it.summary}`);
-      console.log(`유형 ${it.type ?? '-'} · 상태 ${it.status ?? '-'} · 보고자 ${it.reporter ?? '-'} · 담당 ${it.assignee ?? '-'}`);
+      console.log(`유형 ${it.type ?? '-'} · 상태 ${it.status ?? '-'} · 우선순위 ${it.priority ?? '-'} · 보고자 ${it.reporter ?? '-'} · 담당 ${it.assignee ?? '-'}`);
       console.log(`레이블 ${it.labels.join(', ') || '-'} · 생성 ${d(it.created_at)} · 수정 ${d(it.updated_at)}`);
       if (it.parent_key) console.log(`상위 ${it.parent_key} ${it.parent_summary}`);
       const { rows: subs } = await query(

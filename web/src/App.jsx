@@ -167,7 +167,7 @@ export default function App() {
       const r = await api(`/api/resolve?title=${encodeURIComponent(title)}&spaceKey=${encodeURIComponent(spaceKey)}`);
       navigate(`/s/${r.spaceKey}/p/${r.id}`);
     } catch {
-      alert(`페이지를 찾을 수 없습니다: ${title}\n(이 스페이스만 임포트된 PoC 환경입니다)`);
+      alert(`페이지를 찾을 수 없습니다: ${title}\n(아직 이관되지 않은 문서일 수 있습니다)`);
     }
   }, [route.spaceKey, navigate]);
 
@@ -261,7 +261,7 @@ function Login({ onLogin }) {
 
   return (
     <div className="home login">
-      <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
+      <h1>Gonfluence <span className="poc-badge">Alpha</span></h1>
       <p className="muted">계정명(이름 또는 이메일)을 입력하세요. 관리자가 허용한 계정만 로그인할 수 있습니다.
         (개발용 — Entra ID 연동 시 회사 계정 로그인으로 교체됩니다)</p>
       <form className="search-form" onSubmit={login}>
@@ -386,7 +386,7 @@ function Home({ navigate, me, logout, theme, setTheme }) {
         <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
       </div>
-      <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
+      <h1>Gonfluence <span className="poc-badge">Alpha</span></h1>
       <form className="search-form" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`); }}>
         <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="문서 검색 (한국어 형태소 분석)" />
         <button className="btn btn-primary" type="submit">검색</button>

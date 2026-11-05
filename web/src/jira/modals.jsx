@@ -152,9 +152,9 @@ export function NewIssueModal({ meta, pdata, project, me, onClose, onCreated, on
           </span>
         </div>
         <div className="create-head-actions">
-          <button className="iconbtn" title="최소화 (PoC 미지원)">–</button>
-          <button className="iconbtn" title="최대화 (PoC 미지원)"><IconExpand size={14} /></button>
-          <button className="iconbtn" title="더 보기 (PoC 미지원)"><IconMore size={16} /></button>
+          <button className="iconbtn" title="최소화 (아직 지원하지 않음)">–</button>
+          <button className="iconbtn" title="최대화 (아직 지원하지 않음)"><IconExpand size={14} /></button>
+          <button className="iconbtn" title="더 보기 (아직 지원하지 않음)"><IconMore size={16} /></button>
           <button className="iconbtn" title="닫기" onClick={onClose}><IconClose size={16} /></button>
         </div>
       </div>
