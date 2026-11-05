@@ -7,6 +7,7 @@ export function MigrateModal({ api, title, resourceLabel, onClose, onDone, btn =
   const [email, setEmail] = useState('');
   const [tok, setTok] = useState('');
   const [remote, setRemote] = useState(null);
+  const [sel, setSel] = useState(new Set()); // 복수 선택한 원본 키
   const [jobs, setJobs] = useState([]);
   const [openLog, setOpenLog] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -45,10 +46,19 @@ export function MigrateModal({ api, title, resourceLabel, onClose, onDone, btn =
     await api('/api/migrate/token', { method: 'DELETE' });
     setToken({ hasToken: false }); setRemote(null);
   };
-  const run = async (r) => {
-    if (!confirm(`${r.key} (${r.name}) 을(를) 가져올까요?\n원본은 읽기만 하며, 완료되면 내가 관리자가 됩니다.`)) return;
-    try { await api('/api/migrate/run', { method: 'POST', json: { key: r.key }, quiet: true }); loadJobs(); }
-    catch (e) { alert(e.message); }
+  const toggle = (key) => {
+    const s = new Set(sel);
+    if (s.has(key)) s.delete(key); else s.add(key);
+    setSel(s);
+  };
+  const run = async () => {
+    const keys = [...sel];
+    if (!keys.length) return;
+    if (!confirm(`${keys.join(', ')} 을(를) 가져올까요?\n선택한 순서대로 하나씩 이관되며, 원본은 읽기만 합니다. 완료되면 내가 관리자가 됩니다.`)) return;
+    try {
+      await api('/api/migrate/run', { method: 'POST', json: { keys }, quiet: true });
+      setSel(new Set()); loadJobs();
+    } catch (e) { alert(e.message); }
   };
 
   const STATUS = { running: '진행 중…', done: '완료', error: '오류' };
@@ -74,20 +84,33 @@ export function MigrateModal({ api, title, resourceLabel, onClose, onDone, btn =
 
         {token?.hasToken && (
           <div className="mg-body">
-            <h3>원본 {resourceLabel} 선택</h3>
+            <h3>원본 {resourceLabel} 선택 <span className="mg-muted">(체크해서 여러 개 가져오기)</span></h3>
             {!remote ? <p className="mg-muted">원본 목록 불러오는 중…</p> : (
               <ul className="mg-list">
                 {remote.map((r) => (
                   <li key={r.key}>
-                    <span className="mg-key">{r.key}</span>
-                    <span className="mg-name">{r.name}</span>
-                    {r.exists ? <span className="mg-exists">이관됨</span>
-                      : <button className={btnPrimary} disabled={running} onClick={() => run(r)}>가져오기</button>}
+                    {r.exists ? <>
+                      <span className="mg-check" />
+                      <span className="mg-key">{r.key}</span>
+                      <span className="mg-name">{r.name}</span>
+                      <span className="mg-exists">이관됨</span>
+                    </> : (
+                      <label className="mg-row">
+                        <input type="checkbox" checked={sel.has(r.key)} onChange={() => toggle(r.key)} />
+                        <span className="mg-key">{r.key}</span>
+                        <span className="mg-name">{r.name}</span>
+                      </label>
+                    )}
                   </li>
                 ))}
                 {!remote.length && <li className="mg-muted">원본에서 가져올 수 있는 {resourceLabel}이(가) 없습니다</li>}
               </ul>
             )}
+            <div className="mg-run">
+              <button className={btnPrimary} disabled={running || !sel.size} onClick={run}>
+                {running ? '이관 진행 중…' : `선택한 ${sel.size}개 가져오기`}
+              </button>
+            </div>
           </div>
         )}
 

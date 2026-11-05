@@ -682,3 +682,12 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .mg-done { color: #216e4e; }
 .mg-error { color: #ae2a19; }
 .mg-log { background: var(--inset); border-radius: 6px; padding: 10px; font-size: 11.5px; line-height: 1.5; max-height: 220px; overflow: auto; white-space: pre-wrap; width: 100%; margin: 4px 0 0; }
+
+/* 셀프 이관: 목록이 팝업 높이를 채우도록 + 복수 선택 행 */
+.perm-modal .mg-body { flex: 1 1 auto; min-height: 180px; display: flex; flex-direction: column; }
+.mg-list { flex: 1 1 auto; max-height: none; min-height: 120px; }
+.mg-row { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
+.mg-row input[type=checkbox] { margin: 0; width: auto; flex: none; }
+.mg-check { width: 13px; flex: none; }
+.mg-run { margin-top: 8px; }
+.mg-jobs { max-height: 180px; overflow: auto; }

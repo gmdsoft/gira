@@ -145,20 +145,24 @@ export function registerSelfMigrate(app, { kind }) {
     }
   });
 
+  // 여러 개를 한 번에 선택하면 한 작업 안에서 순서대로 이관한다
   app.post('/api/migrate/run', async (req, reply) => {
     if (!req.access.canCreate) return reply.code(403).send({ error: '이관 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
-    const key = req.body?.key?.trim()?.toUpperCase();
-    if (!key) return reply.code(400).send({ error: 'key required' });
+    const keys = [...new Set([].concat(req.body?.keys ?? req.body?.key ?? [])
+      .map((k) => String(k).trim().toUpperCase()).filter(Boolean))];
+    if (!keys.length) return reply.code(400).send({ error: '가져올 대상을 선택하세요' });
     const cred = await myToken(req.access.userId);
     if (!cred) return reply.code(400).send({ error: 'API 토큰을 먼저 등록하세요', needToken: true });
-    if ((await K.localKeys()).includes(key)) return reply.code(409).send({ error: `${key} 는 이미 이관되어 있습니다` });
+    const have = new Set(await K.localKeys());
+    const dup = keys.filter((k) => have.has(k));
+    if (dup.length) return reply.code(409).send({ error: `이미 이관되어 있습니다: ${dup.join(', ')}` });
     const { rows: running } = await query(
       `SELECT id FROM import_jobs WHERE user_id = $1 AND status = 'running'`, [req.access.userId]);
     if (running.length) return reply.code(409).send({ error: '진행 중인 이관이 끝난 뒤 다시 시도하세요' });
     const { rows } = await query(
       `INSERT INTO import_jobs (user_id, kind, target) VALUES ($1, $2, $3) RETURNING id`,
-      [req.access.userId, K.jobKind, key]);
-    runJob(rows[0].id, key, cred, req.access.userId); // 백그라운드 (await 하지 않음)
+      [req.access.userId, K.jobKind, keys.join(', ')]);
+    runJob(rows[0].id, keys, cred, req.access.userId); // 백그라운드 (await 하지 않음)
     return { id: rows[0].id };
   });
 
@@ -169,7 +173,7 @@ export function registerSelfMigrate(app, { kind }) {
     return rows;
   });
 
-  async function runJob(jobId, key, cred, userId) {
+  async function runJob(jobId, keys, cred, userId) {
     // 로그는 1초 간격으로 모아서 기록 (UPDATE 폭주 방지)
     let buf = '';
     let closed = false;
@@ -182,26 +186,29 @@ export function registerSelfMigrate(app, { kind }) {
     const timer = setInterval(() => { if (!closed) flush(); }, 1000);
     const append = (t) => { buf += t; };
     try {
-      for (const [script, ...args] of K.steps(key)) {
-        append(`\n$ node ${script} ${args.join(' ')}\n`);
-        await new Promise((resolve, reject) => {
-          const child = spawn(process.execPath, [path.join(ROOT, script), ...args], {
-            cwd: ROOT,
-            env: {
-              ...process.env,
-              ATLASSIAN_EMAIL: cred.email,
-              ATLASSIAN_API_TOKEN: cred.token,
-              ...K.env(),
-            },
+      for (const key of keys) {
+        append(`\n===== ${key} 이관 시작 =====\n`);
+        for (const [script, ...args] of K.steps(key)) {
+          append(`\n$ node ${script} ${args.join(' ')}\n`);
+          await new Promise((resolve, reject) => {
+            const child = spawn(process.execPath, [path.join(ROOT, script), ...args], {
+              cwd: ROOT,
+              env: {
+                ...process.env,
+                ATLASSIAN_EMAIL: cred.email,
+                ATLASSIAN_API_TOKEN: cred.token,
+                ...K.env(),
+              },
+            });
+            child.stdout.on('data', (d) => append(d.toString()));
+            child.stderr.on('data', (d) => append(d.toString()));
+            child.on('error', reject);
+            child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${script} 종료 코드 ${code}`))));
           });
-          child.stdout.on('data', (d) => append(d.toString()));
-          child.stderr.on('data', (d) => append(d.toString()));
-          child.on('error', reject);
-          child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`${script} 종료 코드 ${code}`))));
-        });
+        }
+        await K.grant(key, userId); // 이관한 사람이 리소스 관리자
+        append(`\n${key} 완료 — 이관한 사용자에게 관리자 권한을 부여했습니다.\n`);
       }
-      await K.grant(key, userId); // 이관한 사람이 리소스 관리자
-      append('\n완료 — 이관한 사용자에게 관리자 권한을 부여했습니다.\n');
       await flush();
       await query(`UPDATE import_jobs SET status = 'done', finished_at = now() WHERE id = $1`, [jobId]);
     } catch (e) {
