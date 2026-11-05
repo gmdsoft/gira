@@ -168,6 +168,112 @@ export function InboxModal({ onClose, onDecided }) {
   );
 }
 
+// 내 API 키: 셀프 발급(1회 평문 표시)·회수 — 이 앱 전용 Bearer 토큰
+export function ApiKeysModal({ onClose }) {
+  const [rows, setRows] = useState(null);
+  const [name, setName] = useState('');
+  const [issued, setIssued] = useState(null); // {token}
+  const [copied, setCopied] = useState(false);
+  const load = () => api('/api/me/apikeys').then(setRows).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+
+  const issue = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    const r = await api('/api/me/apikeys', { method: 'POST', json: { name } });
+    setIssued(r); setName(''); setCopied(false); load();
+  };
+  const revoke = async (k) => {
+    if (!confirm(`'${k.name}' 키를 회수할까요? 이 키를 쓰는 연동은 즉시 끊깁니다.`)) return;
+    await api('/api/me/apikeys/' + k.id, { method: 'DELETE' });
+    load();
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(issued.token); setCopied(true); } catch { /* 무시 */ }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={() => onClose()}>
+      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>내 API 키</h2>
+        <p className="muted2">외부 도구에서 <code>Authorization: Bearer &lt;키&gt;</code> 로 호출합니다 (엔드포인트: /api/v1/* — docs/api-v1.md).
+          키는 내 권한으로 동작하며 이 앱에서만 유효합니다.</p>
+        {issued && (
+          <div className="key-issued">
+            <code>{issued.token}</code>
+            <button className="primary" onClick={copy}>{copied ? '✓ 복사됨' : '복사'}</button>
+            <div className="muted2">이 키는 지금만 표시됩니다 — 복사해 두세요.</div>
+          </div>
+        )}
+        <div className="perm-body">
+          <div className="perm-rows">
+            <table className="perm-table">
+              <tbody>
+                {(rows ?? []).map((k) => (
+                  <tr key={k.id} style={k.revoked_at ? { opacity: .5 } : null}>
+                    <td><code>{k.prefix}…</code></td>
+                    <td className="perm-name">{k.name}
+                      <div className="muted2">{new Date(k.created_at).toLocaleDateString('ko-KR')} 발급
+                        {k.last_used_at ? ` · 마지막 사용 ${new Date(k.last_used_at).toLocaleDateString('ko-KR')}` : ' · 미사용'}</div></td>
+                    <td>{k.revoked_at ? <span className="muted2">회수됨</span>
+                      : <button className="plain linklike" onClick={() => revoke(k)}>회수</button>}</td>
+                  </tr>
+                ))}
+                {rows && !rows.length && <tr><td className="muted2">발급한 키가 없습니다</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <form className="key-form" onSubmit={issue}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="키 이름 (예: CI 연동)" />
+            <button className="primary" type="submit">발급</button>
+          </form>
+        </div>
+        <div className="modal-actions"><button className="plain" onClick={() => onClose()}>닫기</button></div>
+      </div>
+    </div>
+  );
+}
+
+// 프로젝트 패키지(.zip) 가져오기 — 생성 권한자
+export function ImportProjectModal({ onClose, onDone }) {
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/projects/import', { method: 'POST', body: fd });
+      const body = await res.json();
+      if (!res.ok) { alert(body.error ?? '가져오기 실패'); return; }
+      setResult(body);
+      onDone?.();
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="modal-backdrop" onClick={() => onClose()}>
+      <div className="modal perm-modal pkg-modal" onClick={(e) => e.stopPropagation()}>
+        <h2>프로젝트 가져오기</h2>
+        <p className="muted2">Gira에서 내보낸 프로젝트 패키지(.zip)를 올립니다.
+          같은 키의 프로젝트가 이미 있으면 가져올 수 없습니다. 가져온 사람이 프로젝트 관리자가 됩니다.</p>
+        {result ? (
+          <p><strong>{result.projectKey}</strong> 가져오기 완료 — 이슈 {result.counts.issues}개,
+            댓글 {result.counts.comments}개, 첨부 {result.counts.attachments}개</p>
+        ) : (
+          <form onSubmit={submit} className="key-form">
+            <input type="file" accept=".zip" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <button className="primary" type="submit" disabled={!file || busy}>{busy ? '가져오는 중…' : '가져오기'}</button>
+          </form>
+        )}
+        <div className="modal-actions"><button className="plain" onClick={() => onClose()}>닫기</button></div>
+      </div>
+    </div>
+  );
+}
+
 // 접근 가능한 프로젝트가 없는 사용자용 게이트: 프로젝트 키로 접근 요청
 export function AccessGate({ me, onLogout }) {
   const [key, setKey] = useState('');

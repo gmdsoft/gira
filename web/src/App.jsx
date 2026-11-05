@@ -7,7 +7,7 @@ import Editor from './Editor.jsx';
 import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
-import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog } from './access.jsx';
+import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, ApiKeysModal, ImportSpaceModal } from './access.jsx';
 import { IconSettings } from './jira/icons.jsx';
 
 function parsePath(pathname) {
@@ -212,7 +212,8 @@ export default function App() {
         </>}
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
-          <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up />
+          <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up
+            spaceKey={space?.key} spaceRole={space?.role} />
           <button className="btn btn-xs" onClick={logout}>로그아웃</button>
         </div>
       </aside>
@@ -328,9 +329,11 @@ const ago = (t) => {
   return new Date(t).toLocaleDateString('ko-KR');
 };
 
-// 설정(톱니) 메뉴: 테마 + 관리 진입점 (Gira 설정 메뉴와 동일 구성)
-function SettingsMenu({ me, navigate, theme, setTheme, up }) {
+// 설정(톱니) 메뉴: 테마 + 관리 진입점 + 도구(API 키·패키지) — Gira 설정 메뉴와 동일 구성
+function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }) {
   const [open, setOpen] = useState(false);
+  const [showKeys, setShowKeys] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   return (
     <span className="setwrap">
       <button className="set-btn" title="설정" onClick={() => setOpen((v) => !v)}><IconSettings size={20} /></button>
@@ -350,8 +353,21 @@ function SettingsMenu({ me, navigate, theme, setTheme, up }) {
               <span>조직 관리 ↗</span>
             </button>
           </>}
+          <div className="setmenu-title">도구</div>
+          <button onClick={() => { setShowKeys(true); setOpen(false); }}><span>내 API 키…</span></button>
+          {spaceKey && spaceRole === 'admin' && (
+            <button onClick={() => { window.open(`/api/spaces/${spaceKey}/export`); setOpen(false); }}>
+              <span>{spaceKey} 내보내기 (.zip)</span>
+            </button>
+          )}
+          {me.can_create && (
+            <button onClick={() => { setShowImport(true); setOpen(false); }}><span>스페이스 가져오기…</span></button>
+          )}
         </div>
       </>}
+      {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}
+      {showImport && <ImportSpaceModal onClose={() => setShowImport(false)}
+        onDone={(r) => navigate(`/s/${r.spaceKey}`)} />}
     </span>
   );
 }
