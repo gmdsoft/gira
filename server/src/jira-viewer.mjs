@@ -271,7 +271,12 @@ app.get('/api/issues', async (req, reply) => {
             -- 소속 에픽: 부모 또는 조부모가 에픽이면 그 이슈 (에픽→스토리→하위작업 3단계)
             CASE WHEN pt1.name = '에픽' THEN p1.id WHEN pt2.name = '에픽' THEN p2.id END AS epic_id,
             CASE WHEN pt1.name = '에픽' THEN p1.issue_key WHEN pt2.name = '에픽' THEN p2.issue_key END AS epic_key,
-            CASE WHEN pt1.name = '에픽' THEN p1.summary WHEN pt2.name = '에픽' THEN p2.summary END AS epic_summary
+            CASE WHEN pt1.name = '에픽' THEN p1.summary WHEN pt2.name = '에픽' THEN p2.summary END AS epic_summary,
+            -- 에픽 색(원본 Jira의 이슈 색 필드). 로컬 이슈·미지정은 null → 화면에서 Jira 기본색(보라)
+            p1.issue_key AS parent_key, p1.summary AS parent_summary, pt1.name AS parent_type,
+            i.fields_raw->>'customfield_10017' AS color,
+            CASE WHEN pt1.name = '에픽' THEN p1.fields_raw->>'customfield_10017'
+                 WHEN pt2.name = '에픽' THEN p2.fields_raw->>'customfield_10017' END AS epic_color
        ${JOINS}
       WHERE ${cond.join(' AND ')}
       ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
@@ -611,7 +616,7 @@ function jqlErrorOf(jql) {
 app.get('/api/boards', async (req, reply) => {
   if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
-    `SELECT b.id, b.name, b.columns, b.type, b.jql FROM jira_boards b
+    `SELECT b.id, b.name, b.columns, b.type, b.jql, b.sub_jql FROM jira_boards b
        JOIN jira_projects p ON p.id = b.project_id
       WHERE p.key = $1 ORDER BY b.id`, [req.query.project]);
   return rows;
@@ -647,7 +652,7 @@ app.patch('/api/boards/:id', async (req, reply) => {
     await query(`UPDATE jira_boards SET jql = $2 WHERE id = $1`, [req.params.id, jql]);
   }
   if (b.name?.trim()) await query(`UPDATE jira_boards SET name = $2 WHERE id = $1`, [req.params.id, b.name.trim()]);
-  const { rows } = await query(`SELECT id, name, columns, type, jql FROM jira_boards WHERE id = $1`, [req.params.id]);
+  const { rows } = await query(`SELECT id, name, columns, type, jql, sub_jql FROM jira_boards WHERE id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   return rows[0];
 });

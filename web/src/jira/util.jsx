@@ -32,9 +32,18 @@ export function Avatar({ name }) {
   return <span className="av" style={{ background: hashColor(name) }} title={name}>{String(name).trim()[0] ?? '?'}</span>;
 }
 
+// 에픽 색: Jira 이슈 색 이름(green, dark_teal …) → Jira 화면과 같은 색. 'dark_*'는 진한 색, 미지정은 보라(Jira 기본)
+const EPIC_COLORS = {
+  purple: '#c97cf4', dark_purple: '#964ac0', blue: '#669df1', dark_blue: '#1868db',
+  green: '#4bce97', dark_green: '#1f845a', teal: '#6cc3e0', dark_teal: '#227d9b',
+  yellow: '#eed12b', dark_yellow: '#946f00', orange: '#fca700', dark_orange: '#bd5b00',
+  grey: '#8c8f97', dark_grey: '#6b6e76',
+};
+export const epicColor = (name) => EPIC_COLORS[String(name ?? '').toLowerCase()] ?? EPIC_COLORS.purple;
+
 export function EpicBar({ r }) {
   if (!r.epic_id) return null;
-  return <span className="epicbar" style={{ background: hashColor(r.epic_id) }} title={`${r.epic_key} ${r.epic_summary ?? ''}`} />;
+  return <span className="epicbar" style={{ background: epicColor(r.epic_color) }} title={`${r.epic_key} ${r.epic_summary ?? ''}`} />;
 }
 
 // 상태 카테고리별 건수 요약 칩 (회색=할일, 파랑=진행, 초록=완료)

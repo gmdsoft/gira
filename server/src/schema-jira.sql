@@ -190,3 +190,6 @@ CREATE TABLE IF NOT EXISTS jira_filters (
   name text NOT NULL,
   params jsonb NOT NULL DEFAULT '{}'
 );
+
+-- 칸반 보드 하위 필터(Jira 'Kanban board sub-filter', 예: fixVersion in unreleasedVersions() OR fixVersion is EMPTY)
+ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS sub_jql text;

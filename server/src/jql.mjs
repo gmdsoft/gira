@@ -188,7 +188,9 @@ class Parser {
       if (fn === 'currentuser') return { fn: 'currentUser' };
       if (fn === 'opensprints') return { fn: 'openSprints' };
       if (fn === 'activesprints') return { fn: 'activeSprints' };
-      this.fail(t, `알 수 없는 함수 '${t.value}()' (가능: currentUser(), openSprints(), activeSprints())`);
+      if (fn === 'unreleasedversions') return { fn: 'unreleasedVersions' };
+      if (fn === 'releasedversions') return { fn: 'releasedVersions' };
+      this.fail(t, `알 수 없는 함수 '${t.value}()' (가능: currentUser(), openSprints(), activeSprints(), unreleasedVersions(), releasedVersions())`);
     }
     if (['empty', 'null'].includes(t.value.toLowerCase())) return { empty: true };
     return { value: t.value };
@@ -238,6 +240,13 @@ class Parser {
     if (v.fn === 'activeSprints') {
       if (field.kind !== 'sprint') this.fail(ft, `activeSprints()는 sprint에만 쓸 수 있습니다`);
       return `i.sprint_id IN (SELECT id FROM jira_sprints WHERE state = 'active')`;
+    }
+    // 수정 버전 함수: 이슈 프로젝트의 버전 중 출시 여부로 (칸반 보드 하위 필터 'fixVersion in unreleasedVersions()')
+    if (v.fn === 'unreleasedVersions' || v.fn === 'releasedVersions') {
+      if (field.label !== 'fixVersion') this.fail(ft, `${v.fn}()는 fixVersion에만 쓸 수 있습니다`);
+      const cond = v.fn === 'releasedVersions' ? 'COALESCE(_v.released, false)' : 'NOT COALESCE(_v.released, false)';
+      return `EXISTS (SELECT 1 FROM unnest(i.fix_versions) _x JOIN jira_versions _v
+                       ON _v.project_id = i.project_id AND lower(_v.name) = lower(_x) WHERE ${cond})`;
     }
     switch (field.kind) {
       case 'text': case 'user':
