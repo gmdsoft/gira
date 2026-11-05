@@ -209,6 +209,7 @@ export default function App() {
         <SearchBox navigate={navigate} spaceKey={route.spaceKey} />
         {space && <>
           <div className="space-name">{space.name}</div>
+          {space.description && <div className="space-desc" title={space.description}>{space.description}</div>}
           <button className="btn new-page" onClick={createPage}>+ 새 페이지</button>
           <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate}
             onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
@@ -425,7 +426,7 @@ function Home({ navigate, me, logout, theme, setTheme }) {
             <ul className="space-tiles">
               {spaces.map((s) => (
                 <li key={s.id}>
-                  <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)}>
+                  <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)} title={s.description || undefined}>
                     <span className="space-ic" style={{ background: spaceColor(s.key) }}>{s.name.trim()[0]}</span>
                     <span className="space-nm"><strong>{s.name}</strong><span className="muted">{s.key} · {s.type}</span></span>
                   </a>
