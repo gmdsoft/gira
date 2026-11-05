@@ -6,3 +6,4 @@ server/data/
 web/dist/
 web/dist-jira-app/
 temp/
+web/dist-admin/

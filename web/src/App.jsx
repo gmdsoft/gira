@@ -157,7 +157,8 @@ export default function App() {
   if (me === null) return <Login onLogin={setMe} />;
 
   if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} />;
-  if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} />;
+  // 조직 관리(사용자·팀·그룹)는 관리 서비스(3003)로 분리 — 여기서는 접근 요청 승인함만
+  if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
   // 권한 없는 스페이스: 접근 요청 화면
   if (route.spaceKey && spaceErr?.status === 403 && spaceErr.body?.canRequest) {
     return (
@@ -324,7 +325,8 @@ function Home({ navigate, me, logout }) {
   return (
     <div className="home home-wide">
       <div className="home-user muted">
-        {me.is_admin && <a href="/admin" onClick={(e) => { e.preventDefault(); navigate('/admin'); }}>⚙ 관리</a>}
+        {me.is_admin && <a href="/admin" onClick={(e) => { e.preventDefault(); navigate('/admin'); }}>⚙ 접근 요청</a>}
+        {me.is_admin && <a href={`//${location.hostname}:3003/`} target="_blank" rel="noreferrer">🏢 조직 관리</a>}
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
       </div>
       <h1>Gonfluence <span className="poc-badge">PoC</span></h1>

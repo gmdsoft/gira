@@ -14,6 +14,8 @@
 ## 개발 메모
 - DB는 앱별로 분리: Gonfluence = `DATABASE_URL`(rea), Gira = `GIRA_DATABASE_URL`(gira).
   스키마도 분리(schema-core.sql 공용 + schema.sql / schema-jira.sql). 운영 배포는 docs/deploy-alpha.md.
+- 조직(사용자·팀·그룹) 관리는 관리 서비스(admin-app.mjs, 3003)가 전담 — 조직 테이블의 유일한 작성자,
+  `ORG_MIRROR_DATABASE_URL`(콤마 구분)로 다른 앱 DB에 복제. 관리 SPA는 `npm --workspace web run build:admin`(→ dist-admin, 재시작 불필요).
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).

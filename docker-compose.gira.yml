@@ -1,6 +1,7 @@
-# Gira 단독 배포 스택 (자체 postgres 포함). 절차: docs/deploy-alpha.md
+# Gira 배포 스택 (자체 postgres + 관리 서비스 포함). 절차: docs/deploy-alpha.md
 # 실행: docker compose -f docker-compose.gira.yml up -d --build
-# 필요한 .env 키: POSTGRES_PASSWORD (필수), ATLASSIAN_*(첨부 프록시용, 선택)
+# 필요한 .env 키: POSTGRES_PASSWORD (필수), ADMIN_EMAIL, ATLASSIAN_*(첨부 프록시용, 선택)
+# 같은 호스트에 Gonfluence 스택도 올리는 경우: 관리 서비스는 한쪽만 켠다 (docs/deploy-alpha.md)
 name: gira
 services:
   postgres:
@@ -37,6 +38,28 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3002/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # 조직 관리(사용자·팀·그룹) — 조직 테이블의 유일한 작성자.
+  # 한 호스트에 두 스택을 올릴 때 포트가 겹치지 않도록 기본 호스트 포트는 3013.
+  admin:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server/src/admin-app.mjs"]
+    environment:
+      ORG_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/gira
+      ORG_MIRROR_DATABASE_URL: ${ORG_MIRROR_DATABASE_URL:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-pottery@gmdsoft.com}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+    ports:
+      - "${GIRA_ADMIN_PORT:-3013}:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/healthz >/dev/null"]
       interval: 10s
       timeout: 3s
       retries: 10

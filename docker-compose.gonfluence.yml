@@ -1,6 +1,8 @@
-# Gonfluence 단독 배포 스택 (자체 postgres + opensearch 포함). 절차: docs/deploy-alpha.md
+# Gonfluence 배포 스택 (자체 postgres + opensearch + 관리 서비스 포함). 절차: docs/deploy-alpha.md
 # 실행: docker compose -f docker-compose.gonfluence.yml up -d --build
 # 필요한 .env 키: POSTGRES_PASSWORD (필수), ADMIN_EMAIL, ATLASSIAN_*(첨부 프록시용, 선택)
+# 같은 호스트에 Gira 스택도 올리는 경우: 관리 서비스는 한쪽만 켜고(다른 쪽은 scale 0)
+# ORG_MIRROR_DATABASE_URL 로 상대 DB를 지정한다 (docs/deploy-alpha.md 참고)
 name: gonfluence
 services:
   postgres:
@@ -39,6 +41,27 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # 조직 관리(사용자·팀·그룹) — 조직 테이블의 유일한 작성자
+  admin:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server/src/admin-app.mjs"]
+    environment:
+      ORG_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/rea
+      ORG_MIRROR_DATABASE_URL: ${ORG_MIRROR_DATABASE_URL:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-pottery@gmdsoft.com}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+    ports:
+      - "${ADMIN_PORT:-3003}:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/healthz >/dev/null"]
       interval: 10s
       timeout: 3s
       retries: 10

@@ -4,18 +4,24 @@ import { api } from './api.js';
 
 const DUTY_LABEL = { team_lead: '팀장', part_lead: '파트장', member: '파트원' };
 
-export default function AdminPage({ me, navigate }) {
-  const [tab, setTab] = useState('users');
+const TAB_LABEL = { users: '사용자', teams: '팀·파트', groups: '그룹', requests: '접근 요청' };
+
+// tabs: 표시할 탭 목록. 관리 서비스(standalone)는 조직 탭만, Gonfluence는 접근 요청만 쓴다.
+export default function AdminPage({ me, navigate, tabs = ['users', 'teams', 'groups', 'requests'], standalone }) {
+  const [tab, setTab] = useState(tabs[0]);
   if (!me.is_admin) return <div className="home"><h1>관리</h1><p>사이트 관리자만 접근할 수 있습니다.</p></div>;
   return (
     <div className="home home-wide admin">
-      <div className="home-user muted">
-        <a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>← 홈</a>
-      </div>
-      <h1>관리</h1>
+      {navigate && (
+        <div className="home-user muted">
+          <a href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>← 홈</a>
+        </div>
+      )}
+      <h1>{standalone ? '조직 관리' : '관리'}</h1>
+      {standalone && <p className="muted">사용자·팀·그룹 변경은 이 화면에서만 하며, 설치된 모든 앱(Gira/Gonfluence)에 함께 적용됩니다.</p>}
       <nav className="admin-tabs">
-        {[['users', '사용자'], ['teams', '팀·파트'], ['groups', '그룹'], ['requests', '접근 요청']].map(([k, label]) => (
-          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
+        {tabs.map((k) => (
+          <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{TAB_LABEL[k]}</button>
         ))}
       </nav>
       {tab === 'users' && <UsersTab />}

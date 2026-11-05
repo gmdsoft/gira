@@ -14,3 +14,4 @@ search
 *.md
 Dockerfile
 docker-compose*.yml
+web/dist-admin
