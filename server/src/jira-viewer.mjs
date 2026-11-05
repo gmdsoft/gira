@@ -15,6 +15,7 @@ import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
+import { registerDevChat } from './dev-chat.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -699,6 +700,9 @@ app.post('/api/dev-feedback', async (req, reply) => {
      ['dev-feedback', kind], req.access.userId]);
   return { issueKey: rows[0].issue_key };
 });
+
+// 개발참여 챗봇 (자연어 요청 → 답변 + GIRA 이슈 자동 생성) — dev-chat.mjs
+registerDevChat(app, { textToAdf });
 
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
 

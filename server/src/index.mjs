@@ -817,6 +817,31 @@ app.post('/api/dev-feedback', async (req, reply) => {
   return reply.code(res.status).send(body);
 });
 
+// 개발참여 챗봇: Gira의 /api/dev-chat 으로 프록시 (대화 세션은 Gira 쪽에 저장)
+async function proxyDevChat(req, reply, method, pathName, body) {
+  const giraUrl = (process.env.GIRA_URL ?? 'http://localhost:3002').replace(/\/$/, '');
+  const key = process.env.GIRA_SERVICE_KEY;
+  if (!key) return reply.code(500).send({ error: 'GIRA_SERVICE_KEY가 설정되지 않았습니다 (관리자에게 문의)' });
+  const res = await fetch(giraUrl + pathName, {
+    method,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return reply.code(res.status).send(await res.json().catch(() => ({})));
+}
+app.post('/api/dev-chat', async (req, reply) => {
+  const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+  return proxyDevChat(req, reply, 'POST', '/api/dev-chat', {
+    sessionId: req.body?.sessionId, message: req.body?.message,
+    author: me[0]?.display_name ?? null, source: 'Gonfluence',
+  });
+});
+app.get('/api/dev-chat/:id', async (req, reply) => {
+  const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+  return proxyDevChat(req, reply, 'GET',
+    `/api/dev-chat/${encodeURIComponent(req.params.id)}?author=${encodeURIComponent(me[0]?.display_name ?? '')}`);
+});
+
 // ---------- 스페이스 패키지 내보내기/가져오기 ----------
 
 // 내보내기: 스페이스 관리자(또는 사이트 관리자)

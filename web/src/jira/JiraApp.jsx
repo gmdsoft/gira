@@ -492,7 +492,7 @@ export default function JiraApp() {
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
       {showHub && <SettingsHub me={me} meta={meta} project={project}
         onClose={() => setShowHub(false)} onChanged={() => boot()} />}
-      {showDevFb && <DevFeedbackModal api={api} modalClass="modal perm-modal pkg-modal"
+      {showDevFb && <DevFeedbackModal api={api} modalClass="modal perm-modal"
         btn="plain" btnPrimary="primary" onClose={() => { setShowDevFb(false); refresh(); }} />}
     </>
   );
