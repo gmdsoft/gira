@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 
 export const SPEC_URL = 'https://claude.ai/artifact/RhWSzPu8SU2nTfhEJqHLDY';
+export const REPO_URL = 'https://github.com/gmdsoft/gira';
 const SESSION_KEY = 'devchat.session';
 
 const TYPE_LABEL = { epic: '에픽', story: '스토리', task: '작업', subtask: '하위 작업', bug: '버그' };
@@ -95,6 +96,7 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
         <div className="devchat-head">
           <h2>개발참여</h2>
           <a href={SPEC_URL} target="_blank" rel="noreferrer">개발 명세서 ↗</a>
+          <a href={REPO_URL} target="_blank" rel="noreferrer">저장소 ↗</a>
           <span className="devchat-sp" />
           <button className={btn} onClick={newChat} disabled={busy}>새 대화</button>
         </div>

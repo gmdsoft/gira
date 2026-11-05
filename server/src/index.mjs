@@ -10,7 +10,7 @@ import { createReadStream } from 'node:fs';
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query, DATA_DIR, closeDb } from './db.mjs';
+import { query, getDb, DATA_DIR, closeDb } from './db.mjs';
 import { decodeTinyToken } from './tinylink.mjs';
 import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
@@ -98,7 +98,7 @@ async function reindex(contentId) {
 
 app.get('/api/spaces', async (req) => {
   const { rows } = await query(
-    `SELECT id, key, name, type, status, homepage_id FROM spaces ORDER BY name`);
+    `SELECT id, key, name, type, status, homepage_id, description FROM spaces ORDER BY name`);
   const out = [];
   for (const s of rows) {
     const role = await spaceRole(req.access, s.id);
@@ -109,40 +109,84 @@ app.get('/api/spaces', async (req) => {
 
 // 스페이스 생성 — 정책(알파): 팀장·파트장 직책, can_create 그룹 멤버, 사이트 관리자는 일반 스페이스를,
 // 일반 구성원은 자신의 개인 스페이스 1개만 만들 수 있다. 생성자는 그 스페이스의 관리자가 된다.
+// 일반 스페이스는 접근 범위(rows: 전사 공개/팀·파트/그룹/사용자 × 보기·편집·관리)를 함께 지정할 수 있다 —
+// 비워 두면 비공개(생성자와 사이트 관리자만). 개인 스페이스는 비공개로 만든다(이후 권한 화면에서 공유).
+// id는 원본과 겹치지 않는 로컬 대역(LOCAL_ID_FLOOR 이상)에서, 테이블 잠금 아래 한 트랜잭션으로 배정한다.
 app.post('/api/spaces', async (req, reply) => {
   const userId = req.access.userId;
   const personal = req.body?.type === 'personal';
   const name = req.body?.name?.trim();
+  const description = req.body?.description ?? '';
+  const rows = personal ? [] : (req.body?.rows ?? []);
+  if (typeof description !== 'string' || description.length > 10000) {
+    return reply.code(400).send({ error: '설명은 10,000자 이하로 입력하세요' });
+  }
+  if (name && name.length > 200) return reply.code(400).send({ error: '이름은 200자 이하로 입력하세요' });
+  if (!Array.isArray(rows) || rows.length > 200 || rows.some((r) => !r
+      || !['user', 'team', 'group', 'anyone'].includes(r.principalType)
+      || !['viewer', 'editor', 'admin'].includes(r.role)
+      || (r.principalType !== 'anyone' && (!Number.isSafeInteger(Number(r.principalId)) || Number(r.principalId) <= 0)))) {
+    return reply.code(400).send({ error: '잘못된 접근 범위입니다' });
+  }
+  let key; let spName;
   if (personal) {
-    const key = '~' + userId;
-    const { rows: exist } = await query(`SELECT key FROM spaces WHERE key = $1`, [key]);
-    if (exist.length) return reply.code(409).send({ error: '개인 스페이스는 1개만 만들 수 있습니다', key });
+    key = '~' + userId;
     const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [userId]);
-    const spName = name || `${me[0]?.display_name ?? '내'}의 스페이스`;
-    const { rows } = await query(
-      `INSERT INTO spaces (id, key, name, type, status, created_at)
-       VALUES ((SELECT GREATEST(coalesce(max(id), 0) + 1, ${LOCAL_ID_FLOOR}) FROM spaces), $1, $2, 'personal', 'current', now())
-       RETURNING id, key, name`, [key, spName]);
-    await query(`INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
-                 VALUES ($1, 'user', $2, 'admin')`, [rows[0].id, userId]);
-    return rows[0];
+    spName = name || `${me[0]?.display_name ?? '내'}의 스페이스`;
+  } else {
+    if (!req.access.canCreate) {
+      return reply.code(403).send({ error: '스페이스를 만들 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
+    }
+    key = req.body?.key?.trim()?.toUpperCase();
+    if (!name || !key || !/^[A-Z][A-Z0-9]{1,19}$/.test(key)) {
+      return reply.code(400).send({ error: '이름과 키(영문 시작, 대문자·숫자 2~20자)를 입력하세요' });
+    }
+    spName = name;
   }
-  if (!req.access.canCreate) {
-    return reply.code(403).send({ error: '스페이스를 만들 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
-  }
-  const key = req.body?.key?.trim()?.toUpperCase();
-  if (!name || !key || !/^[A-Z][A-Z0-9]{1,19}$/.test(key)) {
-    return reply.code(400).send({ error: '이름과 키(영문 시작, 대문자·숫자 2~20자)를 입력하세요' });
-  }
-  const { rows: dup } = await query(`SELECT 1 FROM spaces WHERE key = $1`, [key]);
-  if (dup.length) return reply.code(409).send({ error: '이미 사용 중인 키입니다' });
-  const { rows } = await query(
-    `INSERT INTO spaces (id, key, name, type, status, created_at)
-     VALUES ((SELECT GREATEST(coalesce(max(id), 0) + 1, ${LOCAL_ID_FLOOR}) FROM spaces), $1, $2, 'global', 'current', now())
-     RETURNING id, key, name`, [key, name]);
-  await query(`INSERT INTO space_permissions (space_id, principal_type, principal_id, role)
-               VALUES ($1, 'user', $2, 'admin')`, [rows[0].id, userId]);
-  return rows[0];
+  const client = await (await getDb()).connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('LOCK TABLE spaces IN EXCLUSIVE MODE');
+    const { rows: dup } = await client.query(`SELECT 1 FROM spaces WHERE upper(key) = upper($1)`, [key]);
+    if (dup.length) {
+      await client.query('ROLLBACK');
+      return personal
+        ? reply.code(409).send({ error: '개인 스페이스는 1개만 만들 수 있습니다', key })
+        : reply.code(409).send({ error: '이미 사용 중인 키입니다' });
+    }
+    for (const r of rows) {
+      if (r.principalType === 'anyone') continue;
+      const table = { user: 'users', team: 'teams', group: 'groups' }[r.principalType];
+      const { rows: t } = await client.query(`SELECT 1 FROM ${table} WHERE id = $1`, [Number(r.principalId)]);
+      if (!t.length) {
+        await client.query('ROLLBACK');
+        return reply.code(400).send({ error: '존재하지 않는 접근 대상입니다' });
+      }
+    }
+    const { rows: created } = await client.query(
+      `INSERT INTO spaces (id, key, name, type, status, description, created_at)
+       VALUES ((SELECT GREATEST(coalesce(max(id), 0) + 1, ${LOCAL_ID_FLOOR}) FROM spaces), $1, $2, $3, 'current', $4, now())
+       RETURNING id, key, name, type, description`,
+      [key, spName, personal ? 'personal' : 'global', description.trim() || null]);
+    const sp = created[0];
+    // 생성자는 항상 관리자 (같은 대상이 범위에 있으면 관리로 덮는다)
+    const grants = new Map(rows.map((r) => {
+      const pid = r.principalType === 'anyone' ? 0 : Number(r.principalId);
+      return [`${r.principalType}:${pid}`, { type: r.principalType, id: pid, role: r.role }];
+    }));
+    grants.set(`user:${userId}`, { type: 'user', id: userId, role: 'admin' });
+    for (const g of grants.values()) {
+      await client.query(
+        `INSERT INTO space_permissions (space_id, principal_type, principal_id, role) VALUES ($1, $2, $3, $4)`,
+        [sp.id, g.type, g.id, g.role]);
+    }
+    await client.query('COMMIT');
+    return { ...sp, role: 'admin' };
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    if (err.code === '23505') return reply.code(409).send({ error: '이미 사용 중인 키입니다' });
+    throw err;
+  } finally { client.release(); }
 });
 
 // 홈 '최근 업데이트' 피드 — 접근 가능한 스페이스의 최신 수정 페이지 (마지막 편집자 포함)
@@ -169,7 +213,7 @@ app.get('/api/home/recent', async (req) => {
 });
 
 app.get('/api/spaces/:key', async (req, reply) => {
-  const { rows } = await query(`SELECT id, key, name, type, status, homepage_id FROM spaces WHERE key = $1`, [req.params.key]);
+  const { rows } = await query(`SELECT id, key, name, type, status, homepage_id, description FROM spaces WHERE key = $1`, [req.params.key]);
   if (!rows.length) return reply.code(404).send({ error: 'space not found' });
   const space = rows[0];
   const role = await spaceRole(req.access, space.id);

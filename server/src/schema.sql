@@ -96,6 +96,9 @@ CREATE TABLE IF NOT EXISTS content_labels (
   PRIMARY KEY (content_id, label_id)
 );
 
+-- 스페이스 설명 (스페이스 만들기·개요에 표시)
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS description text;
+
 CREATE TABLE IF NOT EXISTS space_permissions (
   space_id bigint NOT NULL REFERENCES spaces(id),
   principal_type text NOT NULL CHECK (principal_type IN ('user','group','team','anyone')),

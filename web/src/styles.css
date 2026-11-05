@@ -600,6 +600,15 @@ span.cf-macro-slot { display: inline; margin: 0; }
 /* 폼 하나짜리 작은 다이얼로그: 팝업 폭을 컨트롤 폭(420px)에 맞추고 좌우 여백을 넉넉히 */
 .modal.modal-compact { width: 484px; padding: 24px 32px; }
 .modal-compact .req-form { max-width: none; }
+.modal.modal-compact.modal-compact-wide { width: 600px; }
+.space-scope { display: flex; flex-direction: column; gap: 4px; }
+.space-scope-title { font-weight: 600; font-size: 13px; }
+.space-scope > .muted { margin: 0; font-size: 12px; }
+/* 폼 공통 label·select 스타일(세로 배치·굵게)이 접근 범위 선택기에 번지지 않도록 되돌린다 */
+.req-form .space-scope label { flex-direction: row; align-items: center; gap: 8px; font-weight: 400; }
+.req-form .space-scope select { padding: 3px 6px; font-size: 13px; }
+.req-form .space-scope .perm-table { margin: 4px 0; }
+.space-desc { padding: 0 8px 8px; font-size: 12px; color: var(--text2); display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; white-space: pre-line; }
 .req-form label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; font-size: 13px; }
 .req-form select, .req-form textarea, .req-form input { font: inherit; padding: 7px 10px; border: 1px solid var(--line2); border-radius: 4px; }
 .req-sent { background: #dffcf0; border-radius: 6px; padding: 12px 16px; }

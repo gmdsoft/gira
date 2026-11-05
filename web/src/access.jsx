@@ -128,14 +128,14 @@ function PermRows({ rows, setRows, allowAnyone, roles }) {
                     {roles.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
                   </select>
                 </td>
-                <td><button className="btn btn-xs" onClick={() => del(i)}>삭제</button></td>
+                <td><button type="button" className="btn btn-xs" onClick={() => del(i)}>삭제</button></td>
               </tr>
             ))}
             {!rows.length && <tr><td colSpan={4} className="muted">부여된 권한이 없습니다 (비공개)</td></tr>}
           </tbody>
         </table>
         {allowAnyone && !rows.some((r) => r.type === 'anyone') && (
-          <button className="btn btn-xs" onClick={() => add({ type: 'anyone', id: 0, name: '로그인한 모든 사용자' })}>
+          <button type="button" className="btn btn-xs" onClick={() => add({ type: 'anyone', id: 0, name: '로그인한 모든 사용자' })}>
             + 전체 공개 규칙
           </button>
         )}
@@ -409,18 +409,23 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate }) 
   );
 }
 
-// 스페이스 만들기: 일반(생성 권한 필요) / 개인(1개)
+// 스페이스 만들기: 일반(생성 권한 필요, 이름·키·설명·접근 범위) / 개인(1개, 비공개)
+// 생성자는 그 스페이스의 관리자가 된다. 접근 범위를 비워 두면 비공개(생성자와 사이트 관리자만).
 export function CreateSpaceDialog({ me, onClose, onCreated }) {
   const [type, setType] = useState(me.can_create ? 'global' : 'personal');
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
+  const [description, setDescription] = useState('');
+  const [rows, setRows] = useState([]); // 접근 범위 {type, id, role, name}
   const [busy, setBusy] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
     try {
-      const body = type === 'personal' ? { type: 'personal', name } : { name, key };
+      const body = type === 'personal'
+        ? { type: 'personal', name, description }
+        : { name, key, description, rows: rows.map((r) => ({ principalType: r.type, principalId: r.id, role: r.role })) };
       const sp = await api('/api/spaces', { method: 'POST', json: body });
       onCreated(sp);
     } catch (err) { alert(err.message); } finally { setBusy(false); }
@@ -428,7 +433,7 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-compact" onClick={(e) => e.stopPropagation()}>
+      <div className={'modal modal-compact' + (type === 'global' ? ' modal-compact-wide' : '')} onClick={(e) => e.stopPropagation()}>
         <h2>스페이스 만들기</h2>
         <form className="req-form" onSubmit={submit}>
           <label>유형
@@ -439,17 +444,32 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
           </label>
           {!me.can_create && <p className="muted">일반 스페이스는 팀장·파트장 또는 지정 그룹만 만들 수 있습니다.</p>}
           <label>이름
-            <input value={name} onChange={(e) => setName(e.target.value)}
+            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={200}
               placeholder={type === 'personal' ? '(비우면 "이름의 스페이스")' : '예: 개발1팀 위키'} />
           </label>
           {type === 'global' && (
             <label>키
-              <input value={key} onChange={(e) => setKey(e.target.value.toUpperCase())} placeholder="예: DEV1 (대문자·숫자)" />
+              <input value={key} onChange={(e) => setKey(e.target.value.toUpperCase())} maxLength={20}
+                placeholder="예: DEV1 (영문 대문자로 시작, 대문자·숫자 2~20자)" />
             </label>
+          )}
+          <label>설명
+            <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={10000}
+              placeholder="이 스페이스에서 다루는 내용 (선택)" />
+          </label>
+          {type === 'global' ? (
+            <div className="space-scope">
+              <div className="space-scope-title">접근 범위</div>
+              <p className="muted">만든 사람은 관리자가 됩니다. 비워 두면 비공개(만든 사람과 사이트 관리자만)이고,
+                팀에 준 권한은 하위 파트에도 적용됩니다.</p>
+              <PermRows rows={rows} setRows={setRows} allowAnyone roles={['viewer', 'editor', 'admin']} />
+            </div>
+          ) : (
+            <p className="muted">개인 스페이스는 비공개로 만들어집니다. 공유는 만든 뒤 스페이스 권한에서 설정하세요.</p>
           )}
           <div className="modal-actions">
             <button className="btn" type="button" onClick={onClose}>취소</button>
-            <button className="btn btn-primary" type="submit" disabled={busy}>만들기</button>
+            <button className="btn btn-primary" type="submit" disabled={busy}>{busy ? '만드는 중…' : '만들기'}</button>
           </div>
         </form>
       </div>

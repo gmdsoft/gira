@@ -9,7 +9,7 @@ import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
 import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, GonfSettingsHub } from './access.jsx';
 import { IconSettings } from './jira/icons.jsx';
-import { DevChatPage, openDevChat, SPEC_URL } from './dev-feedback-ui.jsx';
+import { DevChatPage, openDevChat, SPEC_URL, REPO_URL } from './dev-feedback-ui.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
@@ -209,6 +209,7 @@ export default function App() {
         <SearchBox navigate={navigate} spaceKey={route.spaceKey} />
         {space && <>
           <div className="space-name">{space.name}</div>
+          {space.description && <div className="space-desc" title={space.description}>{space.description}</div>}
           <button className="btn new-page" onClick={createPage}>+ 새 페이지</button>
           <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate}
             onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
@@ -221,6 +222,7 @@ export default function App() {
         <a className="archive-link" href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
            onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
         <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
+        <a className="archive-link" href={REPO_URL} target="_blank" rel="noreferrer">📦 저장소 ↗</a>
         <a className="archive-link" href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
@@ -379,6 +381,7 @@ function Home({ navigate, me, logout, theme, setTheme }) {
         <a href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
            onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
         <a href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서</a>
+        <a href={REPO_URL} target="_blank" rel="noreferrer">📦 저장소 ↗</a>
         <a href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
         <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
@@ -425,7 +428,7 @@ function Home({ navigate, me, logout, theme, setTheme }) {
             <ul className="space-tiles">
               {spaces.map((s) => (
                 <li key={s.id}>
-                  <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)}>
+                  <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)} title={s.description || undefined}>
                     <span className="space-ic" style={{ background: spaceColor(s.key) }}>{s.name.trim()[0]}</span>
                     <span className="space-nm"><strong>{s.name}</strong><span className="muted">{s.key} · {s.type}</span></span>
                   </a>
