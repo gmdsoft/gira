@@ -223,8 +223,10 @@ export default function App() {
             <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
           )}
         </>}
-        <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setDevFbOpen(true); }}>💡 개발참여</a>
+        <a className="archive-link" href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
+           onClick={(e) => { e.preventDefault(); setDevFbOpen(true); }}>💡 거 참 답답하네</a>
         <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
+        <a className="archive-link" href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up
@@ -380,8 +382,10 @@ function Home({ navigate, me, logout, theme, setTheme, openDevFb }) {
   return (
     <div className="home home-wide">
       <div className="home-user muted">
-        <a href="#" onClick={(e) => { e.preventDefault(); openDevFb(); }}>💡 개발참여</a>
+        <a href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
+           onClick={(e) => { e.preventDefault(); openDevFb(); }}>💡 거 참 답답하네</a>
         <a href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서</a>
+        <a href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
         <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
       </div>

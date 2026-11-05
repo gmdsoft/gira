@@ -3,9 +3,9 @@
 //
 // 대상: 상태 '해야 할 일'류(new) + 레이블 agent:codex | agent:opencode + needs-approval 없음
 //       + 아직 맡기지 않은 것(agent-running/agent-done/agent-failed 없음)
-// 처리: 이슈 전용 git worktree(../gira-work/<KEY>, 브랜치 feature/<key>)에서 실행 →
-//       결과 보고를 댓글로 게시 → 상태 '검토'(성공) / 원래 상태 유지 + agent-failed(실패)
-//       머지·서버 반영은 사람이 검토 후 한다 (CLAUDE.md 브랜치 규칙).
+// 처리: 이슈 전용 git worktree(../gira-work/<KEY>, 새 브랜치 feature/<key>)에서 실행 →
+//       성공 시 브랜치 푸시 + GitHub PR 생성(GITHUB_TOKEN, 없으면 비교 링크) → 결과·PR 링크를 댓글로,
+//       상태 '검토' / 실패 시 원래 상태 + agent-failed. 머지·서버 반영은 사람이 PR 검토 후 한다.
 // 승인: needs-approval 레이블을 관리자가 이슈 상세에서 지우면 다음 실행에서 대상이 된다.
 //
 // 사용법:
@@ -13,7 +13,8 @@
 //   node scripts/dev-dispatcher.mjs --run           # 대상 1건 처리
 //   node scripts/dev-dispatcher.mjs --run --all     # 대상 전부 순서대로 처리
 //   node scripts/dev-dispatcher.mjs --run --watch 300   # 300초마다 반복
-// 환경변수: GIRA_DATABASE_URL, (선택) CODEX_MODEL, OPENCODE_MODEL, AGENT_TIMEOUT_MIN(기본 40)
+// 환경변수: GIRA_DATABASE_URL, (선택) GITHUB_TOKEN(PR 생성), PR_BASE_BRANCH(기본 master),
+//          CODEX_MODEL, OPENCODE_MODEL, AGENT_TIMEOUT_MIN(기본 40)
 import { parseArgs } from 'node:util';
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
@@ -164,6 +165,47 @@ function runAgent(executor, dir, prompt) {
   });
 }
 
+// GitHub: origin(git@github.com:owner/repo.git 또는 https)에 브랜치를 푸시하고 PR을 연다.
+// PR 생성은 GITHUB_TOKEN(.env, repo 권한)이 있으면 REST API로, 없으면 비교 링크만 남긴다.
+async function openPullRequest(it, branch, report) {
+  try {
+    git('push', '-u', 'origin', branch);
+  } catch (e) {
+    return { note: `브랜치 푸시 실패: ${String(e.message).split('\n')[0]}` };
+  }
+  const m = git('remote', 'get-url', 'origin').match(/github\.com[:/]([^/]+)\/(.+?)(\.git)?$/);
+  if (!m) return { note: `브랜치 푸시 완료: ${branch} (GitHub 원격이 아니라 PR은 만들지 않음)` };
+  const [, owner, repo] = m;
+  const base = process.env.PR_BASE_BRANCH ?? 'master';
+  const compare = `https://github.com/${owner}/${repo}/compare/${base}...${branch}?expand=1`;
+  if (!process.env.GITHUB_TOKEN) return { note: `브랜치 푸시 완료 — PR 만들기: ${compare}` };
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      accept: 'application/vnd.github+json',
+      'user-agent': 'gira-dev-dispatcher',
+    },
+    body: JSON.stringify({
+      title: `${it.issue_key}: ${it.summary}`,
+      head: branch,
+      base,
+      body: `GIRA 이슈 ${it.issue_key} 처리 결과 (GIRA 에이전트 자동 생성)\n\n${report.slice(0, 6000)}`,
+      draft: false,
+    }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (res.ok) return { url: body.html_url };
+  // 이미 열린 PR이 있으면 그 링크를 찾아 쓴다
+  if (res.status === 422) {
+    const q = await fetch(`https://api.github.com/repos/${owner}/${repo}/pulls?head=${owner}:${encodeURIComponent(branch)}&state=open`, {
+      headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, 'user-agent': 'gira-dev-dispatcher' },
+    }).then((x) => x.json()).catch(() => []);
+    if (q[0]?.html_url) return { url: q[0].html_url };
+  }
+  return { note: `PR 생성 실패(${res.status}: ${body.message ?? ''}) — 수동으로: ${compare}` };
+}
+
 async function processOne(it) {
   const executor = it.labels.includes('agent:codex') ? 'codex' : 'opencode';
   const original = it.status_id;
@@ -179,8 +221,12 @@ async function processOne(it) {
   let commits = 0;
   try { commits = Number(git('rev-list', '--count', `master..${branch}`)); } catch { /* 무시 */ }
   const ok = r.code === 0 && commits > 0;
+  // 성공 시: 브랜치를 GitHub에 푸시하고 PR을 만든다 (머지는 사람이 검토 후)
+  let pr = null;
+  if (ok) pr = await openPullRequest(it, branch, r.last);
   await comment(it.id, it.reporter_id, [
-    `${ok ? '처리 완료 — 검토 대기' : '처리 실패 — 확인 필요'} (${executor}, 종료 코드 ${r.code}, 커밋 ${commits}개, 브랜치 ${branch})`,
+    `${ok ? '처리 완료 — PR 검토 대기' : '처리 실패 — 확인 필요'} (${executor}, 종료 코드 ${r.code}, 커밋 ${commits}개, 브랜치 ${branch})`,
+    pr?.url ? `PR: ${pr.url}` : (pr?.note ?? ''),
     '',
     r.last.slice(0, 6000),
   ].join('\n'));

@@ -11,6 +11,12 @@ import { query } from './db.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const GUIDELINES = readFileSync(path.join(here, 'dev-agent', 'guidelines.md'), 'utf8');
+// 승인 판단 기준인 개발 명세서 — 지침 뒤에 붙여 함께 캐시한다 (없으면 판단이 서지 않는 것으로 보고 승인 필요)
+const SPEC_PATH = process.env.DEV_SPEC_PATH ?? path.join(here, '..', '..', 'docs', 'alpha-spec.md');
+function specText() {
+  try { return readFileSync(SPEC_PATH, 'utf8'); }
+  catch { return '(개발 명세서를 불러오지 못했다 — 새 기능·정책 변경은 모두 승인 필요로 둔다)'; }
+}
 // 요금 최적화 기본값: 대화형 접수 업무라 Sonnet 5.5 + effort low (품질이 부족하면 환경변수로 올린다)
 const MODEL = process.env.DEV_CHAT_MODEL ?? 'claude-sonnet-5-5';
 const EFFORT = process.env.DEV_CHAT_EFFORT ?? 'low';
@@ -242,7 +248,8 @@ export function registerDevChat(app, { textToAdf }) {
           output_config: { effort: EFFORT },
           // 캐시: 지침(+도구)은 고정 블록으로, 대화 기록은 자동 캐시로 — 이어지는 턴은 캐시 단가로 읽힌다
           cache_control: { type: 'ephemeral' },
-          system: [{ type: 'text', text: GUIDELINES, cache_control: { type: 'ephemeral' } }],
+          system: [{ type: 'text', text: `${GUIDELINES}\n\n---\n# 개발 명세서 (승인 판단 기준)\n\n${specText()}`,
+            cache_control: { type: 'ephemeral' } }],
           tools: TOOLS,
           messages,
         });
