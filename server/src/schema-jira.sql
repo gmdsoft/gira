@@ -150,6 +150,9 @@ CREATE TABLE IF NOT EXISTS jira_project_permissions (
   PRIMARY KEY (project_id, principal_type, principal_id, role)
 );
 
+-- 프로젝트 기본 담당자: 담당자를 비워 생성한 이슈에 자동 지정 (예: GIRA → GIRA 에이전트)
+ALTER TABLE jira_projects ADD COLUMN IF NOT EXISTS default_assignee_id bigint REFERENCES users(id);
+
 -- 개발참여 챗봇 대화: 메시지 content는 API 응답 블록을 그대로 저장(append-only — thinking 블록 보존)
 CREATE TABLE IF NOT EXISTS dev_chat_sessions (
   id bigserial PRIMARY KEY,

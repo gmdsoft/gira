@@ -92,7 +92,8 @@ export function triggerDispatch() {
 // ---------- 도구 구현 ----------
 
 async function devProject() {
-  const { rows } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [DEV_PROJECT_KEY]);
+  const { rows } = await query(
+    `SELECT id, key, default_assignee_id FROM jira_projects WHERE key = $1`, [DEV_PROJECT_KEY]);
   if (!rows.length) throw new Error('GIRA 개발 프로젝트가 없습니다');
   return rows[0];
 }
@@ -134,11 +135,13 @@ async function toolCreate({ items }, ctx, textToAdf) {
       `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`].join('\n\n');
     const { rows } = await query(
       `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
-         labels, reporter_id, created_at, updated_at, fields_raw)
-       VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, now(), now(), '{}')
+         labels, reporter_id, assignee_id, created_at, updated_at, fields_raw)
+       VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), '{}')
        RETURNING id, issue_key`,
       [pr.id, key, typeId[it.type] ?? typeId.task, st[0]?.id ?? null, it.summary.trim(),
-       JSON.stringify(textToAdf(body)), labels, ctx.userId]);
+       JSON.stringify(textToAdf(body)), labels, ctx.userId,
+       // 에이전트가 처리할 이슈는 프로젝트 기본 담당자(GIRA 에이전트), 사람 담당은 비워 둔다
+       it.executor === 'human' ? null : (pr.default_assignee_id ?? null)]);
     byRef.set(it.ref, { id: rows[0].id, key: rows[0].issue_key });
     created.push({ ref: it.ref, key: rows[0].issue_key, type: it.type, summary: it.summary.trim(),
       executor: it.executor, needsApproval: !!it.needs_approval, parent: it.parent || null });

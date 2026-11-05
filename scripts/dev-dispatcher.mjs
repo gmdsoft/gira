@@ -79,7 +79,18 @@ async function candidates() {
   return rows;
 }
 
+// 처리 기록은 GIRA 에이전트 계정 이름으로 남긴다 (없으면 이슈 보고자)
+let agentId;
+async function agentUserId(fallback) {
+  if (agentId === undefined) {
+    const { rows } = await query(`SELECT id FROM users WHERE confluence_account_id = 'gira-agent'`);
+    agentId = rows[0]?.id ?? null;
+  }
+  return agentId ?? fallback;
+}
+
 async function comment(issueId, authorId, text) {
+  authorId = await agentUserId(authorId);
   await query(
     `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
      VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, now(), now())`,

@@ -97,7 +97,7 @@ function denyProject(reply, role, projectKey, need) {
 }
 
 async function requireProject(req, reply, projectKey, need = 'viewer') {
-  const { rows } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [projectKey]);
+  const { rows } = await query(`SELECT id, key, default_assignee_id FROM jira_projects WHERE key = $1`, [projectKey]);
   if (!rows.length) { reply.code(404).send({ error: 'project not found' }); return null; }
   const role = await projectRole(req.access, rows[0].id);
   if (!roleOk(role, need)) return denyProject(reply, role, rows[0].key, need);
@@ -357,7 +357,8 @@ app.post('/api/issues', async (req, reply) => {
      RETURNING id, issue_key`,
     [project.id, issueKey, typeId, st[0]?.id ?? null, summary.trim(),
      description?.trim() ? JSON.stringify(textToAdf(description)) : null,
-     priority || null, assigneeId || null, reporterId || userId, parentId, sprintId || null,
+     // 담당자를 비우면 프로젝트 기본 담당자 (GIRA → GIRA 에이전트)
+     priority || null, assigneeId || project.default_assignee_id || null, reporterId || userId, parentId, sprintId || null,
      arr(labels), arr(components), arr(fixVersions)]);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
@@ -683,7 +684,8 @@ app.post('/api/dev-feedback', async (req, reply) => {
   const KINDS = { feature: '신규 기능', change: '수정 요청', bug: '버그' };
   const { kind, title, detail, author, source } = req.body ?? {};
   if (!KINDS[kind] || !title?.trim()) return reply.code(400).send({ error: '유형과 제목을 입력하세요' });
-  const { rows: pr } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [DEV_PROJECT_KEY]);
+  const { rows: pr } = await query(
+    `SELECT id, key, default_assignee_id FROM jira_projects WHERE key = $1`, [DEV_PROJECT_KEY]);
   if (!pr.length) return reply.code(500).send({ error: '개발 프로젝트가 없습니다 (관리자에게 문의)' });
   const typeName = kind === 'bug' ? '버그' : '작업';
   const { rows: tp } = await query(
@@ -699,12 +701,12 @@ app.post('/api/dev-feedback', async (req, reply) => {
   ].filter(Boolean).join('\n\n');
   const { rows } = await query(
     `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary,
-       description_adf, labels, reporter_id, created_at, updated_at, fields_raw)
-     VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, now(), now(), '{}')
+       description_adf, labels, reporter_id, assignee_id, created_at, updated_at, fields_raw)
+     VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), '{}')
      RETURNING issue_key`,
     [pr[0].id, `${pr[0].key}-${mx[0].n}`, tp[0]?.id ?? null, st[0]?.id ?? null,
      `[${KINDS[kind]}] ${title.trim()}`, JSON.stringify(textToAdf(body)),
-     ['dev-feedback', kind], req.access.userId]);
+     ['dev-feedback', kind], req.access.userId, pr[0].default_assignee_id ?? null]);
   return { issueKey: rows[0].issue_key };
 });
 
