@@ -9,12 +9,18 @@ import { createReadStream } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query, DATA_DIR } from './db.mjs';
+import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 try { process.loadEnvFile(path.join(here, '..', '..', '.env')); } catch { /* 환경변수 직접 지정 가능 */ }
+
+// Gira 전용 DB (알파부터 분리). GIRA_DATABASE_URL 미지정 시 기존 단일 DB로 동작한다.
+configureDb({
+  url: process.env.GIRA_DATABASE_URL ?? process.env.DATABASE_URL,
+  schemas: ['schema-core.sql', 'schema-jira.sql'],
+});
 
 const SITE = (process.env.ATLASSIAN_SITE ?? '').replace(/\/$/, '');
 const AUTH = 'Basic ' + Buffer.from(`${process.env.ATLASSIAN_EMAIL}:${process.env.ATLASSIAN_API_TOKEN}`).toString('base64');
@@ -555,6 +561,19 @@ app.delete('/api/filters/:id', async (req, reply) => {
   return { ok: true };
 });
 
+// 컨테이너 헬스체크·로드밸런서용 (인증 훅은 /api/* 만 가드하므로 로그인 불필요)
+app.get('/healthz', async () => {
+  await query('SELECT 1');
+  return { ok: true, app: 'gira' };
+});
+
 const port = Number(process.env.JIRA_VIEWER_PORT ?? 3002);
 await app.listen({ port, host: '0.0.0.0' });
 console.log(`Jira 뷰어: http://0.0.0.0:${port}`);
+
+// 종료 시그널에서 연결을 정리 (docker stop 등)
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, async () => {
+    try { await app.close(); await closeDb(); } finally { process.exit(0); }
+  });
+}

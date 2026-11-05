@@ -10,7 +10,7 @@ import { createReadStream } from 'node:fs';
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { query, DATA_DIR } from './db.mjs';
+import { query, DATA_DIR, closeDb } from './db.mjs';
 import { decodeTinyToken } from './tinylink.mjs';
 import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
@@ -841,6 +841,19 @@ if (await stat(dist).catch(() => null)) {
   });
 }
 
+// 컨테이너 헬스체크·로드밸런서용 (인증 훅은 /api/* 만 가드하므로 로그인 불필요)
+app.get('/healthz', async () => {
+  await query('SELECT 1');
+  return { ok: true, app: 'gonfluence' };
+});
+
 const port = Number(process.env.PORT ?? 3001);
 await app.listen({ port, host: '0.0.0.0' });
 console.log(`API http://localhost:${port}`);
+
+// 종료 시그널에서 연결을 정리 (docker stop 등)
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.once(sig, async () => {
+    try { await app.close(); await closeDb(); } finally { process.exit(0); }
+  });
+}
