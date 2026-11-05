@@ -633,3 +633,5 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .setmenu button { display: flex; width: 100%; justify-content: space-between; gap: 12px; border: 0; background: none; padding: 7px 10px; font: inherit; font-size: 13.5px; cursor: pointer; border-radius: 5px; color: var(--text); }
 .setmenu button:hover { background: var(--bg-subtle); }
 .setmenu .chk { color: var(--accent); }
+.set-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; background: none; border-radius: 6px; cursor: pointer; color: var(--muted2); vertical-align: middle; }
+.set-btn:hover { background: var(--hover); color: var(--text); }

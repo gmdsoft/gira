@@ -8,6 +8,7 @@ import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
 import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog } from './access.jsx';
+import { IconSettings } from './jira/icons.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
@@ -332,7 +333,7 @@ function SettingsMenu({ me, navigate, theme, setTheme, up }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="setwrap">
-      <button className="btn btn-xs set-btn" title="설정" onClick={() => setOpen((v) => !v)}>⚙</button>
+      <button className="set-btn" title="설정" onClick={() => setOpen((v) => !v)}><IconSettings size={20} /></button>
       {open && <>
         <div className="menu-overlay" onClick={() => setOpen(false)} />
         <div className={'setmenu' + (up ? ' setmenu-up' : '')}>
