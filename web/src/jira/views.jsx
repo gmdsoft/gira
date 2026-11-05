@@ -1,8 +1,8 @@
 // 뷰 4종: 목록(분할), 전체 목록(표), 보드(칸반), 백로그(스프린트)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect } from './util.jsx';
+import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, hashColor, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
-import { IconCheck, IconMore } from './icons.jsx';
+import { IconCheck, IconMore, IconChevronRight, IconChevronDown } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
 
@@ -282,6 +282,14 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
 
 
 // ---------- 보드 (칸반) ----------
+// Jira 보드 구조: 스윔레인(툴바의 '그룹화' — 에픽/담당자/우선순위/타입) × 컬럼.
+// 레인마다 컬럼 칸이 각각 회색 블록(머리글 '상태 N')이고, 칸 아래 + 로 그 상태·레인에 바로 이슈를 만든다.
+// 카드를 다른 칸으로 끌면 상태를, 다른 레인으로 끌면 그 레인의 값(에픽·담당자·우선순위)도 바꾼다.
+const LANE_MODES = ['epic', 'assignee', 'priority', 'type'];
+const NO_LANE = '__none__';
+const DEFAULT_COLS = [['new', '해야 할 일'], ['indeterminate', '진행 중'], ['done', '완료']];
+const NO_LANE_LABEL = { epic: '에픽 없음', assignee: '미지정', priority: '우선순위 없음', type: '타입 없음' };
+
 export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
   const board = pdata.boards.find((b) => String(b.id) === boardId);
   // 보드 필터(JQL) + 스크럼 보드는 활성 스프린트만 (실제 Jira 스크럼 보드 동작)
@@ -289,31 +297,88 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
   const { rows, total } = useIssues(project, filters, bump, { extraJql }); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
-  const [overCol, setOverCol] = useState(null);
+  const [over, setOver] = useState(null);       // 'lane|col'
+  const [creating, setCreating] = useState(null); // 'lane|col'
+  const [collapsed, setCollapsed] = useState(() => new Set());
   useEffect(() => onCount(total), [total]);
   // 보드 목록이 로드된 뒤에만 유효성 검사 (로드 전 빈 배열로 ?b= 딥링크를 지우지 않도록)
   useEffect(() => { if (boardId && pdata.boards.length && !pdata.boards.some((b) => String(b.id) === boardId)) onBoard(''); }, [pdata.boards]);
+  // 기본 보드: 새 Jira 프로젝트 보드처럼 상태 범주 3컬럼(해야 할 일·진행 중·완료).
+  // 칸으로 끌어놓거나 + 로 만들면 범주 이름과 같은 상태(없으면 범주의 첫 상태)가 된다.
   const cols = board
     ? board.columns.map((c) => ({ name: c.name, statusIds: c.statusIds.map(Number), custom: true }))
-    : meta.statuses.map((s) => ({ name: s.name, statusIds: [Number(s.id)], category: s.category }));
+    : DEFAULT_COLS.map(([cat, name]) => {
+      const ids = meta.statuses.filter((s) => s.category === cat).map((s) => Number(s.id));
+      const main = meta.statuses.find((s) => s.category === cat && s.name === name);
+      return { name, category: cat, statusIds: main ? [Number(main.id), ...ids.filter((x) => x !== Number(main.id))] : ids };
+    }).filter((c) => c.statusIds.length);
   const colOf = new Map();
   cols.forEach((c, i) => c.statusIds.forEach((s) => colOf.set(s, i)));
-  const buckets = cols.map(() => []);
-  let hidden = 0;
-  for (const r of rows) {
-    const i = colOf.get(Number(r.status_id));
-    if (i == null) { hidden++; continue; }
-    buckets[i].push(r);
-  }
   const statusName = (id) => meta.statuses.find((s) => Number(s.id) === id)?.name ?? id;
+  const activeSprint = board?.type === 'scrum' ? pdata.sprints.find((s) => s.state === 'active') : null;
 
-  const drop = async (colIdx) => {
-    setOverCol(null);
+  // ---- 레인 구성 ----
+  const laneMode = LANE_MODES.includes(filters.group) ? filters.group : '';
+  const epicIssues = new Map(); // 에픽 레인: 에픽 자신은 카드가 아니라 레인 머리글
+  const cards = [];
+  for (const r of rows) {
+    if (laneMode === 'epic' && r.type_name === '에픽') epicIssues.set(String(r.id), r);
+    else cards.push(r);
+  }
+  const laneKeyOf = (r) => {
+    if (laneMode === 'epic') return r.epic_id ? String(r.epic_id) : NO_LANE;
+    if (laneMode === 'assignee') return r.assignee_id ? String(r.assignee_id) : NO_LANE;
+    if (laneMode === 'priority') return r.priority || NO_LANE;
+    if (laneMode === 'type') return r.type_name || NO_LANE;
+    return NO_LANE;
+  };
+  const lanes = new Map();
+  let hidden = 0;
+  for (const r of cards) {
+    const ci = colOf.get(Number(r.status_id));
+    if (ci == null) { hidden++; continue; }
+    const k = laneKeyOf(r);
+    if (!lanes.has(k)) lanes.set(k, { key: k, sample: r, buckets: cols.map(() => []), count: 0 });
+    const l = lanes.get(k);
+    l.buckets[ci].push(r); l.count++;
+  }
+  if (!lanes.size) lanes.set(NO_LANE, { key: NO_LANE, sample: null, buckets: cols.map(() => []), count: 0 });
+  const keyNum = (k) => Number(String(k ?? '').split('-')[1]) || 0;
+  const laneSort = (a, b) => {
+    if (a.key === NO_LANE) return 1;
+    if (b.key === NO_LANE) return -1;
+    if (laneMode === 'epic') return keyNum(a.sample.epic_key) - keyNum(b.sample.epic_key);
+    if (laneMode === 'priority') return (PRIORITY_ORDER[a.key] ?? 9) - (PRIORITY_ORDER[b.key] ?? 9);
+    const name = (l) => (laneMode === 'assignee' ? l.sample.assignee_name : l.key) ?? '';
+    return name(a).localeCompare(name(b), 'ko');
+  };
+  const laneList = [...lanes.values()].sort(laneSort);
+
+  // 레인 값 → 이슈 필드 (만들기·끌어놓기 공용)
+  const laneFields = (lane) => {
+    if (laneMode === 'epic') return { parentKey: lane.key === NO_LANE ? '' : lane.sample.epic_key };
+    if (laneMode === 'assignee') return { assigneeId: lane.key === NO_LANE ? null : Number(lane.key) };
+    if (laneMode === 'priority') return { priority: lane.key === NO_LANE ? null : lane.key };
+    return {};
+  };
+
+  const drop = async (lane, colIdx) => {
+    setOver(null);
     if (!dragKey) return;
-    const r = rows.find((x) => x.issue_key === dragKey);
+    const r = cards.find((x) => x.issue_key === dragKey);
+    if (!r) return;
     const c = cols[colIdx];
-    if (!r || c.statusIds.includes(Number(r.status_id))) return;
-    await api('/api/issue/' + encodeURIComponent(dragKey), { method: 'PATCH', json: { statusId: c.statusIds[0] } });
+    const json = {};
+    if (!c.statusIds.includes(Number(r.status_id))) json.statusId = c.statusIds[0];
+    if (laneKeyOf(r) !== lane.key) {
+      if (laneMode === 'type') return alert('타입이 다른 레인으로는 옮길 수 없습니다 — 이슈 상세에서 타입을 바꾸세요');
+      if (laneMode === 'epic' && r.epic_id && String(r.parent_id) !== String(r.epic_id)) {
+        return alert('하위 작업은 상위 이슈를 따라가므로 다른 에픽으로 옮길 수 없습니다');
+      }
+      Object.assign(json, laneFields(lane));
+    }
+    if (!Object.keys(json).length) return;
+    await api('/api/issue/' + encodeURIComponent(dragKey), { method: 'PATCH', json });
     onChanged();
   };
   const delBoard = async () => {
@@ -322,17 +387,36 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
     await api('/api/boards/' + board.id, { method: 'DELETE' });
     onBoard(''); reloadPdata();
   };
+  const toggleLane = (k) => setCollapsed((cur) => { const n = new Set(cur); n.has(k) ? n.delete(k) : n.add(k); return n; });
+
+  const laneHead = (lane) => {
+    const r = lane.sample;
+    if (lane.key === NO_LANE) return <span className="lane-title">{NO_LANE_LABEL[laneMode]}</span>;
+    if (laneMode === 'epic') {
+      const ep = epicIssues.get(lane.key);
+      return <>
+        <span className="lane-sq" style={{ background: hashColor(r.epic_id) }} />
+        <span className="lane-key ilink" onClick={(e) => { e.stopPropagation(); onOpen(r.epic_key); }}>{r.epic_key}</span>
+        <span className="lane-title">{r.epic_summary}</span>
+        {ep && <span className={`badge cat-${ep.status_category}`}>{ep.status_name}</span>}
+        {ep?.assignee_name && <Avatar name={ep.assignee_name} />}
+      </>;
+    }
+    if (laneMode === 'assignee') return <><Avatar name={r.assignee_name} /><span className="lane-title">{r.assignee_name}</span></>;
+    if (laneMode === 'priority') return <><Prio p={r.priority} /><span className="lane-title">{r.priority}</span></>;
+    return <><TypeIcon name={r.type_name} /><span className="lane-title">{r.type_name}</span></>;
+  };
 
   return (
     <div className="view on" id="view-board">
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
         <div className="bbar">
           <select value={boardId} onChange={(e) => onBoard(e.target.value)}>
-            <option value="">기본 (모든 상태)</option>
+            <option value="">기본 (해야 할 일·진행 중·완료)</option>
             {pdata.boards.map((b) => <option key={b.id} value={b.id}>{b.name}{b.type === 'scrum' ? ' (스크럼)' : ''}</option>)}
           </select>
           {board?.type === 'scrum' && <span className="badge cat-indeterminate" title="스크럼 보드는 활성 스프린트 이슈만 표시합니다">활성 스프린트</span>}
-          {board?.type === 'scrum' && !pdata.sprints.some((s) => s.state === 'active') &&
+          {board?.type === 'scrum' && !activeSprint &&
             <span className="dim">활성 스프린트가 없어 비어 있습니다 — 백로그에서 스프린트를 시작하세요</span>}
           {board?.jql && <span className="dim" title={board.jql} style={{ maxWidth: 360, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>필터: {board.jql}</span>}
           <button onClick={() => setModal({})}>+ 보드 만들기</button>
@@ -341,35 +425,115 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
           <span className="dim">{hidden ? `컬럼에 없는 상태의 이슈 ${hidden}건 숨김` : ''}</span>
         </div>
         <div id="board">
-          {cols.map((c, i) => (
-            <div className={`col${overCol === i ? ' dragover' : ''}`} key={i} title={c.statusIds.map(statusName).join(', ')}
-              onDragOver={(e) => { e.preventDefault(); setOverCol(i); }}
-              onDragLeave={() => setOverCol(null)}
-              onDrop={(e) => { e.preventDefault(); drop(i); }}>
-              <h4>{c.category ? <span className={`badge cat-${c.category}`}>{c.name}</span> : <b>{c.name}</b>}
-                <span className="dim">{buckets[i].length}</span></h4>
-              <div className="cards">
-                {buckets[i].map((r) => (
-                  <div className={`card${dragKey === r.issue_key ? ' dragging' : ''}`} key={r.id} draggable
-                    onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => setDragKey(null)}>
-                    <EpicBar r={r} />
-                    <div className="sum">{r.summary}</div>
-                    {(r.labels ?? []).length > 0 && <div className="labels">{r.labels.map((l) => <span className="chip" key={l}>{l}</span>)}</div>}
-                    <div className="meta">
-                      <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
-                        <TypeIcon name={r.type_name} />
-                        <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span>
-                      </span>
-                      <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
-                    </div>
-                  </div>))}
-              </div>
-            </div>))}
+          {laneList.map((lane) => {
+            const shut = collapsed.has(lane.key);
+            return (
+              <section className="lane" key={lane.key}>
+                {laneMode && (
+                  <div className="lane-head" onClick={() => toggleLane(lane.key)}>
+                    <span className="lane-twisty">{shut ? <IconChevronRight size={14} /> : <IconChevronDown size={14} />}</span>
+                    {laneHead(lane)}
+                    <span className="lane-count">{lane.count}</span>
+                  </div>
+                )}
+                {!shut && (
+                  <div className="lane-cols">
+                    {cols.map((c, i) => {
+                      const cell = `${lane.key}|${i}`;
+                      return (
+                        <div className={`bcell${over === cell ? ' dragover' : ''}`} key={i} title={c.statusIds.map(statusName).join(', ')}
+                          onDragOver={(e) => { e.preventDefault(); setOver(cell); }}
+                          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver(null); }}
+                          onDrop={(e) => { e.preventDefault(); drop(lane, i); }}>
+                          <div className="bcell-head"><span>{c.name}</span><span className="bcell-n">{lane.buckets[i].length}</span></div>
+                          <div className="cards">
+                            {lane.buckets[i].map((r) => (
+                              <BoardCard key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen}
+                                onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => { setDragKey(null); setOver(null); }} />
+                            ))}
+                          </div>
+                          {creating === cell
+                            ? <CellCreate meta={meta} noEpic={laneMode === 'epic'}
+                                presetType={laneMode === 'type' && lane.key !== NO_LANE ? lane.key : null}
+                                onCancel={() => setCreating(null)}
+                                onCreate={async (typeId, summary) => {
+                                  await api('/api/issues', { method: 'POST', json: {
+                                    projectKey: project, typeId: Number(typeId), summary, statusId: c.statusIds[0],
+                                    sprintId: activeSprint?.id ?? null, ...laneFields(lane),
+                                  } });
+                                  onChanged(); // 입력 칸은 열어 둔다 (연속 입력)
+                                }} />
+                            : <button className="bcell-add" title={`${c.name}에 이슈 만들기`} onClick={() => setCreating(cell)}>+</button>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            );
+          })}
         </div>
       </div>
       {modal && <BoardModal meta={meta} project={project} board={modal.board}
         onClose={() => setModal(null)}
         onSaved={(b) => { setModal(null); reloadPdata().then(() => onBoard(String(b.id))); }} />}
+    </div>
+  );
+}
+
+// 보드 카드: 제목 / 에픽·버전·레이블 칩 / 타입·키 + 우선순위·담당자
+function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd }) {
+  return (
+    <div className={`card${dragging ? ' dragging' : ''}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
+      onClick={() => onOpen(r.issue_key)}>
+      <div className="sum">{r.summary}</div>
+      {(r.epic_id || (r.fix_versions ?? []).length > 0 || (r.labels ?? []).length > 0) && (
+        <div className="labels">
+          {r.epic_id && <span className="epic-chip" title={`${r.epic_key} ${r.epic_summary ?? ''}`}>
+            <span className="lane-sq" style={{ background: hashColor(r.epic_id) }} />{r.epic_summary ?? r.epic_key}</span>}
+          {(r.fix_versions ?? []).map((v) => <span className="chip chip-ver" key={'v' + v}>{v}</span>)}
+          {(r.labels ?? []).map((l) => <span className="chip" key={l}>{l}</span>)}
+        </div>
+      )}
+      <div className="meta">
+        <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
+          <TypeIcon name={r.type_name} />
+          <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`}>{r.issue_key}</span>
+        </span>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
+      </div>
+    </div>
+  );
+}
+
+// 칸 아래 + → 인라인 이슈 만들기 (Enter 만들기·계속 입력, Esc 닫기)
+function CellCreate({ meta, noEpic, presetType, onCreate, onCancel }) {
+  const types = meta.types.filter((t) => !t.subtask && !(noEpic && t.name === '에픽'));
+  const preset = presetType && types.find((t) => t.name === presetType);
+  const [typeId, setTypeId] = useState(() => (preset ?? types.find((t) => /작업|task/i.test(t.name)) ?? types[0])?.id);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const submit = async () => {
+    const s = text.trim(); if (!s || busy) return;
+    setBusy(true);
+    try { await onCreate(typeId, s); setText(''); } finally { setBusy(false); }
+  };
+  return (
+    <div className="cell-create" onClick={(e) => e.stopPropagation()}>
+      <textarea autoFocus rows={2} placeholder="무엇을 완료해야 합니까?" value={text} disabled={busy}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); submit(); }
+          else if (e.key === 'Escape') onCancel();
+        }} />
+      <div className="cell-create-row">
+        <select value={typeId} onChange={(e) => setTypeId(e.target.value)} disabled={!!preset}>
+          {types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <span style={{ flex: 1 }} />
+        <button onClick={onCancel}>취소</button>
+        <button className="primary" onClick={submit} disabled={busy || !text.trim()}>만들기</button>
+      </div>
     </div>
   );
 }
