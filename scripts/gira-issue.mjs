@@ -2,8 +2,11 @@
 // GIRA 개발 이슈 읽기 (운영자 개발 세션용, 읽기 전용): 챗봇이 등록한 이슈를 처리하기 전에 내용을 확인한다.
 //   node scripts/gira-issue.mjs                # 열린 GIRA 이슈 목록 (완료 제외)
 //   node scripts/gira-issue.mjs GIRA-4         # 이슈 상세: 설명, 레이블, 상위/하위, 댓글, 첨부(로컬 경로)
+//   node scripts/gira-issue.mjs GIRA-4 --status 검토 --comment "처리 결과…" [--label +agent-done,-agent-running]
+//        # 처리 기록 (Gira DB만 갱신 — 댓글 작성자는 GIRA 에이전트 계정)
 // 처리는 scripts/dev-dispatcher.mjs --run --issue <KEY> 로 맡기거나 세션에서 직접 한다.
 import path from 'node:path';
+import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { configureDb, query, closeDb, DATA_DIR } from '../server/src/db.mjs';
 
@@ -25,9 +28,58 @@ const adfText = (doc) => {
 };
 const d = (t) => (t ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') : '');
 
-const key = process.argv[2]?.toUpperCase();
+const { values: opt, positionals } = parseArgs({
+  allowPositionals: true,
+  options: { status: { type: 'string' }, comment: { type: 'string' }, label: { type: 'string' } },
+});
+const key = positionals[0]?.toUpperCase();
+const textToAdf = (text) => ({
+  type: 'doc', version: 1,
+  content: String(text).split('\n').map((line) => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] })),
+});
+
+// 처리 기록: 상태 변경·댓글·레이블 (변경 이력도 남긴다)
+async function record(issueKey) {
+  const { rows } = await query(
+    `SELECT i.id, i.status_id, s.name AS status FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id
+      WHERE i.issue_key = $1`, [issueKey]);
+  const it = rows[0];
+  if (!it) throw new Error(`${issueKey} 이슈가 없습니다`);
+  const { rows: ag } = await query(`SELECT id FROM users WHERE confluence_account_id = 'gira-agent'`);
+  const actor = ag[0]?.id ?? null;
+  if (opt.status) {
+    const { rows: st } = await query(`SELECT id, name FROM jira_statuses WHERE name = $1 ORDER BY id LIMIT 1`, [opt.status]);
+    if (!st.length) throw new Error(`상태 '${opt.status}'가 없습니다`);
+    if (String(st[0].id) !== String(it.status_id)) {
+      await query(`UPDATE jira_issues SET status_id = $2, updated_at = now() WHERE id = $1`, [it.id, st[0].id]);
+      await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
+        [it.id, actor, JSON.stringify([{ field: 'status', fromString: it.status, toString: st[0].name }])]);
+      console.log(`상태: ${it.status} → ${st[0].name}`);
+    }
+  }
+  if (opt.label) {
+    const parts = opt.label.split(',').map((x) => x.trim()).filter(Boolean);
+    const add = parts.filter((x) => !x.startsWith('-')).map((x) => x.replace(/^\+/, ''));
+    const del = parts.filter((x) => x.startsWith('-')).map((x) => x.slice(1));
+    await query(
+      `UPDATE jira_issues SET labels = (
+         SELECT coalesce(array_agg(DISTINCT l), '{}') FROM unnest(array_cat(labels, $2::text[])) l WHERE NOT (l = ANY($3::text[]))
+       ), updated_at = now() WHERE id = $1`, [it.id, add, del]);
+    console.log(`레이블: +[${add}] -[${del}]`);
+  }
+  if (opt.comment) {
+    await query(
+      `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
+       VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, now(), now())`,
+      [it.id, JSON.stringify(textToAdf(opt.comment)), actor]);
+    await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [it.id]);
+    console.log('댓글 추가');
+  }
+}
 try {
-  if (!key) {
+  if (key && (opt.status || opt.comment || opt.label)) {
+    await record(key);
+  } else if (!key) {
     const { rows } = await query(
       `SELECT i.issue_key, i.summary, s.name AS status, t.name AS type, i.labels, i.updated_at
          FROM jira_issues i JOIN jira_projects p ON p.id = i.project_id AND p.key = 'GIRA'

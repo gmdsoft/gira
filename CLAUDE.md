@@ -22,6 +22,7 @@
   `node scripts/gira-issue.mjs [KEY]`로 이슈를 읽고, 직접 구현하거나
   `node scripts/dev-dispatcher.mjs --run --issue <KEY> [--executor codex|opencode] [--note "지시"]`로 맡긴다
   (codex/opencode 헤드리스, ../gira-work/<KEY> worktree, 커밋 후 푸시·PR까지, 머지는 사람이). 자동 실행 없음.
+  처리 절차는 `server/src/dev-agent/daily-run.md` (하루 한 번 확인·처리할 때와 직접 요청받았을 때 공통).
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).
