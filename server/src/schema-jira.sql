@@ -150,6 +150,28 @@ CREATE TABLE IF NOT EXISTS jira_project_permissions (
   PRIMARY KEY (project_id, principal_type, principal_id, role)
 );
 
+-- 프로젝트 기본 담당자: 담당자를 비워 생성한 이슈에 자동 지정 (예: GIRA → GIRA 에이전트)
+ALTER TABLE jira_projects ADD COLUMN IF NOT EXISTS default_assignee_id bigint REFERENCES users(id);
+
+-- 개발참여 챗봇 대화: 메시지 content는 API 응답 블록을 그대로 저장(append-only — thinking 블록 보존)
+CREATE TABLE IF NOT EXISTS dev_chat_sessions (
+  id bigserial PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES users(id),
+  author text,                   -- 실제 작성자 표시 이름 (Gonfluence 프록시 경유 시)
+  source text,                   -- 'Gira' | 'Gonfluence'
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS dev_chat_messages (
+  id bigserial PRIMARY KEY,
+  session_id bigint NOT NULL REFERENCES dev_chat_sessions(id) ON DELETE CASCADE,
+  role text NOT NULL CHECK (role IN ('user','assistant')),
+  content jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS dev_chat_messages_session ON dev_chat_messages(session_id, id);
+-- 비용 측정: assistant 응답의 토큰 사용량(model, input/output/cache_read/cache_creation)
+ALTER TABLE dev_chat_messages ADD COLUMN IF NOT EXISTS usage jsonb;
+
 -- 저장된 필터 (사용자별)
 CREATE TABLE IF NOT EXISTS jira_filters (
   id bigserial PRIMARY KEY,

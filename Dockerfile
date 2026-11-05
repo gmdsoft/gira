@@ -7,6 +7,7 @@ COPY server/package.json server/
 COPY web/package.json web/
 RUN npm ci
 COPY server server
+COPY docs/alpha-spec.md docs/alpha-spec.md
 COPY web web
 RUN npm --workspace web run build && npm --workspace web run build:jira \
  && npm --workspace web run build:admin \
@@ -21,6 +22,7 @@ COPY --from=build /app/package.json ./
 COPY --from=build /app/node_modules node_modules
 COPY --from=build /app/server/package.json server/package.json
 COPY --from=build /app/server/src server/src
+COPY --from=build /app/docs/alpha-spec.md docs/alpha-spec.md
 COPY --from=build /app/web/dist web/dist
 COPY --from=build /app/web/dist-jira-app web/dist-jira-app
 COPY --from=build /app/web/dist-admin web/dist-admin
