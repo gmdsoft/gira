@@ -5,6 +5,7 @@ import { TypeIcon } from './icons.jsx';
 import { IconCheck, IconMore, IconChevronRight, IconChevronDown } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
+import { ParentChip } from './ParentMenu.jsx';
 
 // 이슈 목록 훅. pageSize를 주면 스크롤 추가 로드(fetchMore), 없으면 한 번에 최대 1000건.
 function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql = [] } = {}) {
@@ -468,7 +469,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
                           <div className="bcell-head"><span>{c.name}</span><span className="bcell-n">{lane.buckets[i].length}</span></div>
                           <div className="cards">
                             {lane.buckets[i].map((r) => (
-                              <BoardCard key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen}
+                              <BoardCard key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen} project={project} meta={meta} onChanged={onChanged}
                                 onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => { setDragKey(null); setOver(null); }} />
                             ))}
                           </div>
@@ -531,7 +532,7 @@ function SprintBar({ sprint, rows, onComplete }) {
 }
 
 // 보드 카드: 제목 / 에픽·버전·레이블 칩 / 타입·키 + 우선순위·담당자
-function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd }) {
+function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta, onChanged }) {
   return (
     <div className={`card${dragging ? ' dragging' : ''}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
       onClick={() => onOpen(r.issue_key)}>
@@ -539,12 +540,7 @@ function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd }) {
       <div className="sum">{r.summary}</div>
       {(r.epic_id || (r.fix_versions ?? []).length > 0 || (r.labels ?? []).length > 0) && (
         <div className="labels">
-          {r.epic_id && <span className="epic-chip" title={`${r.epic_key} ${r.epic_summary ?? ''}`}
-            onClick={(e) => { e.stopPropagation(); onOpen(r.epic_key); }}>
-            <span className="epic-key">{r.epic_key}</span>
-            <span className="epic-sum">{r.epic_summary ?? ''}</span>
-            <IconChevronDown size={11} />
-          </span>}
+          {r.epic_id && <ParentChip r={r} project={project} meta={meta} onOpen={onOpen} onChanged={onChanged} />}
           {(r.fix_versions ?? []).map((v) => <span className="chip chip-ver" key={'v' + v}>{v}</span>)}
           {(r.labels ?? []).map((l) => <span className="chip" key={l}>{l}</span>)}
         </div>
