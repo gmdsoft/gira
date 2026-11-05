@@ -365,7 +365,7 @@ export default function JiraApp() {
       <header className="topbar">
         <div className="tb-left">
           <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
-          <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">PoC</span></span>
+          <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">Alpha</span></span>
         </div>
         <div className="tb-center">
           <form className="tb-search" onSubmit={submitGlobal}>
@@ -376,8 +376,8 @@ export default function JiraApp() {
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
         </div>
         <div className="tb-right">
-          <button className="iconbtn bell" title="알림 (PoC 미지원)"><IconBell size={18} /><span className="bell-dot" /></button>
-          <button className="iconbtn" title="도움말 (PoC 미지원)"><IconHelp size={18} /></button>
+          <button className="iconbtn bell" title="알림 (아직 지원하지 않음)"><IconBell size={18} /><span className="bell-dot" /></button>
+          <button className="iconbtn" title="도움말 (아직 지원하지 않음)"><IconHelp size={18} /></button>
           <span className="settings-wrap">
             <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={20} /></button>
             {showSet && <>
@@ -408,8 +408,8 @@ export default function JiraApp() {
             <div className="chead-top">
               <div className="crumb"><span>스페이스</span><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
               <div className="chead-actions">
-                <button className="iconbtn" title="공유 (PoC 미지원)"><IconShare size={17} /></button>
-                <button className="iconbtn" title="전체 화면 (PoC 미지원)"><IconExpand size={17} /></button>
+                <button className="iconbtn" title="공유 (아직 지원하지 않음)"><IconShare size={17} /></button>
+                <button className="iconbtn" title="전체 화면 (아직 지원하지 않음)"><IconExpand size={17} /></button>
               </div>
             </div>
             <div className="chead-title">
