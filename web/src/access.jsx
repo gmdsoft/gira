@@ -428,7 +428,7 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal modal-compact" onClick={(e) => e.stopPropagation()}>
         <h2>스페이스 만들기</h2>
         <form className="req-form" onSubmit={submit}>
           <label>유형
