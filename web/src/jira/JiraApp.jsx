@@ -341,7 +341,7 @@ export default function JiraApp() {
   const curBoard = pdata.boards.find((b) => String(b.id) === boardId);
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed');
   const viewProps = {
-    project, meta, pdata, filters, bump,
+    project, meta, pdata, me, filters, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
     onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true),
     boardJql: curBoard?.jql ?? null, // 보드 컨텍스트 필터 — 모든 뷰에 AND 적용

@@ -163,7 +163,7 @@ const HISTORY_ACTION = {
   timeestimate: '시간 추적 업데이트됨', timespent: '시간 추적 업데이트됨',
 };
 
-export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, onTitle, onSeen, onNew }) {
+export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew }) {
   const [d, setD] = useState(null);
   const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
@@ -361,7 +361,10 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
               <dt>담당자</dt><dd>
                 <SelectPicker value={d.assignee_id == null ? '' : String(d.assignee_id)} items={assigneeItems} searchable width={280}
                   display={<><Avatar name={d.assignee_name} /><span>{d.assignee_name ?? '미지정'}</span></>}
-                  onSelect={(v) => patch({ assigneeId: v ? Number(v) : null })} /></dd>
+                  onSelect={(v) => patch({ assigneeId: v ? Number(v) : null })} />
+                {me && String(d.assignee_id) !== String(me.id) &&
+                  <button type="button" className="add-link" onClick={() => patch({ assigneeId: me.id })}>나에게 할당</button>}
+              </dd>
               <dt>Sprint</dt><dd>
                 <SelectPicker value={d.sprint_id == null ? '' : String(d.sprint_id)} items={sprintItems} width={280}
                   display={<span>{d.sprint_name ?? '백로그'}</span>}
