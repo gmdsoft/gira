@@ -48,13 +48,24 @@ for (const b of boards) {
       jql = null;
     }
   }
+  // 칸반 하위 필터: 보드에 보이는 범위를 한 번 더 좁힌다 (지원하지 않는 JQL이면 비워 둔다)
+  let subJql = conf.subQuery?.query || null;
+  if (subJql) {
+    try { parseJql(subJql, { p: () => '$1', userId: 0 }); }
+    catch (e) {
+      if (!(e instanceof JqlError)) throw e;
+      console.warn(`  [${b.name}] 하위 필터 JQL 미지원이라 비워둠: ${e.message}\n    JQL: ${subJql}`);
+      subJql = null;
+    }
+  }
   await query(
-    `INSERT INTO jira_boards (project_id, name, columns, type, jql, source_id)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO jira_boards (project_id, name, columns, type, jql, source_id, sub_jql)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (source_id) DO UPDATE SET
-       name = EXCLUDED.name, columns = EXCLUDED.columns, type = EXCLUDED.type, jql = EXCLUDED.jql`,
-    [projectId, b.name, JSON.stringify(columns), b.type ?? null, jql, b.id]);
-  console.log(`  ✓ ${b.name} (${b.type}) — 컬럼 ${columns.length}개${jql ? `, 필터: ${jql}` : ''}`);
+       name = EXCLUDED.name, columns = EXCLUDED.columns, type = EXCLUDED.type, jql = EXCLUDED.jql,
+       sub_jql = EXCLUDED.sub_jql`,
+    [projectId, b.name, JSON.stringify(columns), b.type ?? null, jql, b.id, subJql]);
+  console.log(`  ✓ ${b.name} (${b.type}) — 컬럼 ${columns.length}개${jql ? `, 필터: ${jql}` : ''}${subJql ? `, 하위 필터: ${subJql}` : ''}`);
 
   // 스크럼 보드의 스프린트 표시 순서(백로그 정렬) 반영
   if (b.type === 'scrum') {
