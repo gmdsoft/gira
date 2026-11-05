@@ -69,13 +69,14 @@ export async function registerAuth(app) {
     req.access = access;
   });
 
-  // 로그인 화면용 사용자 목록 (로그인 전 접근 — 개발용. Entra 전환 시 제거)
-  // 이관된 실제 사용자는 노출하지 않고 테스트 계정만 내려준다.
+  // 로그인 화면용 사용자 목록 (로그인 전 접근 — Entra 전환 시 제거)
+  // 알파 기간: 실제 계정으로 작업해야 Entra 연동 때 이력이 그대로 본인 MS 계정에 연결되므로
+  // 이관된 실제 사용자도 노출한다 (비밀번호 없는 선택 로그인 — 사내 알파 한정).
   app.get('/api/auth/users', async () => {
     const { rows } = await query(
       `SELECT id, display_name, email FROM users
-        WHERE active AND confluence_account_id = $1
-        ORDER BY display_name`, [TEST_ACCOUNT_ID]);
+        WHERE active AND display_name IS NOT NULL
+        ORDER BY (confluence_account_id = $1) DESC, display_name`, [TEST_ACCOUNT_ID]);
     return rows;
   });
 
