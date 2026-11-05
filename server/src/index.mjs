@@ -83,6 +83,29 @@ app.get('/api/spaces', async (req) => {
   return out;
 });
 
+// 홈 '최근 업데이트' 피드 — 접근 가능한 스페이스의 최신 수정 페이지 (마지막 편집자 포함)
+app.get('/api/home/recent', async (req) => {
+  const { rows } = await query(
+    `SELECT c.id, c.title, c.updated_at, s.id AS space_id, s.key AS space_key, s.name AS space_name,
+            u.display_name AS editor
+       FROM content c
+       JOIN spaces s ON s.id = c.space_id
+       LEFT JOIN content_versions v ON v.content_id = c.id AND v.version = c.current_version
+       LEFT JOIN users u ON u.id = v.author_id
+      WHERE c.type IN ('page', 'live') AND c.status = 'current'
+      ORDER BY c.updated_at DESC
+      LIMIT 80`);
+  const out = [];
+  const roleCache = new Map(); // 스페이스 단위 권한 확인 반복 방지
+  for (const r of rows) {
+    let role = roleCache.get(r.space_id);
+    if (role === undefined) { role = await spaceRole(req.access, r.space_id); roleCache.set(r.space_id, role); }
+    if (role) out.push(r);
+    if (out.length >= 20) break;
+  }
+  return out;
+});
+
 app.get('/api/spaces/:key', async (req, reply) => {
   const { rows } = await query(`SELECT id, key, name, type, status, homepage_id FROM spaces WHERE key = $1`, [req.params.key]);
   if (!rows.length) return reply.code(404).send({ error: 'space not found' });
