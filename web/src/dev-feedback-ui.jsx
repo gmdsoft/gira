@@ -123,7 +123,7 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
                       title={c.summary}>
                       <strong>{c.key}</strong> <span>{TYPE_LABEL[c.type] ?? c.type}</span>
                       <span className="devchat-sum">{c.summary}</span>
-                      <span className="devchat-exec">{c.needsApproval ? '승인 필요' : '등록됨'}
+                      <span className="devchat-exec">{c.priority ? `${c.priority} · ` : ''}{c.needsApproval ? '승인 필요' : '등록됨'}
                         {c.attachments?.length ? ` · 첨부 ${c.attachments.length}` : ''}</span>
                     </a>
                   ))}
