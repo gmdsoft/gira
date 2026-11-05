@@ -16,7 +16,7 @@ import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
-import { registerDevChat, triggerDispatch } from './dev-chat.mjs';
+import { registerDevChat } from './dev-chat.mjs';
 import { registerProjectCreate } from './jira-project-create.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
@@ -427,13 +427,6 @@ app.patch('/api/issue/:key', async (req, reply) => {
     await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
       [issue.id, req.access.userId, JSON.stringify(items)]);
   }
-  // 승인: GIRA 개발 이슈에서 needs-approval 레이블이 지워졌고 에이전트 담당이면 바로 처리 시작
-  if ('labels' in b && String(before.labels ?? '').includes('needs-approval')
-      && !String(after.labels ?? '').includes('needs-approval')
-      && /agent:(codex|opencode)/.test(after.labels ?? '')
-      && req.params.key.toUpperCase().startsWith('GIRA-')) {
-    triggerDispatch();
-  }
   return { ok: true };
 });
 
@@ -718,7 +711,7 @@ app.post('/api/dev-feedback', async (req, reply) => {
   return { issueKey: rows[0].issue_key };
 });
 
-// 개발참여 챗봇 (자연어 요청 → 답변 + GIRA 이슈 자동 생성) — dev-chat.mjs
+// 개발참여 챗봇 (자연어 요청·첨부 → 답변 + GIRA 이슈 등록까지) — dev-chat.mjs
 registerDevChat(app, { textToAdf });
 
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
