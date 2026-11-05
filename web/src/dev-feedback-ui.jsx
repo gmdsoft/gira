@@ -77,7 +77,8 @@ export function DevFeedbackModal({ api, giraOrigin = '', onClose, modalClass = '
                       title={c.summary}>
                       <strong>{c.key}</strong> <span>{TYPE_LABEL[c.type] ?? c.type}</span>
                       <span className="devchat-sum">{c.summary}</span>
-                      <span className="devchat-exec">{EXEC_LABEL[c.executor] ?? c.executor}{c.needsApproval ? ' · 승인 필요' : ''}</span>
+                      <span className="devchat-exec">{EXEC_LABEL[c.executor] ?? c.executor}
+                        {c.needsApproval ? ' · 승인 필요' : c.autoStarted ? ' · 처리 시작됨' : ''}</span>
                     </a>
                   ))}
                 </div>

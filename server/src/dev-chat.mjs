@@ -3,6 +3,7 @@
 // 대화는 dev_chat_* 테이블에 API 응답 블록 그대로 append-only로 저장한다 (thinking 블록 보존 규칙).
 // 필요한 환경변수: ANTHROPIC_API_KEY (없으면 503), 선택: DEV_CHAT_MODEL (기본 claude-opus-5-5)
 import Anthropic from '@anthropic-ai/sdk';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +67,27 @@ const TOOLS = [
 
 let client = null;
 const getClient = () => (client ??= new Anthropic()); // ANTHROPIC_API_KEY 환경변수에서 읽는다
+
+// ---------- 자동 처리: 디스패처를 백그라운드로 실행 ----------
+// 즉시 처리 가능한 이슈(agent:codex|opencode, 승인 불필요)가 생기거나 승인되면 호출한다.
+// 동시에 하나만 돌리고, 실행 중 요청이 또 오면 끝난 뒤 한 번 더 돈다. DEV_AUTO_DISPATCH=0 이면 끈다.
+const ROOT = path.join(here, '..', '..');
+let dispatching = false;
+let dispatchAgain = false;
+export function triggerDispatch() {
+  if (process.env.DEV_AUTO_DISPATCH === '0') return;
+  if (dispatching) { dispatchAgain = true; return; }
+  dispatching = true;
+  const child = spawn(process.execPath, [path.join(ROOT, 'scripts', 'dev-dispatcher.mjs'), '--run', '--all'], {
+    cwd: ROOT, stdio: ['ignore', 'inherit', 'inherit'],
+  });
+  const done = () => {
+    dispatching = false;
+    if (dispatchAgain) { dispatchAgain = false; triggerDispatch(); }
+  };
+  child.on('close', done);
+  child.on('error', (e) => { console.error('[dispatch] 실행 실패:', e.message); done(); });
+}
 
 // ---------- 도구 구현 ----------
 
@@ -253,7 +275,13 @@ export function registerDevChat(app, { textToAdf }) {
       }
       throw e;
     }
-    return { sessionId, reply: finalText || '(응답 없음)', created };
+    // 바로 처리 가능한 이슈가 생겼으면 하위 에이전트 처리를 시작한다
+    const autoRun = created.filter((c) => c.executor !== 'human' && !c.needsApproval && c.type !== 'epic');
+    if (autoRun.length) triggerDispatch();
+    return {
+      sessionId, reply: finalText || '(응답 없음)',
+      created: created.map((c) => ({ ...c, autoStarted: autoRun.includes(c) && process.env.DEV_AUTO_DISPATCH !== '0' })),
+    };
   });
 
   // 대화 다시 불러오기 (화면 표시용: 사용자·어시스턴트의 텍스트만)

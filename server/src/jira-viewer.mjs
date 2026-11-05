@@ -15,7 +15,7 @@ import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
-import { registerDevChat } from './dev-chat.mjs';
+import { registerDevChat, triggerDispatch } from './dev-chat.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -417,6 +417,13 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if (items.length) {
     await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
       [issue.id, req.access.userId, JSON.stringify(items)]);
+  }
+  // 승인: GIRA 개발 이슈에서 needs-approval 레이블이 지워졌고 에이전트 담당이면 바로 처리 시작
+  if ('labels' in b && String(before.labels ?? '').includes('needs-approval')
+      && !String(after.labels ?? '').includes('needs-approval')
+      && /agent:(codex|opencode)/.test(after.labels ?? '')
+      && req.params.key.toUpperCase().startsWith('GIRA-')) {
+    triggerDispatch();
   }
   return { ok: true };
 });
