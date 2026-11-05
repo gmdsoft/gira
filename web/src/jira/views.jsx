@@ -535,18 +535,23 @@ function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd }) {
   return (
     <div className={`card${dragging ? ' dragging' : ''}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
       onClick={() => onOpen(r.issue_key)}>
+      <EpicBar r={r} />
       <div className="sum">{r.summary}</div>
       {(r.epic_id || (r.fix_versions ?? []).length > 0 || (r.labels ?? []).length > 0) && (
         <div className="labels">
-          {r.epic_id && <span className="epic-chip" title={`${r.epic_key} ${r.epic_summary ?? ''}`}>
-            <span className="lane-sq" style={{ background: hashColor(r.epic_id) }} />{r.epic_summary ?? r.epic_key}</span>}
+          {r.epic_id && <span className="epic-chip" title={`${r.epic_key} ${r.epic_summary ?? ''}`}
+            onClick={(e) => { e.stopPropagation(); onOpen(r.epic_key); }}>
+            <span className="epic-key">{r.epic_key}</span>
+            <span className="epic-sum">{r.epic_summary ?? ''}</span>
+            <IconChevronDown size={11} />
+          </span>}
           {(r.fix_versions ?? []).map((v) => <span className="chip chip-ver" key={'v' + v}>{v}</span>)}
           {(r.labels ?? []).map((l) => <span className="chip" key={l}>{l}</span>)}
         </div>
       )}
       <div className="meta">
         <span style={{ display: 'inline-flex', gap: 5, alignItems: 'center' }}>
-          <TypeIcon name={r.type_name} />
+          <TypeIcon name={r.type_name} size={16} />
           <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`}>{r.issue_key}</span>
         </span>
         <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
