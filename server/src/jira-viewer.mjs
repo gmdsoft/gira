@@ -14,7 +14,10 @@ import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
+import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
+import { registerDevChat, triggerDispatch } from './dev-chat.mjs';
+import { registerProjectCreate } from './jira-project-create.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -45,17 +48,22 @@ const app = Fastify({
 await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 5 } });
 
 // 신규 ID가 이관된 ID와 겹치지 않도록 시퀀스 보정
+// 로컬에서 만드는 행은 1조 이상 번호를 쓴다 — 원본(Atlassian)은 계속 번호를 발급하므로, '이관 최댓값+1'부터
+// 쓰면 원본 동기화 때 같은 id로 덮어쓸 수 있다. 원본 id는 이 값보다 훨씬 작다.
+const LOCAL_ID_FLOOR = 1000000000000;
 await query(`SELECT setval('jira_issue_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_issues), (SELECT last_value FROM jira_issue_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_issues), (SELECT last_value FROM jira_issue_id_seq)))`);
 await query(`SELECT setval('jira_comment_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_comments), (SELECT last_value FROM jira_comment_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_comments), (SELECT last_value FROM jira_comment_id_seq)))`);
 await query(`SELECT setval('jira_attachment_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_attachments), (SELECT last_value FROM jira_attachment_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_attachments), (SELECT last_value FROM jira_attachment_id_seq)))`);
 await query(`SELECT setval('jira_sprints_id_seq',
-  GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
+registerProjectCreate(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerSourceSync(app, { appName: 'gira' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
 
 // React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)
@@ -67,6 +75,7 @@ const page = (req, reply) => reply.type('text/html')
   .send(createReadStream(path.join(DIST, 'jira.html')));
 app.get('/', page);
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
+app.get('/dev-chat', page);                    // 개발참여 챗봇 (새 탭 전용 페이지)
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
 
 // 플레인 텍스트 → 최소 ADF 문서 (PoC 입력용)
@@ -96,7 +105,7 @@ function denyProject(reply, role, projectKey, need) {
 }
 
 async function requireProject(req, reply, projectKey, need = 'viewer') {
-  const { rows } = await query(`SELECT id, key FROM jira_projects WHERE key = $1`, [projectKey]);
+  const { rows } = await query(`SELECT id, key, default_assignee_id FROM jira_projects WHERE key = $1`, [projectKey]);
   if (!rows.length) { reply.code(404).send({ error: 'project not found' }); return null; }
   const role = await projectRole(req.access, rows[0].id);
   if (!roleOk(role, need)) return denyProject(reply, role, rows[0].key, need);
@@ -135,6 +144,28 @@ app.get('/api/meta', async (req) => {
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
     resolutions: resolutions.rows.map((r) => r.resolution),
   };
+});
+
+// 프로젝트 관련 인물 — 보고·담당·처리(기록) 이력이 있는 사용자를 최근 활동순으로.
+// 아바타 빠른 필터와 담당자 필터가 프로젝트 범위의 사람만 보여주도록 한다.
+app.get('/api/people', async (req, reply) => {
+  const pr = await requireProject(req, reply, req.query.project);
+  if (!pr) return;
+  const { rows } = await query(
+    `SELECT u.id, u.display_name, max(x.at) AS last_at FROM (
+       SELECT assignee_id AS uid, updated_at AS at FROM jira_issues
+        WHERE project_id = $1 AND assignee_id IS NOT NULL
+       UNION ALL
+       SELECT reporter_id, created_at FROM jira_issues
+        WHERE project_id = $1 AND reporter_id IS NOT NULL
+       UNION ALL
+       SELECT h.author_id, h.created_at FROM jira_changelog h
+         JOIN jira_issues i ON i.id = h.issue_id
+        WHERE i.project_id = $1 AND h.author_id IS NOT NULL
+     ) x JOIN users u ON u.id = x.uid AND u.active
+     GROUP BY u.id, u.display_name
+     ORDER BY max(x.at) DESC NULLS LAST LIMIT 30`, [pr.id]);
+  return rows.map((r) => ({ id: r.id, display_name: r.display_name }));
 });
 
 // 프로젝트 버전 목록 (수정 버전 선택용)
@@ -201,6 +232,7 @@ app.get('/api/issues', async (req, reply) => {
   if (status) cond.push(`i.status_id = ${p(status)}`);
   if (type) cond.push(`i.issue_type_id = ${p(type)}`);
   if (assignee) cond.push(`i.assignee_id = ${p(assignee)}`);
+  if (req.query.who) cond.push(`i.assignee_id = ${p(req.query.who)}`); // 아바타 빠른 필터 (모드 무관)
   if (priority) cond.push(`i.priority = ${p(priority)}`);
   if (sprint === 'none') cond.push(`i.sprint_id IS NULL`);
   else if (sprint === 'open') cond.push(`(i.sprint_id IS NULL OR i.sprint_id IN (SELECT id FROM jira_sprints WHERE state <> 'closed'))`);
@@ -333,7 +365,8 @@ app.post('/api/issues', async (req, reply) => {
      RETURNING id, issue_key`,
     [project.id, issueKey, typeId, st[0]?.id ?? null, summary.trim(),
      description?.trim() ? JSON.stringify(textToAdf(description)) : null,
-     priority || null, assigneeId || null, reporterId || userId, parentId, sprintId || null,
+     // 담당자를 비우면 프로젝트 기본 담당자 (GIRA → GIRA 에이전트)
+     priority || null, assigneeId || project.default_assignee_id || null, reporterId || userId, parentId, sprintId || null,
      arr(labels), arr(components), arr(fixVersions)]);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
@@ -393,6 +426,13 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if (items.length) {
     await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
       [issue.id, req.access.userId, JSON.stringify(items)]);
+  }
+  // 승인: GIRA 개발 이슈에서 needs-approval 레이블이 지워졌고 에이전트 담당이면 바로 처리 시작
+  if ('labels' in b && String(before.labels ?? '').includes('needs-approval')
+      && !String(after.labels ?? '').includes('needs-approval')
+      && /agent:(codex|opencode)/.test(after.labels ?? '')
+      && req.params.key.toUpperCase().startsWith('GIRA-')) {
+    triggerDispatch();
   }
   return { ok: true };
 });
@@ -643,6 +683,43 @@ app.delete('/api/filters/:id', async (req, reply) => {
   if (!rowCount) return reply.code(404).send({ error: 'not found' });
   return { ok: true };
 });
+
+// ---------- 개발참여: 신규/수정/버그 제안을 GIRA 개발 프로젝트 이슈로 등록 ----------
+// 명세 '의견·버그 리포트' — 로그인한 누구나 등록 가능. Gonfluence는 서비스 키로 프록시 호출하며
+// 이때 author(작성자 표시)·source(출처 앱)를 설명에 남긴다.
+const DEV_PROJECT_KEY = 'GIRA';
+app.post('/api/dev-feedback', async (req, reply) => {
+  const KINDS = { feature: '신규 기능', change: '수정 요청', bug: '버그' };
+  const { kind, title, detail, author, source } = req.body ?? {};
+  if (!KINDS[kind] || !title?.trim()) return reply.code(400).send({ error: '유형과 제목을 입력하세요' });
+  const { rows: pr } = await query(
+    `SELECT id, key, default_assignee_id FROM jira_projects WHERE key = $1`, [DEV_PROJECT_KEY]);
+  if (!pr.length) return reply.code(500).send({ error: '개발 프로젝트가 없습니다 (관리자에게 문의)' });
+  const typeName = kind === 'bug' ? '버그' : '작업';
+  const { rows: tp } = await query(
+    `SELECT id FROM jira_issue_types WHERE name = $1 AND NOT subtask ORDER BY id LIMIT 1`, [typeName]);
+  const { rows: st } = await query(`SELECT id FROM jira_statuses WHERE category = 'new' ORDER BY id LIMIT 1`);
+  const { rows: mx } = await query(
+    `SELECT COALESCE(MAX(split_part(issue_key, '-', 2)::int), 0) + 1 AS n
+       FROM jira_issues WHERE project_id = $1`, [pr[0].id]);
+  const body = [
+    detail?.trim() || title.trim(),
+    author ? `— 작성: ${author}` : null,
+    source ? `— 출처: ${source}` : null,
+  ].filter(Boolean).join('\n\n');
+  const { rows } = await query(
+    `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary,
+       description_adf, labels, reporter_id, assignee_id, created_at, updated_at, fields_raw)
+     VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), '{}')
+     RETURNING issue_key`,
+    [pr[0].id, `${pr[0].key}-${mx[0].n}`, tp[0]?.id ?? null, st[0]?.id ?? null,
+     `[${KINDS[kind]}] ${title.trim()}`, JSON.stringify(textToAdf(body)),
+     ['dev-feedback', kind], req.access.userId, pr[0].default_assignee_id ?? null]);
+  return { issueKey: rows[0].issue_key };
+});
+
+// 개발참여 챗봇 (자연어 요청 → 답변 + GIRA 이슈 자동 생성) — dev-chat.mjs
+registerDevChat(app, { textToAdf });
 
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
 

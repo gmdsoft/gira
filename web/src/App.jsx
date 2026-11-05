@@ -9,10 +9,12 @@ import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
 import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, GonfSettingsHub } from './access.jsx';
 import { IconSettings } from './jira/icons.jsx';
+import { DevChatPage, openDevChat, SPEC_URL } from './dev-feedback-ui.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
   if (pathname.startsWith('/admin')) return { view: 'admin' };
+  if (pathname.startsWith('/dev-chat')) return { view: 'devchat' }; // 개발참여 챗봇 (새 탭)
   let m = /^\/s\/([^/]+)\/p\/(\d+)\/edit$/.exec(pathname);
   if (m) return { view: 'edit', spaceKey: m[1], pageId: m[2] };
   m = /^\/s\/([^/]+)\/p\/(\d+)\/history$/.exec(pathname);
@@ -172,7 +174,13 @@ export default function App() {
   if (me === undefined) return <div className="page-loading">불러오는 중…</div>;
   if (me === null) return <Login onLogin={setMe} />;
 
-  if (route.view === 'home') return <Home navigate={navigate} me={me} logout={logout} theme={theme} setTheme={setTheme} />;
+  if (route.view === 'devchat') {
+    return <DevChatPage api={api} appName="Gonfluence" giraOrigin={`//${location.hostname}:3002`} />;
+  }
+
+  if (route.view === 'home') {
+    return <Home navigate={navigate} me={me} logout={logout} theme={theme} setTheme={setTheme} />;
+  }
   // 조직 관리(사용자·팀·그룹)는 관리 서비스(3003)로 분리 — 여기서는 접근 요청 승인함만
   if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
   // 권한 없는 스페이스: 접근 요청 화면
@@ -210,6 +218,10 @@ export default function App() {
             <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
           )}
         </>}
+        <a className="archive-link" href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
+           onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
+        <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
+        <a className="archive-link" href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up
@@ -364,6 +376,10 @@ function Home({ navigate, me, logout, theme, setTheme }) {
   return (
     <div className="home home-wide">
       <div className="home-user muted">
+        <a href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
+           onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
+        <a href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서</a>
+        <a href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
         <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
         👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
       </div>

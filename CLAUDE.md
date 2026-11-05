@@ -16,8 +16,15 @@
   스키마도 분리(schema-core.sql 공용 + schema.sql / schema-jira.sql). 운영 배포는 docs/deploy-alpha.md.
 - 조직(사용자·팀·그룹) 관리는 관리 서비스(admin-app.mjs, 3003)가 전담 — 조직 테이블의 유일한 작성자,
   `ORG_MIRROR_DATABASE_URL`(콤마 구분)로 다른 앱 DB에 복제. 관리 SPA는 `npm --workspace web run build:admin`(→ dist-admin, 재시작 불필요).
+- 개발참여 챗봇(server/src/dev-chat.mjs): 지침은 `server/src/dev-agent/guidelines.md`(시스템 프롬프트),
+  처리 에이전트 지침은 `dev-agent/worker.md`. 키는 `.env`의 `ANTHROPIC_API_KEY`.
+  이슈 처리는 `scripts/dev-dispatcher.mjs`(codex/opencode 헤드리스, ../gira-work/<KEY> worktree, 커밋까지만) —
+  챗봇이 즉시 처리 가능한 이슈를 만들거나 needs-approval이 제거되면 Gira 서버가 자동 실행(`DEV_AUTO_DISPATCH=0`으로 끔).
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).
 - 변환기(scripts/convert-storage.mjs)를 고치면 `node scripts/reconvert.mjs`로 전 버전에 소급 적용 (source_xhtml 보관, API 재호출 불필요).
+- 원본 동기화: 원본(Jira/Confluence) → Gira/Gonfluence **단방향**. 각 서버가 매일 `SOURCE_SYNC_AT`(KST, 기본 03:00)에
+  `scripts/source-sync.mjs --app gira|gonfluence` 실행 (임포터 `--since` 증분, 원본은 GET만). 상태 `GET /api/source-sync`, 즉시 실행 `POST /api/source-sync/run`(관리자), `SOURCE_SYNC=0`으로 끔.
+  로컬 생성 행은 id 1e12 이상(LOCAL_ID_FLOOR)이라 원본 id와 충돌하지 않는다.
 - 검증: `npm --workspace web run check` (전 버전 doc 스키마 직렬화 검사).

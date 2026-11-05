@@ -3,7 +3,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
-import { AccessGate, SettingsHub } from './perm.jsx';
+import { DevChatPage, openDevChat } from '../dev-feedback-ui.jsx';
+import { AccessGate, SettingsHub, NewProjectModal } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -11,7 +12,8 @@ import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconL
 const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
 // xjql: 기본 모드에서 콤보로 표현할 수 없어 그대로 유지하는 잔여 JQL (기본 필터와 AND 결합)
-const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '' };
+// who: 아바타 빠른 필터(담당자) — 기본/JQL 모드와 무관하게 AND 적용
+const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '', who: '' };
 
 function parseRoute(projects) {
   const m1 = location.pathname.match(/^\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)$/);
@@ -41,7 +43,7 @@ export default function JiraApp() {
   const [me, setMe] = useState(null);
   const [meta, setMeta] = useState(null);
   const [project, setProject] = useState('');
-  const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [], labels: [], components: [] });
+  const [pdata, setPdata] = useState({ sprints: [], versions: [], boards: [], labels: [], components: [], people: [] });
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [savedFilters, setSavedFilters] = useState([]);
   const [savedSel, setSavedSel] = useState('');
@@ -50,6 +52,7 @@ export default function JiraApp() {
   const [boardId, setBoardId] = useState('');
   const [count, setCount] = useState(0);
   const [bump, setBump] = useState(0);
+  const [showProjectCreate, setShowProjectCreate] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [sideOpen, setSideOpen] = useState(loadSideOpen);
   const [recent, setRecent] = useState(loadRecent);
@@ -101,10 +104,11 @@ export default function JiraApp() {
   const reloadPdata = async () => {
     if (!project) return;
     const proj = encodeURIComponent(project);
-    const [sprints, versions, boards, tags] = await Promise.all([
+    const [sprints, versions, boards, tags, people] = await Promise.all([
       api('/api/sprints?project=' + proj), api('/api/versions?project=' + proj),
-      api('/api/boards?project=' + proj), api('/api/labels?project=' + proj)]);
-    setPdata({ sprints, versions, boards, ...tags });
+      api('/api/boards?project=' + proj), api('/api/labels?project=' + proj),
+      api('/api/people?project=' + proj)]);
+    setPdata({ sprints, versions, boards, people, ...tags });
   };
   useEffect(() => { if (authed) reloadPdata(); }, [project, authed]);
 
@@ -123,7 +127,7 @@ export default function JiraApp() {
   };
   const switchProject = (pkey) => {
     if (pkey === project) return;
-    setProject(pkey); setFilters((f) => ({ ...f, sprint: '' })); setSavedSel('');
+    setProject(pkey); setFilters((f) => ({ ...f, sprint: '', who: '' })); setSavedSel(''); // 사람 목록이 프로젝트마다 다름
   };
   const gotoView = (v) => {
     const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
@@ -164,11 +168,22 @@ export default function JiraApp() {
 
   if (authed === false) return <LoginGate onLogin={() => { setAuthed(null); boot(); }} />;
   if (!authed || !meta) return <div className="placeholder" style={{ marginTop: 60, textAlign: 'center' }}>불러오는 중…</div>;
+  // 개발참여 챗봇 전용 탭 (프로젝트 접근 권한과 무관하게 누구나)
+  if (location.pathname === '/dev-chat') {
+    return <DevChatPage api={api} appName="Gira" btn="plain" btnPrimary="primary" />;
+  }
+  const projectCreated = async (created) => {
+    setShowProjectCreate(false);
+    nav(`/projects/${encodeURIComponent(created.key)}/list`);
+    await boot();
+  };
+  const projectCreateModal = showProjectCreate && me?.can_create && <NewProjectModal
+    onClose={() => setShowProjectCreate(false)} onCreated={projectCreated} />;
   // 접근 가능한 프로젝트가 없으면 요청 게이트
   if (!meta.projects.length) {
-    return <AccessGate me={me} onLogout={async () => {
+    return <>{projectCreateModal}<AccessGate me={me} onCreate={me?.can_create ? () => setShowProjectCreate(true) : undefined} onLogout={async () => {
       await fetch('/api/auth/logout', { method: 'POST' }); location.href = '/';
-    }} />;
+    }} /></>;
   }
 
   const refresh = () => setBump((b) => b + 1);
@@ -290,7 +305,7 @@ export default function JiraApp() {
       // 적용 중인 JQL을 기본 선택값으로 번역하고, 못 옮긴 조건·정렬은 잔여 JQL로 유지
       const { picks, residual } = splitJqlToBasic(applied);
       setQInput(picks.q ?? '');
-      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, ...picks, xjql: residual }));
+      setFilters((f) => ({ ...EMPTY_FILTERS, group: f.group, who: f.who, ...picks, xjql: residual }));
     }
   };
   const applySaved = (id) => {
@@ -338,7 +353,7 @@ export default function JiraApp() {
   const curBoard = pdata.boards.find((b) => String(b.id) === boardId);
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed');
   const viewProps = {
-    project, meta, pdata, filters, bump,
+    project, meta, pdata, me, filters, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
     onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true),
     boardJql: curBoard?.jql ?? null, // 보드 컨텍스트 필터 — 모든 뷰에 AND 적용
@@ -386,7 +401,8 @@ export default function JiraApp() {
       <div className="shell">
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
-          onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved} />}
+          onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
+          onDevFeedback={openDevChat} onCreateProject={me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
         <div className="content">
           <div className="chead">
             <div className="chead-top">
@@ -424,7 +440,7 @@ export default function JiraApp() {
               </select>
               <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
                 <option value="">담당자: 전체</option>
-                {meta.assignees.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                {(pdata.people ?? []).map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
               </select>
               <select value={filters.priority} onChange={(e) => setF('priority', e.target.value)}>
                 <option value="">우선순위: 전체</option>
@@ -446,13 +462,16 @@ export default function JiraApp() {
                 placeholder='JQL — 예: status != "완료" AND assignee = currentUser() ORDER BY updated DESC' />
               <button className="primary" onClick={() => applyJql(jqlInput)}>적용</button>
             </>}
-            <span className="avstack" title="담당자로 빠르게 필터">
-              {meta.assignees.slice(0, 6).map((u) => (
-                <button key={u.id} className={`avbtn${String(filters.assignee) === String(u.id) ? ' on' : ''}`}
-                  onClick={() => setF('assignee', String(filters.assignee) === String(u.id) ? '' : u.id)} title={u.display_name}>
+            <span className="avstack" title="이 프로젝트의 최근 활동자 — 클릭하면 담당 이슈로 필터">
+              {(pdata.people ?? []).slice(0, 6).map((u) => (
+                <button key={u.id} className={`avbtn${String(filters.who) === String(u.id) ? ' on' : ''}`}
+                  onClick={() => setF('who', String(filters.who) === String(u.id) ? '' : String(u.id))}
+                  title={`${u.display_name} — 이 프로젝트에서 담당한 이슈만 보기 (다시 누르면 해제)`}>
                   <Avatar name={u.display_name} />
                 </button>))}
-              {meta.assignees.length > 6 && <span className="avmore" title={`담당자 ${meta.assignees.length}명`}>+{meta.assignees.length - 6}</span>}
+              {(pdata.people ?? []).length > 6 && (
+                <span className="avmore" title={`관련 인물 ${pdata.people.length}명+`}>+{pdata.people.length - 6}</span>
+              )}
             </span>
             <select className={`filter-select${filters.group ? ' active' : ''}`} value={filters.group} onChange={(e) => setF('group', e.target.value)} title="행을 묶어 보기">
               <option value="">그룹화: 없음</option>
@@ -479,6 +498,7 @@ export default function JiraApp() {
           </main>
         </div>
       </div>
+      {projectCreateModal}
       {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
         onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}

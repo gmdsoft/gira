@@ -18,6 +18,8 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
       for (const k of ['status', 'type', 'assignee', 'priority', 'sprint', 'q']) if (filters[k]) u.set(k, filters[k]);
       if (filters.xjql) u.append('jql', filters.xjql); // 기본 모드로 못 옮긴 잔여 JQL — AND 결합
     }
+    // 아바타 빠른 필터: 기본/JQL 모드와 무관하게 '이 프로젝트에서 이 사람이 담당' 으로 AND 적용
+    if (filters.who) u.set('who', filters.who);
     for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;
@@ -61,7 +63,7 @@ function ListFoot({ total, shown, loading, onNew, onRefresh }) {
 }
 
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
-export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, boardJql }) {
+export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, boardJql }) {
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100, extraJql: [boardJql] });
   const [paneWidth, setPaneWidth] = useState(() => {
     const v = Number(localStorage.getItem('jira.listPaneWidth'));
@@ -116,7 +118,7 @@ export function ListView({ project, meta, pdata, filters, bump, selKey, onOpen, 
       <div className="pane-resizer" title="드래그하여 이슈 목록 폭 조절" onMouseDown={startPaneResize} />
       <div id="detail">
         {selKey
-          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} onNew={onNew} />
+          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} me={me} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} onNew={onNew} />
           : <div className="placeholder">왼쪽 목록에서 이슈를 선택하세요</div>}
       </div>
     </div>

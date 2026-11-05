@@ -4,7 +4,7 @@
 // 대형 프로젝트(1만+ 이슈)를 위해 페이지 단위로 수집·적재한다 (메모리에 전체를 들지 않음).
 // 이슈 필드의 스프린트 배열(gh-sprint)에서 스프린트도 함께 이관한다.
 //
-// 사용법: node scripts/jira-import-project.mjs --project SIMSIM [--wipe]
+// 사용법: node scripts/jira-import-project.mjs --project SIMSIM [--wipe] [--since <ISO 시각>]
 
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -15,11 +15,21 @@ const { values: args } = parseArgs({
   options: {
     project: { type: 'string' },
     wipe: { type: 'boolean', default: false },
+    since: { type: 'string' }, // 증분 동기화 (ISO 시각)
   },
 });
 if (!args.project) {
   console.error('사용법: node scripts/jira-import-project.mjs --project <KEY> [--wipe]');
   process.exit(1);
+}
+
+// 증분 동기화: --since <ISO 시각> 이면 그 이후 수정된 이슈만 (시간대 오차 대비 1시간 앞당김)
+function sinceClause() {
+  if (!args.since) return '';
+  const t = new Date(new Date(args.since).getTime() - 60 * 60 * 1000);
+  if (Number.isNaN(t.getTime())) throw new Error(`--since 형식 오류: ${args.since}`);
+  const p = (n) => String(n).padStart(2, '0');
+  return ` AND updated >= "${t.getUTCFullYear()}/${p(t.getUTCMonth() + 1)}/${p(t.getUTCDate())} ${p(t.getUTCHours())}:${p(t.getUTCMinutes())}"`;
 }
 
 const SITE = (process.env.ATLASSIAN_SITE ?? '').replace(/\/$/, '');
@@ -166,7 +176,8 @@ async function ensureSprints(sprintList) {
     await query(
       `INSERT INTO jira_sprints (id, project_id, name, state, start_at, end_at)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, state = EXCLUDED.state`,
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, state = EXCLUDED.state
+       WHERE jira_sprints.project_id = EXCLUDED.project_id`,
       [sp.id, project.id, sp.name, state, sp.start, sp.end]);
     seenSprints.add(sp.id);
   }
@@ -181,13 +192,25 @@ const knownIds = new Set();
 let total = 0, cmtCount = 0, attCount = 0, linkCount = 0, extraCmtFetch = 0;
 const seenLinks = new Set();
 
-const jql = encodeURIComponent(`project = "${project.key}" ORDER BY created ASC`);
+// JQL 시각은 원본 계정 시간대(KST)로 해석된다 — UTC 값을 넣으면 9시간 더 넓게 가져와 누락이 없다
+const jql = encodeURIComponent(`project = "${project.key}"${sinceClause()} ORDER BY created ASC`);
 let token = null;
 for (;;) {
   const qs = `jql=${jql}&maxResults=100&fields=*all${token ? `&nextPageToken=${encodeURIComponent(token)}` : ''}`;
   const page = await get(`/rest/api/3/search/jql?${qs}`);
-  const issues = page.issues ?? [];
-  if (!issues.length) break;
+  const fetched = page.issues ?? [];
+  if (!fetched.length) break;
+  // 충돌 가드: 같은 id가 로컬에서 만든 이슈(fields_raw '{}')이거나 다른 프로젝트 이슈이면 덮어쓰지 않는다
+  const { rows: clash } = await query(
+    `SELECT id, issue_key FROM jira_issues
+      WHERE id = ANY($1::bigint[]) AND (project_id <> $2 OR fields_raw::text = '{}')`,
+    [fetched.map((x) => Number(x.id)), project.id]);
+  const clashIds = new Set(clash.map((r) => String(r.id)));
+  for (const c of clash) {
+    const src = fetched.find((x) => String(x.id) === String(c.id));
+    console.log(`  ⚠ 충돌 건너뜀: 원본 ${src?.key} (id ${c.id})가 로컬 ${c.issue_key}와 id가 겹침`);
+  }
+  const issues = fetched.filter((x) => !clashIds.has(String(x.id)));
 
   // 이 페이지의 사용자·스프린트 먼저 보장 (FK)
   const pageAccounts = new Set();
@@ -244,7 +267,8 @@ for (;;) {
          description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
          resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id, sprint_id = EXCLUDED.sprint_id,
          labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
-         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw`,
+         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw
+       WHERE jira_issues.project_id = EXCLUDED.project_id`,
       [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
        f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
        f.priority?.name ?? null, f.resolution?.name ?? null,
@@ -259,7 +283,8 @@ for (;;) {
       await query(
         `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (id) DO UPDATE SET body_adf = EXCLUDED.body_adf, updated_at = EXCLUDED.updated_at`,
+         ON CONFLICT (id) DO UPDATE SET body_adf = EXCLUDED.body_adf, updated_at = EXCLUDED.updated_at
+         WHERE jira_comments.issue_id = EXCLUDED.issue_id`,
         [c.id, iss.id, c.body ? JSON.stringify(c.body) : null, uid(c.author), c.created ?? null, c.updated ?? null]);
       cmtCount++;
     }
@@ -267,7 +292,8 @@ for (;;) {
       await query(
         `INSERT INTO jira_attachments (id, issue_id, filename, media_type, file_size, source_url, author_id, created_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (id) DO UPDATE SET source_url = EXCLUDED.source_url`,
+         ON CONFLICT (id) DO UPDATE SET source_url = EXCLUDED.source_url
+         WHERE jira_attachments.issue_id = EXCLUDED.issue_id`,
         [a.id, iss.id, a.filename ?? '(이름 없음)', a.mimeType ?? null, a.size ?? null,
          a.content ?? null, uid(a.author), a.created ?? null]);
       attCount++;
@@ -295,7 +321,10 @@ for (;;) {
 // 부모 연결 (이관 범위 안의 이슈만)
 let parentCnt = 0;
 for (const [id, pid] of parentPairs) {
-  if (knownIds.has(pid)) {
+  // 증분 동기화에서는 상위가 이번 수집에 없을 수 있으므로 DB에 이미 있는지도 본다
+  const ok = knownIds.has(pid)
+    || (await query(`SELECT 1 FROM jira_issues WHERE id = $1`, [pid])).rows.length > 0;
+  if (ok) {
     await query(`UPDATE jira_issues SET parent_id = $2 WHERE id = $1`, [id, pid]);
     parentCnt++;
   }
