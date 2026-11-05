@@ -1,17 +1,13 @@
 # 알파 배포 가이드 (Docker)
 
-Gonfluence(3001)와 Gira(3002)를 한 호스트에서 docker compose 로 띄운다.
-두 앱은 같은 이미지(루트 `Dockerfile`)를 쓰고 `command` 로 서버를 고른다.
-DB는 PostgreSQL 인스턴스 하나에 **데이터베이스 2개**(rea = Gonfluence, gira = Gira)로 분리한다.
+Gira와 Gonfluence는 **각각 독립 스택으로 배포**한다. 스택마다 자기 PostgreSQL을 가지며,
+서로 없어도 동작한다 (앱 간 연결은 URL 링크뿐). 같은 호스트에 둘 다 올려도 되고,
+다른 호스트에 하나씩 올려도 된다. 두 앱 모두 루트 `Dockerfile` 한 장으로 빌드된 같은 이미지를 쓴다.
 
-## 구성
-
-| 서비스 | 포트 | 데이터 |
-| --- | --- | --- |
-| postgres | (내부) | 볼륨 `pgdata`, 최초 기동 시 `deploy/initdb/`가 gira DB 생성 |
-| gonfluence | 3001 | `DATABASE_URL` → rea DB, 첨부/캐시 볼륨 `gonfluence-data`(/data) |
-| gira | 3002 | `GIRA_DATABASE_URL` → gira DB, 첨부 볼륨 `gira-data`(/data) |
-| search (OpenSearch) | (내부) | 볼륨 `osdata` — Gonfluence 검색용 |
+| 스택 | compose 파일 | 포트 | 구성 |
+| --- | --- | --- | --- |
+| Gonfluence | docker-compose.gonfluence.yml | 3001 (`GONFLUENCE_PORT`) | app + postgres(rea DB) + opensearch |
+| Gira | docker-compose.gira.yml | 3002 (`GIRA_PORT`) | app + postgres(gira DB) |
 
 ## 처음 띄우기
 
@@ -26,28 +22,32 @@ DB는 PostgreSQL 인스턴스 하나에 **데이터베이스 2개**(rea = Gonflu
    ATLASSIAN_API_TOKEN=...
    ```
 
-2. 기동:
+2. 필요한 스택만 기동 (스키마는 앱이 기동하면서 스스로 적용):
 
    ```
-   docker compose -f docker-compose.prod.yml up -d --build
+   docker compose -f docker-compose.gonfluence.yml up -d --build
+   docker compose -f docker-compose.gira.yml up -d --build
    ```
 
-   앱이 기동하면서 스키마(schema-core + 앱별 schema)를 스스로 적용한다.
-
-3. 데이터 반입: 개발 DB에서 옮기려면 `pg_dump`를 postgres 컨테이너로 복원한다.
-   (rea DB → rea, gira DB → gira. 첨부 파일은 server/data 를 각 앱 볼륨 /data 로 복사.)
+3. 데이터 반입: 개발 DB의 `pg_dump` 를 각 스택의 postgres 로 복원한다
+   (rea → Gonfluence 스택, gira → Gira 스택). 첨부 파일은 server/data 를 각 스택의
+   `appdata` 볼륨(/data)으로 복사.
 
 ## 업데이트 배포
 
 ```
 git pull
-docker compose -f docker-compose.prod.yml up -d --build gonfluence gira
+docker compose -f docker-compose.gonfluence.yml up -d --build app   # Gonfluence만
+docker compose -f docker-compose.gira.yml up -d --build app         # Gira만
 ```
 
-## 백업
+스택이 분리되어 있으므로 한쪽을 재배포해도 다른 쪽은 영향이 없다.
 
-- DB: `docker compose -f docker-compose.prod.yml exec postgres sh -c 'pg_dump -U rea rea' > rea.sql` (gira 동일)
-- 첨부: `gonfluence-data`, `gira-data` 볼륨 스냅샷
+## 백업 (스택별)
+
+- DB: `docker compose -f docker-compose.gira.yml exec postgres sh -c 'pg_dump -U rea gira' > gira.sql`
+  (Gonfluence는 rea DB 동일 요령)
+- 첨부: 각 스택의 `appdata` 볼륨 스냅샷
 
 ## 개발 환경에서의 DB 분리
 
@@ -65,3 +65,8 @@ echo 'GIRA_DATABASE_URL=postgres://rea:rea@localhost:5432/gira' >> .env
 ## 헬스체크
 
 두 서버 모두 `GET /healthz` (로그인 불필요, DB SELECT 1 포함). compose 헬스체크가 이를 사용한다.
+
+## 사용자 동기화 (알파 기간)
+
+users 테이블이 스택마다 따로 있다. 알파 기간엔 이관 시점에 복제해 두고,
+Entra OIDC 도입 시 로그인 클레임으로 양쪽을 각자 갱신하는 방식으로 전환한다.

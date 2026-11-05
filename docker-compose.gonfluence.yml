@@ -1,7 +1,7 @@
-# 운영 스택 (TrueNAS 등 단일 호스트). 자세한 절차: docs/deploy-alpha.md
-# 실행: docker compose -f docker-compose.prod.yml up -d --build
+# Gonfluence 단독 배포 스택 (자체 postgres + opensearch 포함). 절차: docs/deploy-alpha.md
+# 실행: docker compose -f docker-compose.gonfluence.yml up -d --build
 # 필요한 .env 키: POSTGRES_PASSWORD (필수), ADMIN_EMAIL, ATLASSIAN_*(첨부 프록시용, 선택)
-name: gmd-tools
+name: gonfluence
 services:
   postgres:
     image: postgres:16
@@ -12,14 +12,13 @@ services:
       POSTGRES_DB: rea
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rea} -d rea"]
       interval: 5s
       timeout: 3s
       retries: 20
 
-  gonfluence:
+  app:
     build: .
     restart: unless-stopped
     command: ["node", "server/src/index.mjs"]
@@ -32,37 +31,14 @@ services:
       ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
       ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}
     ports:
-      - "3001:3001"
+      - "${GONFLUENCE_PORT:-3001}:3001"
     volumes:
-      - gonfluence-data:/data
+      - appdata:/data
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3001/healthz >/dev/null"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-
-  gira:
-    build: .
-    restart: unless-stopped
-    command: ["node", "server/src/jira-viewer.mjs"]
-    environment:
-      GIRA_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/gira
-      PG_POOL_MAX: ${PG_POOL_MAX:-20}
-      ATLASSIAN_SITE: ${ATLASSIAN_SITE:-}
-      ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
-      ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}
-    ports:
-      - "3002:3002"
-    volumes:
-      - gira-data:/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/healthz >/dev/null"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -84,6 +60,5 @@ services:
 
 volumes:
   pgdata:
-  gonfluence-data:
-  gira-data:
+  appdata:
   osdata:

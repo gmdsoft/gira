@@ -1,0 +1,46 @@
+# Gira 단독 배포 스택 (자체 postgres 포함). 절차: docs/deploy-alpha.md
+# 실행: docker compose -f docker-compose.gira.yml up -d --build
+# 필요한 .env 키: POSTGRES_PASSWORD (필수), ATLASSIAN_*(첨부 프록시용, 선택)
+name: gira
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rea}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}
+      POSTGRES_DB: gira
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rea} -d gira"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    restart: unless-stopped
+    command: ["node", "server/src/jira-viewer.mjs"]
+    environment:
+      GIRA_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/gira
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      ATLASSIAN_SITE: ${ATLASSIAN_SITE:-}
+      ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
+      ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}
+    ports:
+      - "${GIRA_PORT:-3002}:3002"
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
+  appdata:
