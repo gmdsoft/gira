@@ -17,6 +17,7 @@ import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
 import { registerDevChat, triggerDispatch } from './dev-chat.mjs';
+import { registerProjectCreate } from './jira-project-create.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -60,6 +61,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
   GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
+registerProjectCreate(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
 registerSourceSync(app, { appName: 'gira' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
