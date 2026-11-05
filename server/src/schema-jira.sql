@@ -169,6 +169,8 @@ CREATE TABLE IF NOT EXISTS dev_chat_messages (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS dev_chat_messages_session ON dev_chat_messages(session_id, id);
+-- 비용 측정: assistant 응답의 토큰 사용량(model, input/output/cache_read/cache_creation)
+ALTER TABLE dev_chat_messages ADD COLUMN IF NOT EXISTS usage jsonb;
 
 -- 저장된 필터 (사용자별)
 CREATE TABLE IF NOT EXISTS jira_filters (

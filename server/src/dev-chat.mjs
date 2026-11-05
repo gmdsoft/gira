@@ -11,7 +11,10 @@ import { query } from './db.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const GUIDELINES = readFileSync(path.join(here, 'dev-agent', 'guidelines.md'), 'utf8');
-const MODEL = process.env.DEV_CHAT_MODEL ?? 'claude-opus-5-5';
+// 요금 최적화 기본값: 대화형 접수 업무라 Sonnet 5.5 + effort low (품질이 부족하면 환경변수로 올린다)
+const MODEL = process.env.DEV_CHAT_MODEL ?? 'claude-sonnet-5-5';
+const EFFORT = process.env.DEV_CHAT_EFFORT ?? 'low';
+const DAILY_LIMIT = Number(process.env.DEV_CHAT_DAILY_LIMIT ?? 40); // 1인당 하루 메시지 상한
 const DEV_PROJECT_KEY = 'GIRA';
 const MAX_TOOL_ROUNDS = 8;
 
@@ -173,9 +176,9 @@ async function loadHistory(sessionId) {
   return rows.map((r) => ({ role: r.role, content: r.content }));
 }
 
-const saveMessage = (sessionId, role, content) => query(
-  `INSERT INTO dev_chat_messages (session_id, role, content) VALUES ($1, $2, $3)`,
-  [sessionId, role, JSON.stringify(content)]);
+const saveMessage = (sessionId, role, content, usage = null) => query(
+  `INSERT INTO dev_chat_messages (session_id, role, content, usage) VALUES ($1, $2, $3, $4)`,
+  [sessionId, role, JSON.stringify(content), usage ? JSON.stringify({ model: MODEL, ...usage }) : null]);
 
 const textOf = (content) => (Array.isArray(content) ? content : [])
   .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
@@ -188,6 +191,16 @@ export function registerDevChat(app, { textToAdf }) {
     }
     const message = String(req.body?.message ?? '').trim();
     if (!message) return reply.code(400).send({ error: '메시지를 입력하세요' });
+    // 비용 상한: 1인당 하루 메시지 수 (작성자 기준 — Gonfluence 프록시는 author로 구분)
+    const who = req.body?.author ?? null;
+    const { rows: used } = await query(
+      `SELECT count(*)::int AS n FROM dev_chat_messages m JOIN dev_chat_sessions s ON s.id = m.session_id
+        WHERE s.user_id = $1 AND ($2::text IS NULL OR s.author = $2) AND m.role = 'user'
+          AND m.content->0->>'type' = 'text' AND m.created_at > now() - interval '1 day'`,
+      [req.access.userId, who]);
+    if (used[0].n >= DAILY_LIMIT) {
+      return reply.code(429).send({ error: `오늘 대화 한도(${DAILY_LIMIT}회)를 넘었습니다. 내일 다시 이용해 주세요.` });
+    }
     if (message.length > 8000) return reply.code(400).send({ error: '메시지가 너무 깁니다 (8,000자 이내)' });
 
     // 세션: 본인 것만 이어 쓴다. 없으면 새로 만든다.
@@ -226,14 +239,16 @@ export function registerDevChat(app, { textToAdf }) {
           // 정책 거절 시 서버 측에서 다른 모델로 이어 처리 (refusal 대비)
           betas: ['server-side-fallback-2026-07-01'],
           fallbacks: 'default',
-          output_config: { effort: 'medium' },
+          output_config: { effort: EFFORT },
+          // 캐시: 지침(+도구)은 고정 블록으로, 대화 기록은 자동 캐시로 — 이어지는 턴은 캐시 단가로 읽힌다
+          cache_control: { type: 'ephemeral' },
           system: [{ type: 'text', text: GUIDELINES, cache_control: { type: 'ephemeral' } }],
           tools: TOOLS,
           messages,
         });
         // 응답 블록은 가공하지 않고 그대로 이어 붙인다 (thinking·fallback 블록 보존)
         messages.push({ role: 'assistant', content: resp.content });
-        await saveMessage(sessionId, 'assistant', resp.content);
+        await saveMessage(sessionId, 'assistant', resp.content, resp.usage);
         finalText = textOf(resp.content) || finalText;
 
         if (resp.stop_reason === 'refusal') {
