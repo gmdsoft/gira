@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS teams (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS team_id bigint REFERENCES teams(id);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS duty text NOT NULL DEFAULT 'member';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS rank text;
+-- 개발용 로그인 허용 (Entra 전): 관리자가 지정한 계정만 이름 입력으로 로그인할 수 있다
+ALTER TABLE users ADD COLUMN IF NOT EXISTS dev_login boolean NOT NULL DEFAULT false;
 
 -- 생성 권한 그룹 (예: 'PM들'): 멤버는 프로젝트/스페이스를 만들 수 있다
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS can_create boolean NOT NULL DEFAULT false;

@@ -55,7 +55,8 @@ function UsersTab() {
       <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·이메일 검색" />
       {!rows ? <p className="muted">불러오는 중…</p> : (
         <table className="admin-table">
-          <thead><tr><th>이름</th><th>이메일</th><th>직급</th><th>소속</th><th>직책</th><th>활성</th><th>관리자</th></tr></thead>
+          <thead><tr><th>이름</th><th>이메일</th><th>직급</th><th>소속</th><th>직책</th><th>활성</th><th>관리자</th>
+            <th title="Entra 연동 전 개발용 로그인을 허용할 계정">로그인 허용</th></tr></thead>
           <tbody>
             {rows.map((u) => (
               <tr key={u.id} className={u.active ? '' : 'inactive'}>
@@ -78,6 +79,7 @@ function UsersTab() {
                 </td>
                 <td><input type="checkbox" checked={u.active} onChange={(e) => save(u.id, { active: e.target.checked })} /></td>
                 <td><input type="checkbox" checked={u.is_admin} onChange={(e) => save(u.id, { isAdmin: e.target.checked })} /></td>
+                <td><input type="checkbox" checked={u.dev_login} onChange={(e) => save(u.id, { devLogin: e.target.checked })} /></td>
               </tr>
             ))}
           </tbody>

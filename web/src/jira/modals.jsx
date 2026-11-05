@@ -4,19 +4,33 @@ import { api, Avatar, hashColor, Prio } from './util.jsx';
 import { TypeIcon, IconClose, IconExpand, IconMore, IconPaperclip, IconGrid, IconBacklog, IconTag, IconUser, IconLink, IconInfo } from './icons.jsx';
 
 export function LoginGate({ onLogin }) {
-  const [users, setUsers] = useState([]);
-  useEffect(() => { fetch('/api/auth/users').then((r) => r.json()).then(setUsers).catch(() => {}); }, []);
-  const login = async (id) => {
-    await fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userId: id }) });
+  const [allowed, setAllowed] = useState([]); // 허용 계정 (자동완성용)
+  const [name, setName] = useState('');
+  useEffect(() => { fetch('/api/auth/users').then((r) => r.json()).then(setAllowed).catch(() => {}); }, []);
+  const login = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    const res = await fetch('/api/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() }),
+    });
+    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '로그인 실패'); return; }
     onLogin();
   };
   return (
-    <div className="overlay on"><div className="modal" style={{ width: 360, textAlign: 'center' }}>
+    <div className="overlay on"><div className="modal" style={{ width: 380, textAlign: 'center' }}>
       <h2>로그인</h2>
-      <div className="dim" style={{ marginBottom: 10 }}>계정을 선택하세요 (개발용)</div>
-      {users.length
-        ? users.map((u) => <button className="acct" key={u.id} onClick={() => login(u.id)}>{u.display_name}</button>)
-        : <div className="dim">계정이 없습니다</div>}
+      <div className="dim" style={{ marginBottom: 10 }}>
+        계정명(이름 또는 이메일)을 입력하세요 — 관리자가 허용한 계정만 로그인됩니다 (개발용)
+      </div>
+      <form onSubmit={login} style={{ display: 'flex', gap: 8 }}>
+        <input autoFocus list="login-allowed" value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="계정명" style={{ flex: 1 }} />
+        <button className="primary" type="submit">로그인</button>
+      </form>
+      <datalist id="login-allowed">
+        {allowed.map((u) => <option key={u.id} value={u.display_name} />)}
+      </datalist>
     </div></div>
   );
 }

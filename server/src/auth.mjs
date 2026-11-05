@@ -42,11 +42,16 @@ export async function registerAuth(app) {
     `UPDATE users SET is_admin = true
       WHERE email = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin)`, [adminEmail]);
 
-  // 테스트 계정 시드: 로그인 화면에는 이 계정 하나만 보인다 (Entra 전환 시 제거)
+  // 테스트 계정 시드 (Entra 전환 시 제거)
   await query(
-    `INSERT INTO users (confluence_account_id, display_name, active, is_admin)
-     VALUES ($1, '테스트', true, true)
+    `INSERT INTO users (confluence_account_id, display_name, active, is_admin, dev_login)
+     VALUES ($1, '테스트', true, true, true)
      ON CONFLICT (confluence_account_id) DO NOTHING`, [TEST_ACCOUNT_ID]);
+  // 부트스트랩: 관리자와 테스트 계정은 항상 로그인 허용 (그 외는 관리자가 조직 관리에서 지정)
+  await query(
+    `UPDATE users SET dev_login = true
+      WHERE (email = $1 OR confluence_account_id = $2) AND NOT dev_login`,
+    [adminEmail, TEST_ACCOUNT_ID]);
 
   // /api/* 는 로그인 필수 (auth 라우트 제외). req.access에 권한 컨텍스트를 싣는다.
   // 인증 수단: ① 서명 쿠키(웹) ② Authorization: Bearer API 키(외부 연동)
@@ -69,20 +74,36 @@ export async function registerAuth(app) {
     req.access = access;
   });
 
-  // 로그인 화면용 사용자 목록 (로그인 전 접근 — Entra 전환 시 제거)
-  // 알파 기간: 실제 계정으로 작업해야 Entra 연동 때 이력이 그대로 본인 MS 계정에 연결되므로
-  // 이관된 실제 사용자도 노출한다 (비밀번호 없는 선택 로그인 — 사내 알파 한정).
+  // 로그인 화면용: 허용(dev_login)된 계정 목록 — 이름 입력 자동완성에 쓴다 (Entra 전환 시 제거)
   app.get('/api/auth/users', async () => {
     const { rows } = await query(
       `SELECT id, display_name, email FROM users
-        WHERE active AND display_name IS NOT NULL
+        WHERE active AND dev_login AND display_name IS NOT NULL
         ORDER BY (confluence_account_id = $1) DESC, display_name`, [TEST_ACCOUNT_ID]);
     return rows;
   });
 
+  // 개발용 로그인 (Entra 전): 관리자가 허용한 계정만, 계정명(이름 또는 이메일) 입력으로.
+  // 기존 userId 방식도 허용 계정에 한해 유지한다.
   app.post('/api/auth/login', async (req, reply) => {
-    const userId = Number(req.body?.userId);
-    if (!userId) return reply.code(400).send({ error: 'userId required' });
+    const name = String(req.body?.name ?? '').trim();
+    let userId = Number(req.body?.userId) || null;
+    if (!userId && !name) return reply.code(400).send({ error: '계정명을 입력하세요' });
+    if (!userId) {
+      const { rows } = await query(
+        `SELECT id FROM users
+          WHERE active AND dev_login AND (display_name = $1 OR lower(email) = lower($1))`, [name]);
+      if (!rows.length) {
+        return reply.code(403).send({ error: '로그인이 허용되지 않았거나 없는 계정입니다 — 관리자에게 허용을 요청하세요' });
+      }
+      if (rows.length > 1) {
+        return reply.code(409).send({ error: '같은 이름이 여러 명입니다 — 이메일로 입력하세요' });
+      }
+      userId = Number(rows[0].id);
+    } else {
+      const { rows } = await query(`SELECT 1 AS x FROM users WHERE id = $1 AND active AND dev_login`, [userId]);
+      if (!rows.length) return reply.code(403).send({ error: '로그인이 허용되지 않은 계정입니다' });
+    }
     const access = await getAccess(userId);
     if (!access) return reply.code(404).send({ error: 'user not found or inactive' });
     reply.setCookie(COOKIE, String(userId), {

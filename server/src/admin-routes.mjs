@@ -42,7 +42,7 @@ export function registerOrgAdmin(app) {
   if (!requireAdmin(req, reply)) return;
   const q = (req.query.q ?? '').trim();
   const { rows } = await query(
-    `SELECT u.id, u.display_name, u.email, u.active, u.is_admin, u.rank, u.duty, u.team_id,
+    `SELECT u.id, u.display_name, u.email, u.active, u.is_admin, u.rank, u.duty, u.team_id, u.dev_login,
             CASE WHEN t.id IS NULL THEN NULL
                  WHEN tp.id IS NULL THEN t.name
                  ELSE tp.name || ' / ' || t.name END AS team_name,
@@ -59,7 +59,7 @@ export function registerOrgAdmin(app) {
 
   app.post('/api/admin/users/:id', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
-  const { active, isAdmin, rank, duty, teamId } = req.body ?? {};
+  const { active, isAdmin, rank, duty, teamId, devLogin } = req.body ?? {};
   if (Number(req.params.id) === req.access.userId && isAdmin === false) {
     return reply.code(400).send({ error: '자기 자신의 관리자 권한은 해제할 수 없습니다' });
   }
@@ -75,10 +75,12 @@ export function registerOrgAdmin(app) {
        is_admin = COALESCE($3, is_admin),
        rank = CASE WHEN $4 THEN NULLIF($5, '') ELSE rank END,
        duty = COALESCE($6, duty),
-       team_id = CASE WHEN $7 THEN $8::bigint ELSE team_id END
-     WHERE id = $1 RETURNING id, display_name, active, is_admin, rank, duty, team_id`;
+       team_id = CASE WHEN $7 THEN $8::bigint ELSE team_id END,
+       dev_login = COALESCE($9, dev_login)
+     WHERE id = $1 RETURNING id, display_name, active, is_admin, rank, duty, team_id, dev_login`;
   const params = [req.params.id, active ?? null, isAdmin ?? null,
-    rank !== undefined, rank ?? null, duty ?? null, teamId !== undefined, teamId ?? null];
+    rank !== undefined, rank ?? null, duty ?? null, teamId !== undefined, teamId ?? null,
+    devLogin ?? null];
   const { rows } = await query(sql, params);
   if (!rows.length) return reply.code(404).send({ error: 'user not found' });
   mirrorQuery(sql, params); // Gira DB에도 반영
