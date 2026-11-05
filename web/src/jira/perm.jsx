@@ -1,6 +1,7 @@
-// 프로젝트 접근 제어 UI: 권한 편집(관리자), 접근 요청 승인함, 접근 요청 게이트
+// 프로젝트 접근 제어 UI: 설정 허브(API 키·패키지·셀프 이관·권한·승인함) + 접근 요청 게이트
 import React, { useEffect, useState } from 'react';
 import { api } from './util.jsx';
+import { MigrateBody } from '../migrate-ui.jsx';
 
 const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
@@ -60,14 +61,16 @@ function PrincipalPicker({ onAdd, exclude }) {
   );
 }
 
-// 프로젝트 권한 편집 (프로젝트 관리자·사이트 관리자)
-export function ProjectPermissionsModal({ project, onClose }) {
+// 프로젝트 권한 편집 (프로젝트 관리자·사이트 관리자) — 설정 허브의 한 탭
+export function PermissionsBody({ project }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
   useEffect(() => {
+    setRows(null); setSaved(false);
     api(`/api/projects/${encodeURIComponent(project)}/permissions`)
       .then((rs) => setRows(rs.map((r) => ({ type: r.principal_type, id: Number(r.principal_id), role: r.role, name: r.name }))))
-      .catch(() => onClose());
+      .catch(() => setRows([]));
   }, [project]);
 
   const add = (picked) => {
@@ -85,18 +88,17 @@ export function ProjectPermissionsModal({ project, onClose }) {
       await api(`/api/projects/${encodeURIComponent(project)}/permissions`, {
         method: 'PUT', json: { rows: rows.map((r) => ({ principalType: r.type, principalId: r.id, role: r.role })) },
       });
-      onClose(true);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
     } finally { setBusy(false); }
   };
 
   return (
-    <div className="modal-backdrop" onClick={() => onClose()}>
-      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>프로젝트 권한 — {project}</h2>
-        <p className="muted2">규칙이 하나도 없으면 사이트 관리자만 접근할 수 있는 비공개 상태입니다.
-          팀에 준 권한은 하위 파트 소속원에게도 적용됩니다.</p>
-        {!rows ? <p className="muted2">불러오는 중…</p> : <div className="perm-body">
-          <div className="perm-rows">
+    <div className="hub-pane">
+      <p className="muted2">규칙이 하나도 없으면 사이트 관리자만 접근할 수 있는 비공개 상태입니다.
+        팀에 준 권한은 하위 파트 소속원에게도 적용됩니다.</p>
+      {!rows ? <p className="muted2">불러오는 중…</p> : <div className="perm-body">
+        <div className="perm-rows">
             <table className="perm-table">
               <tbody>
                 {rows.map((r, i) => (
@@ -122,17 +124,16 @@ export function ProjectPermissionsModal({ project, onClose }) {
           </div>
           <PrincipalPicker onAdd={add} exclude={new Set(rows.map((r) => r.type + ':' + r.id))} />
         </div>}
-        <div className="modal-actions">
-          <button className="plain" onClick={() => onClose()}>취소</button>
-          <button className="primary" disabled={busy || !rows} onClick={save}>저장</button>
-        </div>
+      <div className="modal-actions">
+        {saved && <span className="muted2">✓ 저장됨</span>}
+        <button className="primary" disabled={busy || !rows} onClick={save}>저장</button>
       </div>
     </div>
   );
 }
 
-// 접근 요청 승인함 (내가 관리자인 프로젝트)
-export function InboxModal({ onClose, onDecided }) {
+// 접근 요청 승인함 (내가 관리자인 프로젝트) — 설정 허브의 한 탭
+export function InboxBody({ onDecided }) {
   const [rows, setRows] = useState(null);
   const load = () => api('/api/access-requests/inbox').then(setRows).catch(() => setRows([]));
   useEffect(() => { load(); }, []);
@@ -141,10 +142,8 @@ export function InboxModal({ onClose, onDecided }) {
     load(); onDecided?.();
   };
   return (
-    <div className="modal-backdrop" onClick={() => onClose()}>
-      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>접근 요청 승인함</h2>
-        {!rows ? <p className="muted2">불러오는 중…</p> :
+    <div className="hub-pane">
+      {!rows ? <p className="muted2">불러오는 중…</p> :
           !rows.length ? <p className="muted2">대기 중인 요청이 없습니다.</p> : (
             <table className="perm-table">
               <tbody>
@@ -162,14 +161,12 @@ export function InboxModal({ onClose, onDecided }) {
               </tbody>
             </table>
           )}
-        <div className="modal-actions"><button className="plain" onClick={() => onClose()}>닫기</button></div>
-      </div>
     </div>
   );
 }
 
-// 내 API 키: 셀프 발급(1회 평문 표시)·회수 — 이 앱 전용 Bearer 토큰
-export function ApiKeysModal({ onClose }) {
+// 내 API 키: 셀프 발급(1회 평문 표시)·회수 — 이 앱 전용 Bearer 토큰. 설정 허브의 한 탭
+export function ApiKeysBody() {
   const [rows, setRows] = useState(null);
   const [name, setName] = useState('');
   const [issued, setIssued] = useState(null); // {token}
@@ -193,11 +190,9 @@ export function ApiKeysModal({ onClose }) {
   };
 
   return (
-    <div className="modal-backdrop" onClick={() => onClose()}>
-      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>내 API 키</h2>
-        <p className="muted2">외부 도구에서 <code>Authorization: Bearer &lt;키&gt;</code> 로 호출합니다 (엔드포인트: /api/v1/* — docs/api-v1.md).
-          키는 내 권한으로 동작하며 이 앱에서만 유효합니다.</p>
+    <div className="hub-pane">
+      <p className="muted2">외부 도구에서 <code>Authorization: Bearer &lt;키&gt;</code> 로 호출합니다 (엔드포인트: /api/v1/* — docs/api-v1.md).
+        키는 내 권한으로 동작하며 이 앱에서만 유효합니다.</p>
         {issued && (
           <div className="key-issued">
             <code>{issued.token}</code>
@@ -228,14 +223,12 @@ export function ApiKeysModal({ onClose }) {
             <button className="primary" type="submit">발급</button>
           </form>
         </div>
-        <div className="modal-actions"><button className="plain" onClick={() => onClose()}>닫기</button></div>
-      </div>
     </div>
   );
 }
 
-// 프로젝트 패키지(.zip) 가져오기 — 생성 권한자
-export function ImportProjectModal({ onClose, onDone }) {
+// 패키지: 현재 프로젝트 내보내기(.zip) + 패키지 가져오기 — 설정 허브의 한 탭
+export function PackageBody({ project, projectRole, canCreate, onImported }) {
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -250,13 +243,21 @@ export function ImportProjectModal({ onClose, onDone }) {
       const body = await res.json();
       if (!res.ok) { alert(body.error ?? '가져오기 실패'); return; }
       setResult(body);
-      onDone?.();
+      onImported?.();
     } finally { setBusy(false); }
   };
   return (
-    <div className="modal-backdrop" onClick={() => onClose()}>
-      <div className="modal perm-modal pkg-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>프로젝트 가져오기</h2>
+    <div className="hub-pane">
+      <h3>내보내기</h3>
+      {projectRole === 'admin' ? (
+        <p>현재 프로젝트 전체(이슈·댓글·첨부·스프린트·보드·기록)를 패키지로 받습니다.{' '}
+          <button className="primary" onClick={() => window.open(`/api/projects/${encodeURIComponent(project)}/export`)}>
+            {project} 내보내기 (.zip)
+          </button>
+        </p>
+      ) : <p className="muted2">내보내기는 프로젝트 관리자만 할 수 있습니다.</p>}
+      <h3>가져오기</h3>
+      {!canCreate ? <p className="muted2">가져오기는 팀장·파트장 또는 지정 그룹만 할 수 있습니다.</p> : <>
         <p className="muted2">Gira에서 내보낸 프로젝트 패키지(.zip)를 올립니다.
           같은 키의 프로젝트가 이미 있으면 가져올 수 없습니다. 가져온 사람이 프로젝트 관리자가 됩니다.</p>
         {result ? (
@@ -268,7 +269,48 @@ export function ImportProjectModal({ onClose, onDone }) {
             <button className="primary" type="submit" disabled={!file || busy}>{busy ? '가져오는 중…' : '가져오기'}</button>
           </form>
         )}
-        <div className="modal-actions"><button className="plain" onClick={() => onClose()}>닫기</button></div>
+      </>}
+    </div>
+  );
+}
+
+// 설정 허브: 톱니 메뉴의 '설정…'에서 열리는 팝업 — 좌측 탭 + 우측 내용
+export function SettingsHub({ me, meta, project, onClose, onChanged }) {
+  const proj = meta.projects.find((p) => p.key === project);
+  const tabs = [
+    ['keys', '내 API 키', true],
+    ['pkg', '패키지 (내보내기/가져오기)', true],
+    ['migrate', '원본 Jira에서 가져오기', !!me?.can_create],
+    ['perm', '프로젝트 권한', proj?.role === 'admin'],
+    ['inbox', '접근 요청 승인함', meta.projects.some((p) => p.role === 'admin')],
+  ].filter((t) => t[2]);
+  const [tab, setTab] = useState(tabs[0][0]);
+  const TITLE = Object.fromEntries(tabs.map(([k, n]) => [k, n]));
+  return (
+    <div className="modal-backdrop" onClick={() => onClose()}>
+      <div className="settings-hub" onClick={(e) => e.stopPropagation()}>
+        <aside className="hub-side">
+          <div className="hub-title">설정</div>
+          {tabs.map(([k, name]) => (
+            <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{name}</button>
+          ))}
+          {me?.is_admin && (
+            <button className="hub-ext" onClick={() => window.open(`//${location.hostname}:3003/`, '_blank')}>
+              조직 관리 ↗
+            </button>
+          )}
+          <button className="hub-close" onClick={() => onClose()}>닫기</button>
+        </aside>
+        <section className="hub-main">
+          <h2>{TITLE[tab]}{tab === 'perm' ? ` — ${project}` : ''}</h2>
+          {tab === 'keys' && <ApiKeysBody />}
+          {tab === 'pkg' && <PackageBody project={project} projectRole={proj?.role}
+            canCreate={!!me?.can_create} onImported={onChanged} />}
+          {tab === 'migrate' && <MigrateBody api={api} resourceLabel="프로젝트"
+            btn="plain linklike" btnPrimary="primary" onDone={onChanged} />}
+          {tab === 'perm' && <PermissionsBody project={project} />}
+          {tab === 'inbox' && <InboxBody />}
+        </section>
       </div>
     </div>
   );

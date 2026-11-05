@@ -1,8 +1,8 @@
-// 팀장 셀프 이관 모달 (Gira/Gonfluence 공용 — api 함수와 버튼 클래스만 주입)
+// 팀장 셀프 이관 (Gira/Gonfluence 공용, 설정 허브의 한 탭 — api 함수와 버튼 클래스만 주입)
 // 흐름: 본인 Atlassian API 토큰 등록 → 원본 목록에서 선택 → 백그라운드 이관 + 로그 폴링
 import React, { useEffect, useRef, useState } from 'react';
 
-export function MigrateModal({ api, title, resourceLabel, onClose, onDone, btn = 'btn', btnPrimary = 'btn btn-primary' }) {
+export function MigrateBody({ api, resourceLabel, onDone, btn = 'btn', btnPrimary = 'btn btn-primary' }) {
   const [token, setToken] = useState(undefined); // undefined=로딩, {hasToken, email?}
   const [email, setEmail] = useState('');
   const [tok, setTok] = useState('');
@@ -63,9 +63,7 @@ export function MigrateModal({ api, title, resourceLabel, onClose, onDone, btn =
 
   const STATUS = { running: '진행 중…', done: '완료', error: '오류' };
   return (
-    <div className="modal-backdrop" onClick={() => onClose()}>
-      <div className="modal perm-modal" onClick={(e) => e.stopPropagation()}>
-        <h2>{title}</h2>
+    <div className="hub-pane">
         {token === undefined ? <p className="mg-muted">불러오는 중…</p> : !token.hasToken ? (
           <form className="mg-token" onSubmit={saveToken}>
             <p className="mg-muted">본인 Atlassian 계정의 API 토큰을 등록하세요
@@ -130,8 +128,6 @@ export function MigrateModal({ api, title, resourceLabel, onClose, onDone, btn =
             ))}
           </ul>
         </>}
-        <div className="modal-actions"><button className={btn} onClick={() => onClose()}>닫기</button></div>
-      </div>
     </div>
   );
 }

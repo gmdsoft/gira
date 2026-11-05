@@ -7,9 +7,8 @@ import Editor from './Editor.jsx';
 import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
-import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, ApiKeysModal, ImportSpaceModal } from './access.jsx';
+import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, GonfSettingsHub } from './access.jsx';
 import { IconSettings } from './jira/icons.jsx';
-import { MigrateModal } from './migrate-ui.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
@@ -330,12 +329,10 @@ const ago = (t) => {
   return new Date(t).toLocaleDateString('ko-KR');
 };
 
-// 설정(톱니) 메뉴: 테마 + 관리 진입점 + 도구(API 키·패키지) — Gira 설정 메뉴와 동일 구성
+// 설정(톱니) 메뉴: 테마 선택 + '설정…'(허브 팝업) — Gira와 동일 구성
 function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }) {
   const [open, setOpen] = useState(false);
-  const [showKeys, setShowKeys] = useState(false);
-  const [showImport, setShowImport] = useState(false);
-  const [showMigrate, setShowMigrate] = useState(false);
+  const [showHub, setShowHub] = useState(false);
   return (
     <span className="setwrap">
       <button className="set-btn" title="설정" onClick={() => setOpen((v) => !v)}><IconSettings size={20} /></button>
@@ -348,33 +345,12 @@ function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }
               <span>{name}</span>{theme === v && <span className="chk">✓</span>}
             </button>
           ))}
-          {me.is_admin && <>
-            <div className="setmenu-title">관리</div>
-            <button onClick={() => { setOpen(false); navigate('/admin'); }}><span>접근 요청 승인함</span></button>
-            <button onClick={() => { setOpen(false); window.open(`//${location.hostname}:3003/`, '_blank'); }}>
-              <span>조직 관리 ↗</span>
-            </button>
-          </>}
-          <div className="setmenu-title">도구</div>
-          <button onClick={() => { setShowKeys(true); setOpen(false); }}><span>내 API 키…</span></button>
-          {spaceKey && spaceRole === 'admin' && (
-            <button onClick={() => { window.open(`/api/spaces/${spaceKey}/export`); setOpen(false); }}>
-              <span>{spaceKey} 내보내기 (.zip)</span>
-            </button>
-          )}
-          {me.can_create && (
-            <button onClick={() => { setShowImport(true); setOpen(false); }}><span>스페이스 가져오기…</span></button>
-          )}
-          <button onClick={() => { setShowMigrate(true); setOpen(false); }}>
-            <span>원본 Confluence에서 가져오기…</span>
-          </button>
+          <div className="setmenu-sep" />
+          <button onClick={() => { setShowHub(true); setOpen(false); }}><span>설정…</span></button>
         </div>
       </>}
-      {showKeys && <ApiKeysModal onClose={() => setShowKeys(false)} />}
-      {showImport && <ImportSpaceModal onClose={() => setShowImport(false)}
-        onDone={(r) => navigate(`/s/${r.spaceKey}`)} />}
-      {showMigrate && <MigrateModal api={api} title="원본 Confluence에서 가져오기" resourceLabel="스페이스"
-        onClose={() => setShowMigrate(false)} />}
+      {showHub && <GonfSettingsHub me={me} spaceKey={spaceKey} spaceRole={spaceRole}
+        navigate={navigate} onClose={() => setShowHub(false)} />}
     </span>
   );
 }
