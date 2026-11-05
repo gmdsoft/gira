@@ -18,7 +18,11 @@ try { process.loadEnvFile(path.join(here, '..', '..', '.env')); } catch { /* 환
 
 let config = {
   url: undefined,                               // 미지정 시 DATABASE_URL
-  schemas: ['schema-core.sql', 'schema.sql'],   // 기동 시 순서대로 적용 (IF NOT EXISTS 멱등)
+  // 기동 시 순서대로 적용 (IF NOT EXISTS 멱등). DB_SCHEMAS 환경변수(콤마)로 재지정 가능
+  // — 셀프 이관 등 스크립트를 자식 프로세스로 띄울 때 대상 DB에 맞는 스키마만 적용한다.
+  schemas: process.env.DB_SCHEMAS
+    ? process.env.DB_SCHEMAS.split(',').map((s) => s.trim()).filter(Boolean)
+    : ['schema-core.sql', 'schema.sql'],
 };
 let pool = null;
 let migrated = null;

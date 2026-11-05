@@ -2,6 +2,8 @@
 // 접근 요청 화면, 스페이스 만들기 다이얼로그
 import React, { useEffect, useState } from 'react';
 import { api } from './api.js';
+import { MigrateBody } from './migrate-ui.jsx';
+import { RequestsTab } from './Admin.jsx';
 
 export const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 export const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
@@ -257,6 +259,153 @@ export function RequestAccessView({ spaceKey }) {
           `${r.status === 'approved' ? '승인됨' : '거절됨'} (${new Date(r.decided_at).toLocaleDateString('ko-KR')})`).join(', ')}</p>
       )}
     </article>
+  );
+}
+
+// 내 API 키: 셀프 발급(1회 평문 표시)·회수 — 이 앱 전용 Bearer 토큰. 설정 허브의 한 탭
+export function ApiKeysBody() {
+  const [rows, setRows] = useState(null);
+  const [name, setName] = useState('');
+  const [issued, setIssued] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const load = () => api('/api/me/apikeys').then(setRows).catch(() => setRows([]));
+  useEffect(() => { load(); }, []);
+
+  const issue = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
+    try {
+      const r = await api('/api/me/apikeys', { method: 'POST', json: { name } });
+      setIssued(r); setName(''); setCopied(false); load();
+    } catch (err) { alert(err.message); }
+  };
+  const revoke = async (k) => {
+    if (!confirm(`'${k.name}' 키를 회수할까요? 이 키를 쓰는 연동은 즉시 끊깁니다.`)) return;
+    await api('/api/me/apikeys/' + k.id, { method: 'DELETE' });
+    load();
+  };
+
+  return (
+    <div className="hub-pane">
+      <p className="muted">외부 도구에서 <code>Authorization: Bearer &lt;키&gt;</code> 로 호출합니다 (엔드포인트: /api/v1/*).
+        키는 내 권한으로 동작하며 이 앱에서만 유효합니다.</p>
+        {issued && (
+          <div className="key-issued">
+            <code>{issued.token}</code>
+            <button className="btn btn-primary" onClick={async () => {
+              try { await navigator.clipboard.writeText(issued.token); setCopied(true); } catch { /* 무시 */ }
+            }}>{copied ? '✓ 복사됨' : '복사'}</button>
+            <div className="muted">이 키는 지금만 표시됩니다 — 복사해 두세요.</div>
+          </div>
+        )}
+        <div className="perm-rows">
+          <table className="perm-table">
+            <tbody>
+              {(rows ?? []).map((k) => (
+                <tr key={k.id} style={k.revoked_at ? { opacity: .5 } : null}>
+                  <td><code>{k.prefix}…</code></td>
+                  <td className="perm-name">{k.name}
+                    <div className="muted">{new Date(k.created_at).toLocaleDateString('ko-KR')} 발급
+                      {k.last_used_at ? ` · 마지막 사용 ${new Date(k.last_used_at).toLocaleDateString('ko-KR')}` : ' · 미사용'}</div></td>
+                  <td>{k.revoked_at ? <span className="muted">회수됨</span>
+                    : <button className="btn btn-xs" onClick={() => revoke(k)}>회수</button>}</td>
+                </tr>
+              ))}
+              {rows && !rows.length && <tr><td className="muted">발급한 키가 없습니다</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <form className="team-add" onSubmit={issue}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="키 이름 (예: CI 연동)" />
+          <button className="btn btn-primary" type="submit">발급</button>
+        </form>
+    </div>
+  );
+}
+
+// 패키지: 현재 스페이스 내보내기(.zip) + 패키지 가져오기 — 설정 허브의 한 탭
+export function SpacePackageBody({ spaceKey, spaceRole, canCreate, onImported }) {
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/spaces/import', { method: 'POST', body: fd });
+      const body = await res.json();
+      if (!res.ok) { alert(body.error ?? '가져오기 실패'); return; }
+      setResult(body);
+      onImported?.(body);
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="hub-pane">
+      <h3>내보내기</h3>
+      {spaceKey && spaceRole === 'admin' ? (
+        <p>현재 스페이스 전체(페이지 트리·버전 이력·댓글·첨부)를 패키지로 받습니다.{' '}
+          <button className="btn btn-primary" onClick={() => window.open(`/api/spaces/${spaceKey}/export`)}>
+            {spaceKey} 내보내기 (.zip)
+          </button>
+        </p>
+      ) : <p className="muted">내보내기는 스페이스 안에서, 그 스페이스의 관리자만 할 수 있습니다.</p>}
+      <h3>가져오기</h3>
+      {!canCreate ? <p className="muted">가져오기는 팀장·파트장 또는 지정 그룹만 할 수 있습니다.</p> : <>
+        <p className="muted">Gonfluence에서 내보낸 스페이스 패키지(.zip)를 올립니다.
+          같은 키의 스페이스가 이미 있으면 가져올 수 없습니다. 가져온 사람이 스페이스 관리자가 됩니다.</p>
+        {result ? (
+          <p><strong>{result.spaceKey}</strong> 가져오기 완료 — 페이지 {result.counts.pages}개,
+            첨부 {result.counts.attachments}개</p>
+        ) : (
+          <form onSubmit={submit} className="team-add">
+            <input type="file" accept=".zip" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            <button className="btn btn-primary" type="submit" disabled={!file || busy}>{busy ? '가져오는 중…' : '가져오기'}</button>
+          </form>
+        )}
+      </>}
+    </div>
+  );
+}
+
+// 설정 허브: 톱니 메뉴의 '설정…'에서 열리는 팝업 — 좌측 탭 + 우측 내용
+export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate }) {
+  const tabs = [
+    ['keys', '내 API 키', true],
+    ['pkg', '패키지 (내보내기/가져오기)', true],
+    ['migrate', '원본 Confluence에서 가져오기', true],
+    ['inbox', '접근 요청 승인함', !!me.is_admin],
+  ].filter((t) => t[2]);
+  const [tab, setTab] = useState(tabs[0][0]);
+  const TITLE = Object.fromEntries(tabs.map(([k, n]) => [k, n]));
+  return (
+    <div className="modal-backdrop" onClick={() => onClose()}>
+      <div className="settings-hub" onClick={(e) => e.stopPropagation()}>
+        <aside className="hub-side">
+          <div className="hub-title">설정</div>
+          {tabs.map(([k, name]) => (
+            <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{name}</button>
+          ))}
+          {me.is_admin && (
+            <button className="hub-ext" onClick={() => window.open(`//${location.hostname}:3003/`, '_blank')}>
+              조직 관리 ↗
+            </button>
+          )}
+          <button className="hub-close" onClick={() => onClose()}>닫기</button>
+        </aside>
+        <section className="hub-main">
+          <h2>{TITLE[tab]}{tab === 'pkg' && spaceKey ? ` — ${spaceKey}` : ''}</h2>
+          {tab === 'keys' && <ApiKeysBody />}
+          {tab === 'pkg' && <SpacePackageBody spaceKey={spaceKey} spaceRole={spaceRole}
+            canCreate={!!me.can_create}
+            onImported={(r) => { onClose(); navigate(`/s/${r.spaceKey}`); }} />}
+          {tab === 'migrate' && <MigrateBody api={api} resourceLabel="스페이스" />}
+          {tab === 'inbox' && <div className="hub-pane"><RequestsTab /></div>}
+        </section>
+      </div>
+    </div>
   );
 }
 

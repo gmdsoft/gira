@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api, AuthError, Avatar, hashColor } from './util.jsx';
 import { ListView, TableView, BoardView, BacklogView } from './views.jsx';
 import { LoginGate, NewIssueModal } from './modals.jsx';
-import { ProjectPermissionsModal, InboxModal, AccessGate } from './perm.jsx';
+import { AccessGate, SettingsHub } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -67,8 +67,7 @@ export default function JiraApp() {
     catch { return 'system'; }
   });
   const [showSet, setShowSet] = useState(false);
-  const [showPerm, setShowPerm] = useState(false);   // 프로젝트 권한 편집
-  const [showInbox, setShowInbox] = useState(false); // 접근 요청 승인함
+  const [showHub, setShowHub] = useState(false); // 설정 허브 (API 키·패키지·이관·권한·승인함)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {
@@ -374,20 +373,8 @@ export default function JiraApp() {
                   <button key={v} onClick={() => { setTheme(v); setShowSet(false); }}>
                     <span>{name}</span>{theme === v && <span className="chk">✓</span>}
                   </button>))}
-                {(me?.is_admin || meta.projects.some((p) => p.role === 'admin')) && (
-                  <div className="setmenu-title">관리</div>
-                )}
-                {meta.projects.find((p) => p.key === project)?.role === 'admin' && (
-                  <button onClick={() => { setShowPerm(true); setShowSet(false); }}><span>프로젝트 권한…</span></button>
-                )}
-                {meta.projects.some((p) => p.role === 'admin') && (
-                  <button onClick={() => { setShowInbox(true); setShowSet(false); }}><span>접근 요청 승인함…</span></button>
-                )}
-                {me?.is_admin && (
-                  <button onClick={() => { window.open(`//${location.hostname}:3003/`, '_blank'); setShowSet(false); }}>
-                    <span>조직 관리 ↗</span>
-                  </button>
-                )}
+                <div className="setmenu-sep" />
+                <button onClick={() => { setShowHub(true); setShowSet(false); }}><span>설정…</span></button>
               </div>
             </>}
           </span>
@@ -495,8 +482,8 @@ export default function JiraApp() {
       {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
         onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
-      {showPerm && <ProjectPermissionsModal project={project} onClose={() => setShowPerm(false)} />}
-      {showInbox && <InboxModal onClose={() => setShowInbox(false)} />}
+      {showHub && <SettingsHub me={me} meta={meta} project={project}
+        onClose={() => setShowHub(false)} onChanged={() => boot()} />}
     </>
   );
 }

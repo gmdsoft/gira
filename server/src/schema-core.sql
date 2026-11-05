@@ -59,6 +59,26 @@ CREATE TABLE IF NOT EXISTS access_requests (
 CREATE INDEX IF NOT EXISTS access_requests_resource ON access_requests(resource_type, resource_id, status);
 CREATE INDEX IF NOT EXISTS access_requests_user ON access_requests(user_id, created_at);
 
+-- 셀프 이관: 본인 Atlassian API 토큰(AES-GCM 암호화 저장)과 이관 작업 이력
+CREATE TABLE IF NOT EXISTS atlassian_tokens (
+  user_id bigint PRIMARY KEY REFERENCES users(id),
+  email text NOT NULL,
+  token_enc bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS import_jobs (
+  id bigserial PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES users(id),
+  kind text NOT NULL,            -- 'jira-project' | 'conf-space'
+  target text NOT NULL,          -- 프로젝트/스페이스 키
+  status text NOT NULL DEFAULT 'running' CHECK (status IN ('running','done','error')),
+  log text NOT NULL DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  finished_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS import_jobs_user ON import_jobs(user_id, created_at);
+
 -- API 키: Authorization: Bearer 로 쿠키 세션 대신 인증 (키는 해시로만 저장, 발급 시 1회 표시)
 CREATE TABLE IF NOT EXISTS api_keys (
   id bigserial PRIMARY KEY,

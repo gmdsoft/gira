@@ -236,7 +236,7 @@ function GroupMembers({ groupId, onChanged }) {
   );
 }
 
-function RequestsTab() {
+export function RequestsTab() {
   const [rows, setRows] = useState(null);
   const load = () => api('/api/access-requests/inbox').then(setRows).catch((e) => alert(e.message));
   useEffect(() => { load(); }, []);
