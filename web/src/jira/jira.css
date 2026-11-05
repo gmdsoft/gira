@@ -631,7 +631,10 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .ptag-team { background: var(--doing, #e9f2ff); color: var(--doing-fg, #0055cc); }
 .ptag-group { background: var(--done, #dffcf0); color: var(--done-fg, #216e4e); }
 .ppicker { position: relative; margin-top: 8px; }
-.ppicker input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); }
+.ppicker > input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); color: var(--text); }
+.ppicker-tabs { display: flex; gap: 2px; margin-bottom: 6px; border-bottom: 2px solid var(--line); }
+.ppicker-tabs button { background: none; border: 0; padding: 6px 12px; font: inherit; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.ppicker-tabs button.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .ppicker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); max-height: 220px; overflow: auto; position: absolute; width: 100%; box-sizing: border-box; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .ppicker-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 4px; cursor: pointer; font: inherit; color: var(--text); }
 .ppicker-list button:hover { background: var(--inset); }
@@ -639,7 +642,8 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .ppicker-list.static { position: static; box-shadow: none; height: 232px; max-height: none; }
 .ppicker-list.static label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
 .ppicker-list.static label:hover { background: var(--inset); }
-.ppicker-list.static input[type=checkbox] { margin: 0; }
+.ppicker-list.static input[type=checkbox] { margin: 0; width: auto; flex: none; }
+.ppicker-list.static .ptag { flex: none; }
 .ppick-name { font-size: 14px; }
 .ppick-empty { padding: 8px; }
 .ppicker-add { margin-top: 8px; align-self: flex-start; }

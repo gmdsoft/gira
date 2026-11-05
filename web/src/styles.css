@@ -535,11 +535,16 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .ptag-group { background: #dffcf0; color: #216e4e; }
 .ptag-anyone { background: #fff3db; color: #974f0c; }
 .ppicker { position: relative; margin-top: 8px; }
-.ppicker input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #c2c7d0; border-radius: 4px; }
+.ppicker > input { width: 100%; box-sizing: border-box; padding: 7px 10px; border: 1px solid #c2c7d0; border-radius: 4px; }
+.ppicker-tabs { display: flex; gap: 2px; margin-bottom: 6px; border-bottom: 2px solid #ebecf0; }
+.ppicker-tabs button { background: none; border: 0; padding: 6px 12px; font: inherit; color: #44546f; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+.ppicker-tabs button.on { color: #0052cc; border-bottom-color: #0052cc; font-weight: 600; }
 .ppicker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid #c2c7d0; border-radius: 4px; background: #fff; max-height: 220px; overflow: auto; position: absolute; width: 100%; box-sizing: border-box; z-index: 5; box-shadow: 0 4px 14px rgba(9,30,66,.18); }
 /* 복수 선택 리스트: 드롭다운 대신 고정 표시 (체크박스) */
 .ppicker-list.static { position: static; box-shadow: none; height: 210px; max-height: none; }
 .ppicker-list.static label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
+.ppicker-list.static input[type=checkbox] { margin: 0; width: auto; flex: none; }
+.ppicker-list.static .ptag { flex: none; }
 .ppicker-list.static label:hover { background: #f4f5f7; }
 .ppick-empty { padding: 8px; }
 .ppicker-add { margin-top: 8px; }

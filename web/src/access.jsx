@@ -18,9 +18,15 @@ export function PrincipalPicker({ onAdd, exclude }) {
     }, 200);
     return () => clearTimeout(t);
   }, [q]);
+  const [tab, setTab] = useState('team'); // team | part | group | user
   const keyOf = (i) => i.type + ':' + i.id;
-  const items = (res ? [...(res.teams ?? []), ...(res.groups ?? []), ...(res.users ?? [])] : [])
-    .filter((i) => !exclude?.has(keyOf(i)));
+  const byTab = {
+    team: (res?.teams ?? []).filter((t) => !t.part),
+    part: (res?.teams ?? []).filter((t) => t.part),
+    group: res?.groups ?? [],
+    user: res?.users ?? [],
+  };
+  const items = (byTab[tab] ?? []).filter((i) => !exclude?.has(keyOf(i)));
   const toggle = (i) => {
     const m = new Map(sel);
     if (m.has(keyOf(i))) m.delete(keyOf(i)); else m.set(keyOf(i), i);
@@ -28,7 +34,12 @@ export function PrincipalPicker({ onAdd, exclude }) {
   };
   return (
     <div className="ppicker">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="사용자·그룹·팀 검색" />
+      <div className="ppicker-tabs">
+        {[['team', '팀'], ['part', '파트'], ['group', '그룹'], ['user', '사용자']].map(([k, label]) => (
+          <button key={k} type="button" className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{label}</button>
+        ))}
+      </div>
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름 검색" />
       <ul className="ppicker-list static">
         {items.map((i) => (
           <li key={keyOf(i)}>

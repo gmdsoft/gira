@@ -668,7 +668,10 @@ app.get('/api/principals', async (req) => {
   return {
     users: users.map((u) => ({ type: 'user', id: u.id, name: u.display_name, email: u.email, accountId: u.confluence_account_id })),
     groups: groups.map((g) => ({ type: 'group', id: g.id, name: g.name })),
-    teams: teams.map((t) => ({ type: 'team', id: t.id, name: t.parent_name ? `${t.parent_name} / ${t.name}` : t.name })),
+    teams: teams.map((t) => ({
+      type: 'team', id: t.id, part: !!t.parent_name,
+      name: t.parent_name ? `${t.parent_name} / ${t.name}` : t.name,
+    })),
   };
 });
 
