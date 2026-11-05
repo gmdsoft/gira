@@ -12,6 +12,8 @@
 - 실제 이관된 페이지에는 기능 테스트를 하지 않는다 — 테스트는 전용 테스트 페이지를 만들어 쓰고 끝나면 정리한다.
 
 ## 개발 메모
+- DB는 앱별로 분리: Gonfluence = `DATABASE_URL`(rea), Gira = `GIRA_DATABASE_URL`(gira).
+  스키마도 분리(schema-core.sql 공용 + schema.sql / schema-jira.sql). 운영 배포는 docs/deploy-alpha.md.
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).
