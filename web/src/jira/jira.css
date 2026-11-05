@@ -243,6 +243,7 @@ a.sitem:hover { text-decoration: none; }
 .badge.cat-indeterminate { border-color: var(--doing-b); }
 .badge.cat-done { border-color: var(--done-b); }
 .ticon, .picon { vertical-align: -2px; flex: none; }
+.type-cell { display: inline-flex; align-items: center; gap: 6px; }
 .av { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700; vertical-align: middle; flex: none; }
 .chip { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font-size: 11px; color: var(--dim); background: var(--panel2); white-space: nowrap; margin-right: 2px; }
 .epicbar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 4px 0 0 4px; }

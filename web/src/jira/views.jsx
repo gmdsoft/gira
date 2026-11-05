@@ -140,7 +140,7 @@ const GROUPERS = {
 // 창이 좁아져도 내용이 잘리지 않고 표가 가로 스크롤되도록 한다.
 const CHECKBOX_WIDTH = 40;
 const SUMMARY_MIN = 480;
-const DEFAULT_COL_WIDTHS = { key: 110, type: 90, assignee: 135, reporter: 135, priority: 100, status: 120, resolution: 80, created: 145, updated: 145 };
+const DEFAULT_COL_WIDTHS = { key: 110, type: 106, assignee: 135, reporter: 135, priority: 100, status: 120, resolution: 80, created: 145, updated: 145 };
 const MIN_COL_WIDTHS = { key: 70, type: 55, assignee: 80, reporter: 80, priority: 70, status: 80, resolution: 55, created: 95, updated: 95 };
 const readLS = (key, fallback) => {
   try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
@@ -149,7 +149,12 @@ const readLS = (key, fallback) => {
 export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew, boardJql }) {
   const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
   const [selected, setSelected] = useState(() => new Set());
-  const [widths, setWidths] = useState(() => ({ ...DEFAULT_COL_WIDTHS, ...(readLS('jira.tableWidths.v3', {}) ?? {}) }));
+  const [widths, setWidths] = useState(() => {
+    const saved = readLS('jira.tableWidths.v3', {}) ?? {};
+    // 예전 기본값(type=90)만 저장돼 있으면 아이콘이 들어갈 새 기본값으로 올린다
+    if (saved.type === 90) saved.type = DEFAULT_COL_WIDTHS.type;
+    return { ...DEFAULT_COL_WIDTHS, ...saved };
+  });
   const [summaryWidth, setSummaryWidth] = useState(() => Math.max(SUMMARY_MIN, Number(readLS('jira.summaryWidth', SUMMARY_MIN)) || SUMMARY_MIN));
   const [summaryManual, setSummaryManual] = useState(() => readLS('jira.summaryManual', false) === true);
   const [resizing, setResizing] = useState(null);
@@ -255,7 +260,7 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
               <td className="c-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.issue_key} 선택`} /></td>
               <td className="c-key"><span className="key-wrap"><TypeIcon name={r.type_name} /><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></span></td>
               <td className="c-sum"><span className="cell-sum" onClick={() => onOpen(r.issue_key)}>{r.summary}</span></td>
-              <td className="c-type"><span>{r.type_name ?? ''}</span></td>
+              <td className="c-type"><span className="type-cell"><TypeIcon name={r.type_name} /><span>{r.type_name ?? ''}</span></span></td>
               <td className="c-assignee"><span className="person"><Avatar name={r.assignee_name} /><span>{r.assignee_name ?? ''}</span></span></td>
               <td className="c-reporter"><span className="person"><Avatar name={r.reporter_name} /><span>{r.reporter_name ?? ''}</span></span></td>
               <td className="c-priority"><span className="person"><Prio p={r.priority} /><span>{r.priority ?? ''}</span></span></td>

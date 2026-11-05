@@ -1,17 +1,27 @@
 // 타입·우선순위 SVG 아이콘 (자체 드로잉 — Atlassian 에셋을 복사하지 않는다)
 import React from 'react';
 
-// ---------- 이슈 타입: 색 사각형 + 흰 글리프 ----------
+// ---------- 이슈 타입: Jira 업무 유형 아이콘과 같은 라인 드로잉 ----------
+// (자체 드로잉 — Atlassian 에셋을 복사하지 않는다. 색/형태만 Jira 업무 유형과 맞춘다)
 const TYPE_STYLES = {
-  task:        { bg: '#1d7afc', glyph: <path d="M3.5 7.3l2.2 2.2 4.8-4.9" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round" /> },
-  subtask:     { bg: '#1d7afc', glyph: <><rect x="3" y="3" width="4.6" height="4.6" rx="0.8" fill="#fff" /><rect x="6.4" y="6.4" width="4.6" height="4.6" rx="0.8" fill="#fff" opacity="0.72" /></> },
-  bug:         { bg: '#c9372c', glyph: <circle cx="7" cy="7" r="2.7" fill="#fff" /> },
-  story:       { bg: '#22a06b', glyph: <path d="M4.6 3h4.8v8L7 9.2 4.6 11z" fill="#fff" /> },
-  epic:        { bg: '#8270db', glyph: <path d="M7.9 2.4L4.3 7.8h2.3l-.9 3.8 3.9-5.6H7.2z" fill="#fff" /> },
-  improvement: { bg: '#22a06b', glyph: <path d="M7 11V4M4.3 6.7L7 4l2.7 2.7" stroke="#fff" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round" /> },
-  feature:     { bg: '#2898bd', glyph: <path d="M7 4v6M4 7h6" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" /> },
-  idea:        { bg: '#fca700', glyph: <><circle cx="7" cy="6" r="2.4" fill="#fff" /><rect x="5.9" y="8.8" width="2.2" height="1.8" rx="0.6" fill="#fff" /></> },
-  test:        { bg: '#6554c0', glyph: <><rect x="4" y="3" width="6" height="8" rx="1" fill="none" stroke="#fff" strokeWidth="1.3" /><path d="M5.5 7.2l1.1 1.1 2-2.1" stroke="#fff" strokeWidth="1.2" fill="none" strokeLinecap="round" /></> },
+  // 작업: 파란 사각형 + 체크
+  task:        { color: '#0c66e4', glyph: <><rect x="2.9" y="2.9" width="10.2" height="10.2" rx="2" /><path d="M5.3 8.2l1.9 1.9 3.5-3.6" /></> },
+  // 하위 작업: 파란 사각형 두 개가 맞물린 형태
+  subtask:     { color: '#0c66e4', glyph: <><rect x="2.6" y="2.6" width="7.2" height="7.2" rx="1.6" /><rect x="6.2" y="6.2" width="7.2" height="7.2" rx="1.6" /></> },
+  // 버그: 빨간 무당벌레(몸통+다리+더듬이)
+  bug:         { color: '#c9372c', glyph: <><circle cx="8" cy="9" r="3.4" /><path d="M8 5.6V3.9M6.6 5L5.6 3.6M9.4 5l1-1.4" /><path d="M4.6 7.6H2.7M4.7 9.2H2.6M4.9 10.8L3.4 11.9M11.4 7.6h1.9M11.3 9.2h2.1M11.1 10.8l1.5 1.1" /></> },
+  // 스토리: 초록 북마크
+  story:       { color: '#22a06b', glyph: <path d="M4.6 2.6h6.8v10.8L8 10.6l-3.4 2.8z" /> },
+  // 에픽: 보라 번개
+  epic:        { color: '#8270db', glyph: <path d="M9.4 1.8L4.2 8.6h3.1l-1 5.6 5.5-7.4H8.5z" /> },
+  // 개선: 초록 위 화살표
+  improvement: { color: '#22a06b', glyph: <path d="M8 13.6V3.2M3.6 7.6L8 3.2l4.4 4.4" /> },
+  // 새 기능: 초록 사각형 + 플러스
+  feature:     { color: '#22a06b', glyph: <><rect x="2.9" y="2.9" width="10.2" height="10.2" rx="2" /><path d="M8 5.4v5.2M5.4 8h5.2" /></> },
+  // 아이디어: 노란 전구
+  idea:        { color: '#e2a03f', glyph: <><path d="M8 2.2a3.6 3.6 0 0 0-2 6.6c.5.4.8 1 .8 1.6v.4h2.4v-.4c0-.6.3-1.2.8-1.6a3.6 3.6 0 0 0-2-6.6z" /><path d="M6.7 12.8h2.6M7 14.3h2" /></> },
+  // 테스트: 보라 문서 + 체크
+  test:        { color: '#6554c0', glyph: <><rect x="3.4" y="2.6" width="9.2" height="10.8" rx="1.6" /><path d="M6 8.3l1.4 1.4 2.7-2.8" /></> },
 };
 
 function typeKind(name = '') {
@@ -28,12 +38,13 @@ function typeKind(name = '') {
 
 export function TypeIcon({ name, size = 14 }) {
   if (!name) return null;
-  const { bg, glyph } = TYPE_STYLES[typeKind(name)];
+  const st = TYPE_STYLES[typeKind(name)];
   return (
-    <svg className="ticon" width={size} height={size} viewBox="0 0 14 14" role="img" aria-label={name}>
+    <svg className="ticon" width={size} height={size} viewBox="0 0 16 16" role="img" aria-label={name}
+      fill="none" stroke={st.color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"
+      style={{ color: st.color }}>
       <title>{name}</title>
-      <rect width="14" height="14" rx="2.5" fill={bg} />
-      {glyph}
+      {st.glyph}
     </svg>
   );
 }

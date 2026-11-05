@@ -55,7 +55,8 @@ function UsersTab() {
       <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름·이메일 검색" />
       {!rows ? <p className="muted">불러오는 중…</p> : (
         <table className="admin-table">
-          <thead><tr><th>이름</th><th>이메일</th><th>직급</th><th>소속</th><th>직책</th><th>활성</th><th>관리자</th></tr></thead>
+          <thead><tr><th>이름</th><th>이메일</th><th>직급</th><th>소속</th><th>직책</th><th>활성</th><th>관리자</th>
+            <th title="Entra 연동 전 개발용 로그인을 허용할 계정">로그인 허용</th></tr></thead>
           <tbody>
             {rows.map((u) => (
               <tr key={u.id} className={u.active ? '' : 'inactive'}>
@@ -78,6 +79,7 @@ function UsersTab() {
                 </td>
                 <td><input type="checkbox" checked={u.active} onChange={(e) => save(u.id, { active: e.target.checked })} /></td>
                 <td><input type="checkbox" checked={u.is_admin} onChange={(e) => save(u.id, { isAdmin: e.target.checked })} /></td>
+                <td><input type="checkbox" checked={u.dev_login} onChange={(e) => save(u.id, { devLogin: e.target.checked })} /></td>
               </tr>
             ))}
           </tbody>
@@ -107,6 +109,10 @@ function TeamsTab() {
     try { await api('/api/admin/teams/' + t.id, { method: 'POST', json: { name: nm.trim() } }); load(); }
     catch (e) { alert(e.message); }
   };
+  const setDevLogin = async (t, v) => {
+    try { await api('/api/admin/teams/' + t.id, { method: 'POST', json: { devLogin: v } }); load(); }
+    catch (e) { alert(e.message); }
+  };
   const del = async (t) => {
     if (!confirm(`'${t.name}' 을(를) 삭제할까요?`)) return;
     try { await api('/api/admin/teams/' + t.id, { method: 'DELETE' }); load(); }
@@ -120,6 +126,9 @@ function TeamsTab() {
     <li key={t.id} className={isPart ? 'team-part' : 'team-top'}>
       <span className="team-name">{t.name}</span>
       <span className="muted">{t.member_count}명</span>
+      <label className="muted team-devlogin" title={isPart ? '이 파트 소속원의 개발 로그인 허용' : '이 팀(하위 파트 포함) 소속원의 개발 로그인 허용'}>
+        <input type="checkbox" checked={!!t.dev_login} onChange={(e) => setDevLogin(t, e.target.checked)} /> 로그인 허용
+      </label>
       {!isPart && <button className="btn btn-xs" onClick={() => add(t.id)}>+ 파트</button>}
       <button className="btn btn-xs" onClick={() => rename(t)}>이름</button>
       <button className="btn btn-xs" onClick={() => del(t)}>삭제</button>
@@ -156,6 +165,10 @@ function GroupsTab() {
     try { await api('/api/admin/groups/' + g.id, { method: 'POST', json: { canCreate: v } }); load(); }
     catch (e) { alert(e.message); }
   };
+  const setDevLogin = async (g, v) => {
+    try { await api('/api/admin/groups/' + g.id, { method: 'POST', json: { devLogin: v } }); load(); }
+    catch (e) { alert(e.message); }
+  };
   const del = async (g) => {
     if (!confirm(`'${g.name}' 그룹을 삭제할까요? (권한 규칙도 함께 제거됩니다)`)) return;
     try { await api('/api/admin/groups/' + g.id, { method: 'DELETE' }); load(); }
@@ -170,7 +183,8 @@ function GroupsTab() {
         <button className="btn btn-primary" type="submit">그룹 추가</button>
       </form>
       <table className="admin-table">
-        <thead><tr><th>그룹</th><th>멤버</th><th title="멤버가 프로젝트/스페이스를 만들 수 있음">생성 권한</th><th /></tr></thead>
+        <thead><tr><th>그룹</th><th>멤버</th><th title="멤버가 프로젝트/스페이스를 만들 수 있음">생성 권한</th>
+          <th title="멤버의 개발 로그인 허용 (Entra 전)">로그인 허용</th><th /></tr></thead>
         <tbody>
           {groups.map((g) => (
             <React.Fragment key={g.id}>
@@ -178,9 +192,10 @@ function GroupsTab() {
                 <td>{g.name}</td>
                 <td><button className="btn btn-xs" onClick={() => setOpenId(openId === g.id ? null : g.id)}>{g.member_count}명 {openId === g.id ? '▲' : '▼'}</button></td>
                 <td><input type="checkbox" checked={g.can_create} onChange={(e) => setCanCreate(g, e.target.checked)} /></td>
+                <td><input type="checkbox" checked={!!g.dev_login} onChange={(e) => setDevLogin(g, e.target.checked)} /></td>
                 <td><button className="btn btn-xs" onClick={() => del(g)}>삭제</button></td>
               </tr>
-              {openId === g.id && <tr><td colSpan={4}><GroupMembers groupId={g.id} onChanged={load} /></td></tr>}
+              {openId === g.id && <tr><td colSpan={5}><GroupMembers groupId={g.id} onChanged={load} /></td></tr>}
             </React.Fragment>
           ))}
         </tbody>

@@ -42,11 +42,16 @@ export async function registerAuth(app) {
     `UPDATE users SET is_admin = true
       WHERE email = $1 AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin)`, [adminEmail]);
 
-  // 테스트 계정 시드: 로그인 화면에는 이 계정 하나만 보인다 (Entra 전환 시 제거)
+  // 테스트 계정 시드 (Entra 전환 시 제거)
   await query(
-    `INSERT INTO users (confluence_account_id, display_name, active, is_admin)
-     VALUES ($1, '테스트', true, true)
+    `INSERT INTO users (confluence_account_id, display_name, active, is_admin, dev_login)
+     VALUES ($1, '테스트', true, true, true)
      ON CONFLICT (confluence_account_id) DO NOTHING`, [TEST_ACCOUNT_ID]);
+  // 부트스트랩: 관리자와 테스트 계정은 항상 로그인 허용 (그 외는 관리자가 조직 관리에서 지정)
+  await query(
+    `UPDATE users SET dev_login = true
+      WHERE (email = $1 OR confluence_account_id = $2) AND NOT dev_login`,
+    [adminEmail, TEST_ACCOUNT_ID]);
 
   // /api/* 는 로그인 필수 (auth 라우트 제외). req.access에 권한 컨텍스트를 싣는다.
   // 인증 수단: ① 서명 쿠키(웹) ② Authorization: Bearer API 키(외부 연동)
@@ -69,19 +74,47 @@ export async function registerAuth(app) {
     req.access = access;
   });
 
-  // 로그인 화면용 사용자 목록 (로그인 전 접근 — 개발용. Entra 전환 시 제거)
-  // 이관된 실제 사용자는 노출하지 않고 테스트 계정만 내려준다.
+  // 개발용 로그인 허용 판정: 개인(users.dev_login), 소속 팀/파트(상위 팀 허용 시 하위 파트 포함),
+  // 소속 그룹 중 하나라도 허용이면 로그인 가능 (Entra 전환 시 제거)
+  const DEV_LOGIN_OK = `(
+    u.dev_login
+    OR EXISTS (SELECT 1 FROM teams t LEFT JOIN teams tp ON tp.id = t.parent_id
+                WHERE t.id = u.team_id AND (t.dev_login OR tp.dev_login))
+    OR EXISTS (SELECT 1 FROM user_groups ug JOIN groups g ON g.id = ug.group_id
+                WHERE ug.user_id = u.id AND g.dev_login)
+  )`;
+
+  // 로그인 화면용: 허용된 계정 목록 — 이름 입력 자동완성에 쓴다
   app.get('/api/auth/users', async () => {
     const { rows } = await query(
-      `SELECT id, display_name, email FROM users
-        WHERE active AND confluence_account_id = $1
-        ORDER BY display_name`, [TEST_ACCOUNT_ID]);
+      `SELECT u.id, u.display_name, u.email FROM users u
+        WHERE u.active AND u.display_name IS NOT NULL AND ${DEV_LOGIN_OK}
+        ORDER BY (u.confluence_account_id = $1) DESC, u.display_name`, [TEST_ACCOUNT_ID]);
     return rows;
   });
 
+  // 개발용 로그인 (Entra 전): 허용된 계정만, 계정명(이름 또는 이메일) 입력으로.
+  // 기존 userId 방식도 허용 계정에 한해 유지한다.
   app.post('/api/auth/login', async (req, reply) => {
-    const userId = Number(req.body?.userId);
-    if (!userId) return reply.code(400).send({ error: 'userId required' });
+    const name = String(req.body?.name ?? '').trim();
+    let userId = Number(req.body?.userId) || null;
+    if (!userId && !name) return reply.code(400).send({ error: '계정명을 입력하세요' });
+    if (!userId) {
+      const { rows } = await query(
+        `SELECT u.id FROM users u
+          WHERE u.active AND (u.display_name = $1 OR lower(u.email) = lower($1)) AND ${DEV_LOGIN_OK}`, [name]);
+      if (!rows.length) {
+        return reply.code(403).send({ error: '로그인이 허용되지 않았거나 없는 계정입니다 — 관리자에게 허용을 요청하세요' });
+      }
+      if (rows.length > 1) {
+        return reply.code(409).send({ error: '같은 이름이 여러 명입니다 — 이메일로 입력하세요' });
+      }
+      userId = Number(rows[0].id);
+    } else {
+      const { rows } = await query(
+        `SELECT 1 AS x FROM users u WHERE u.id = $1 AND u.active AND ${DEV_LOGIN_OK}`, [userId]);
+      if (!rows.length) return reply.code(403).send({ error: '로그인이 허용되지 않은 계정입니다' });
+    }
     const access = await getAccess(userId);
     if (!access) return reply.code(404).send({ error: 'user not found or inactive' });
     reply.setCookie(COOKIE, String(userId), {

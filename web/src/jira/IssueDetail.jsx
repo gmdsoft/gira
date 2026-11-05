@@ -452,9 +452,10 @@ export default function IssueDetail({ issueKey, meta, pdata, onOpen, onChanged, 
             <div className="dcard-head"><IconChevronRight size={16} /><span>더 많은 필드</span></div>
             <div className="body"><dl>
               <dt>타입</dt><dd>
+                <span className="type-cell"><TypeIcon name={meta.types.find((t) => Number(t.id) === Number(d.issue_type_id))?.name} />
                 <select value={d.issue_type_id ?? ''} onChange={(e) => patch({ typeId: Number(e.target.value) })}>
                   {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select></dd>
+                </select></span></dd>
             </dl></div>
           </div>
           <div className="dtimes">

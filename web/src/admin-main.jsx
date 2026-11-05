@@ -27,33 +27,27 @@ function AdminApp() {
   );
 }
 
-// 개발용 로그인 (Entra ID OIDC 도입 전)
+// 개발용 로그인 (Entra ID OIDC 도입 전): 관리자가 허용한 계정만, 계정명 입력으로
 function Login({ onLogin }) {
-  const [users, setUsers] = useState(null);
-  useEffect(() => { api('/api/auth/users').then(setUsers).catch(() => setUsers([])); }, []);
-  const login = async (u) => {
+  const [name, setName] = useState('');
+  const login = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
     const res = await fetch('/api/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: u.id }),
+      body: JSON.stringify({ name: name.trim() }),
     });
-    if (!res.ok) { alert('로그인 실패'); return; }
+    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '로그인 실패'); return; }
     onLogin(await api('/api/auth/me'));
   };
   return (
     <div className="home login">
       <h1>관리 <span className="poc-badge">PoC</span></h1>
-      <p className="muted">로그인할 사용자를 선택하세요. (개발용 — Entra ID 연동 시 회사 계정 로그인으로 교체됩니다)</p>
-      {!users ? <p>불러오는 중…</p> : (
-        <ul className="space-list login-list">
-          {users.map((u) => (
-            <li key={u.id}>
-              <a href="#" onClick={(e) => { e.preventDefault(); login(u); }}>
-                <strong>{u.display_name}</strong> <span className="muted">{u.email ?? ''}</span>
-              </a>
-            </li>
-          ))}
-        </ul>
-      )}
+      <p className="muted">계정명(이름 또는 이메일)을 입력하세요. 관리자가 허용한 계정만 로그인할 수 있습니다.</p>
+      <form className="search-form" onSubmit={login}>
+        <input className="search-input" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="계정명" />
+        <button className="btn btn-primary" type="submit">로그인</button>
+      </form>
     </div>
   );
 }

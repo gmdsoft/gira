@@ -228,41 +228,36 @@ export default function App() {
   );
 }
 
-// 개발용 로그인 (Entra ID OIDC 도입 전): 사용자 목록에서 선택
+// 개발용 로그인 (Entra ID OIDC 도입 전): 관리자가 허용한 계정만, 계정명 입력으로
 function Login({ onLogin }) {
-  const [users, setUsers] = useState(null);
-  const [q, setQ] = useState('');
-  useEffect(() => { api('/api/auth/users').then(setUsers).catch(() => setUsers([])); }, []);
+  const [allowed, setAllowed] = useState([]); // 허용 계정 (자동완성용)
+  const [name, setName] = useState('');
+  useEffect(() => { api('/api/auth/users').then(setAllowed).catch(() => {}); }, []);
 
-  const login = async (u) => {
+  const login = async (e) => {
+    e.preventDefault();
+    if (!name.trim()) return;
     const res = await fetch('/api/auth/login', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: u.id }),
+      body: JSON.stringify({ name: name.trim() }),
     });
-    if (!res.ok) { alert('로그인 실패'); return; }
+    if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '로그인 실패'); return; }
     onLogin(await api('/api/auth/me'));
   };
-
-  const list = (users ?? []).filter((u) =>
-    !q.trim() || u.display_name?.toLowerCase().includes(q.trim().toLowerCase()) || u.email?.toLowerCase().includes(q.trim().toLowerCase()));
 
   return (
     <div className="home login">
       <h1>Gonfluence <span className="poc-badge">PoC</span></h1>
-      <p className="muted">로그인할 사용자를 선택하세요. (개발용 — Entra ID 연동 시 회사 계정 로그인으로 교체됩니다)</p>
-      <input className="search-input" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="이름 또는 이메일 검색" />
-      {!users ? <p>불러오는 중…</p> : (
-        <ul className="space-list login-list">
-          {list.slice(0, 15).map((u) => (
-            <li key={u.id}>
-              <a href="#" onClick={(e) => { e.preventDefault(); login(u); }}>
-                <strong>{u.display_name}</strong> <span className="muted">{u.email ?? ''}</span>
-              </a>
-            </li>
-          ))}
-          {!list.length && <li className="muted">일치하는 사용자가 없습니다</li>}
-        </ul>
-      )}
+      <p className="muted">계정명(이름 또는 이메일)을 입력하세요. 관리자가 허용한 계정만 로그인할 수 있습니다.
+        (개발용 — Entra ID 연동 시 회사 계정 로그인으로 교체됩니다)</p>
+      <form className="search-form" onSubmit={login}>
+        <input className="search-input" autoFocus list="login-allowed" value={name}
+          onChange={(e) => setName(e.target.value)} placeholder="계정명 (예: 홍길동)" />
+        <button className="btn btn-primary" type="submit">로그인</button>
+      </form>
+      <datalist id="login-allowed">
+        {allowed.map((u) => <option key={u.id} value={u.display_name} />)}
+      </datalist>
     </div>
   );
 }
