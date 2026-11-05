@@ -685,3 +685,4 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .hub-pane .perm-rows { flex: 1; min-height: 100px; overflow: auto; }
 .hub-pane .mg-body { flex: 1; min-height: 160px; display: flex; flex-direction: column; }
 .setmenu-sep { border-top: 1px solid var(--border); margin: 4px 0; }
+.team-devlogin { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }

@@ -91,7 +91,7 @@ export function registerOrgAdmin(app) {
   app.get('/api/admin/teams', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const { rows } = await query(
-    `SELECT t.id, t.name, t.parent_id, t.position,
+    `SELECT t.id, t.name, t.parent_id, t.position, t.dev_login,
             (SELECT count(*)::int FROM users u WHERE u.team_id = t.id AND u.active) AS member_count
        FROM teams t ORDER BY t.parent_id NULLS FIRST, t.position NULLS LAST, t.name`);
   return rows;
@@ -118,11 +118,14 @@ export function registerOrgAdmin(app) {
   app.post('/api/admin/teams/:id', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const name = req.body?.name?.trim();
-  if (!name) return reply.code(400).send({ error: 'name required' });
-  const { rows } = await query(
-    `UPDATE teams SET name = $2 WHERE id = $1 RETURNING id, name, parent_id`, [req.params.id, name]);
+  const devLogin = req.body?.devLogin;
+  if (!name && devLogin == null) return reply.code(400).send({ error: '변경할 값이 없습니다' });
+  const sql = `UPDATE teams SET name = COALESCE($2, name), dev_login = COALESCE($3, dev_login)
+      WHERE id = $1 RETURNING id, name, parent_id, dev_login`;
+  const params = [req.params.id, name || null, devLogin ?? null];
+  const { rows } = await query(sql, params);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
-  mirrorQuery(`UPDATE teams SET name = $2 WHERE id = $1`, [req.params.id, name]);
+  mirrorQuery(sql, params);
   return rows[0];
 });
 
@@ -148,7 +151,7 @@ export function registerOrgAdmin(app) {
   app.get('/api/admin/groups', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const { rows } = await query(
-    `SELECT g.id, g.name, g.can_create, count(ug.user_id)::int AS member_count
+    `SELECT g.id, g.name, g.can_create, g.dev_login, count(ug.user_id)::int AS member_count
        FROM groups g LEFT JOIN user_groups ug ON ug.group_id = g.id
       GROUP BY g.id ORDER BY g.name`);
   return rows;
@@ -164,14 +167,16 @@ export function registerOrgAdmin(app) {
   return rows[0];
 });
 
-// 그룹 속성 변경: 이름, 생성 권한(can_create — 멤버가 프로젝트/스페이스를 만들 수 있는 그룹)
+// 그룹 속성 변경: 이름, 생성 권한(can_create), 개발 로그인 허용(dev_login — 멤버 전원)
   app.post('/api/admin/groups/:id', async (req, reply) => {
   if (!requireAdmin(req, reply)) return;
   const name = req.body?.name?.trim();
   const canCreate = req.body?.canCreate;
-  const sql = `UPDATE groups SET name = COALESCE($2, name), can_create = COALESCE($3, can_create)
-      WHERE id = $1 RETURNING id, name, can_create`;
-  const params = [req.params.id, name || null, canCreate ?? null];
+  const devLogin = req.body?.devLogin;
+  const sql = `UPDATE groups SET name = COALESCE($2, name), can_create = COALESCE($3, can_create),
+        dev_login = COALESCE($4, dev_login)
+      WHERE id = $1 RETURNING id, name, can_create, dev_login`;
+  const params = [req.params.id, name || null, canCreate ?? null, devLogin ?? null];
   const { rows } = await query(sql, params);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   mirrorQuery(sql, params);
