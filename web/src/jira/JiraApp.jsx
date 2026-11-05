@@ -373,7 +373,6 @@ export default function JiraApp() {
             <input value={globalQ} onChange={(e) => setGlobalQ(e.target.value)} placeholder="검색" aria-label="검색" />
             <kbd>/</kbd>
           </form>
-          {me?.can_create && <button className="primary" onClick={() => setShowProjectCreate(true)}>프로젝트 만들기</button>}
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
         </div>
         <div className="tb-right">
@@ -403,7 +402,7 @@ export default function JiraApp() {
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent}
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
-          onDevFeedback={openDevChat} />}
+          onDevFeedback={openDevChat} onCreateProject={me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
         <div className="content">
           <div className="chead">
             <div className="chead-top">
