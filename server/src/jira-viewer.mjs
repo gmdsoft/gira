@@ -12,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
+import { registerMyApiKeys } from './me-keys.mjs';
+import { exportProject, importProject } from './jira-package.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -26,7 +28,19 @@ configureDb({
 const SITE = (process.env.ATLASSIAN_SITE ?? '').replace(/\/$/, '');
 const AUTH = 'Basic ' + Buffer.from(`${process.env.ATLASSIAN_EMAIL}:${process.env.ATLASSIAN_API_TOKEN}`).toString('base64');
 
-const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 32 * 1024 * 1024 });
+const app = Fastify({
+  logger: { level: 'warn' },
+  bodyLimit: 32 * 1024 * 1024,
+  // 외부 연동용 안정 별칭: /api/v1/* → 내부 라우트 (docs/api-v1.md)
+  rewriteUrl(req) {
+    const u = req.url;
+    if (!u.startsWith('/api/v1/')) return u;
+    return u
+      .replace(/^\/api\/v1\/issues\/([^/?]+)/, '/api/issue/$1')
+      .replace(/^\/api\/v1\/search/, '/api/issues')
+      .replace(/^\/api\/v1\//, '/api/');
+  },
+});
 await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, files: 5 } });
 
 // 신규 ID가 이관된 ID와 겹치지 않도록 시퀀스 보정
@@ -40,6 +54,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
   GREATEST((SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
+registerMyApiKeys(app); // 개인 API 키 셀프 발급
 
 // React SPA 서빙 (web/dist-jira-app — npm --workspace web run build:jira 로 생성)
 const DIST = path.join(here, '..', '..', 'web', 'dist-jira-app');
@@ -625,6 +640,34 @@ app.delete('/api/filters/:id', async (req, reply) => {
     `DELETE FROM jira_filters WHERE id = $1 AND owner_id = $2`, [req.params.id, req.access.userId]);
   if (!rowCount) return reply.code(404).send({ error: 'not found' });
   return { ok: true };
+});
+
+// ---------- 프로젝트 패키지 내보내기/가져오기 ----------
+
+// 내보내기: 프로젝트 관리자(또는 사이트 관리자)
+app.get('/api/projects/:key/export', async (req, reply) => {
+  const pr = await requireProject(req, reply, req.params.key, 'admin');
+  if (!pr) return;
+  const { zip } = await exportProject(pr.id);
+  reply.header('content-type', 'application/zip');
+  reply.header('content-disposition', `attachment; filename="gira-${pr.key}-${new Date().toISOString().slice(0, 10)}.zip"`);
+  return reply.send(zip.toBuffer());
+});
+
+// 가져오기: 생성 권한자(팀장·파트장·지정 그룹·사이트 관리자)
+app.post('/api/projects/import', async (req, reply) => {
+  if (!req.access.canCreate) {
+    return reply.code(403).send({ error: '프로젝트를 가져올 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
+  }
+  const file = await req.file();
+  if (!file) return reply.code(400).send({ error: '패키지(.zip) 파일을 올려주세요' });
+  const buf = await file.toBuffer();
+  try {
+    return await importProject(buf, req.access.userId);
+  } catch (e) {
+    if (e.status) return reply.code(e.status).send({ error: e.message });
+    throw e;
+  }
 });
 
 // ---------- 프로젝트 권한 ----------

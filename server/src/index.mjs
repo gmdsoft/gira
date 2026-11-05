@@ -15,6 +15,8 @@ import { decodeTinyToken } from './tinylink.mjs';
 import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
 import { spaceRole, contentAccess, filterViewable, visibleTreeSet } from './perm.mjs';
+import { registerMyApiKeys } from './me-keys.mjs';
+import { exportSpace, importSpace } from './gonf-package.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -25,7 +27,18 @@ const AUTH = process.env.ATLASSIAN_EMAIL && process.env.ATLASSIAN_API_TOKEN
   ? 'Basic ' + Buffer.from(`${process.env.ATLASSIAN_EMAIL}:${process.env.ATLASSIAN_API_TOKEN}`).toString('base64')
   : null;
 
-const app = Fastify({ logger: { level: 'warn' }, bodyLimit: 32 * 1024 * 1024 });
+const app = Fastify({
+  logger: { level: 'warn' },
+  bodyLimit: 32 * 1024 * 1024,
+  // 외부 연동용 안정 별칭: /api/v1/* → 내부 라우트 (docs/api-v1.md)
+  rewriteUrl(req) {
+    const u = req.url;
+    if (!u.startsWith('/api/v1/')) return u;
+    return u
+      .replace(/^\/api\/v1\/pages\/([^/?]+)/, '/api/content/$1')
+      .replace(/^\/api\/v1\//, '/api/');
+  },
+});
 
 // 새 콘텐츠·첨부 ID가 이관된 ID와 겹치지 않도록 시퀀스 보정
 await query(`SELECT setval('content_id_seq',
@@ -39,6 +52,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
+registerMyApiKeys(app); // 개인 API 키 셀프 발급
 
 // 자주 쓰는 권한 검사: 보기/편집 불가 시 403(없으면 404)을 보내고 null 반환
 async function requireAccess(req, reply, contentId, need = 'view') {
@@ -780,6 +794,34 @@ app.put('/api/content/:id/restrictions', async (req, reply) => {
       [req.params.id, r.rtype, r.principalType, Number(r.principalId)]);
   }
   return { ok: true };
+});
+
+// ---------- 스페이스 패키지 내보내기/가져오기 ----------
+
+// 내보내기: 스페이스 관리자(또는 사이트 관리자)
+app.get('/api/spaces/:key/export', async (req, reply) => {
+  const spaceId = await requireSpaceAdmin(req, reply, req.params.key);
+  if (!spaceId) return;
+  const { zip } = await exportSpace(spaceId);
+  reply.header('content-type', 'application/zip');
+  reply.header('content-disposition', `attachment; filename="gonfluence-${req.params.key}-${new Date().toISOString().slice(0, 10)}.zip"`);
+  return reply.send(zip.toBuffer());
+});
+
+// 가져오기: 생성 권한자(팀장·파트장·지정 그룹·사이트 관리자)
+app.post('/api/spaces/import', async (req, reply) => {
+  if (!req.access.canCreate) {
+    return reply.code(403).send({ error: '스페이스를 가져올 권한이 없습니다 (팀장·파트장 또는 지정 그룹만)' });
+  }
+  const file = await req.file();
+  if (!file) return reply.code(400).send({ error: '패키지(.zip) 파일을 올려주세요' });
+  const buf = await file.toBuffer();
+  try {
+    return await importSpace(buf, req.access.userId);
+  } catch (e) {
+    if (e.status) return reply.code(e.status).send({ error: e.message });
+    throw e;
+  }
 });
 
 // ---------- 접근 권한 요청 ----------
