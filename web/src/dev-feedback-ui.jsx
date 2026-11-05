@@ -62,6 +62,7 @@ export function DevFeedbackModal({ api, giraOrigin = '', onClose, modalClass = '
         <div className="devchat-list" ref={listRef}>
           {!msgs.length && (
             <div className="devchat-empty">
+              <strong>거 참 많이 답답하시죠?</strong><br />
               Gira·Gonfluence에 바라는 기능, 불편한 점, 버그를 편하게 말해 주세요.<br />
               필요한 작업은 GIRA 개발 프로젝트에 이슈로 등록되고, 처리 과정은 그 이슈에서 볼 수 있습니다.
               <div className="devchat-ex">예) "이슈 목록에서 마감일 순으로 정렬하고 싶어요" · "보드에서 카드를 끌면 가끔 원래 자리로 돌아가요"</div>
