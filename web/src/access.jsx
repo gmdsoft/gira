@@ -6,32 +6,46 @@ import { api } from './api.js';
 export const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 export const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
 
-// 사용자·그룹·팀 통합 검색 → onPick({type, id, name})
-export function PrincipalPicker({ onPick, includeUsers = true }) {
+// 사용자·그룹·팀 통합 검색 — 체크박스 복수 선택 후 한꺼번에 추가 → onAdd([{type,id,name}...])
+// 검색어를 바꿔도 선택은 유지된다.
+export function PrincipalPicker({ onAdd, exclude }) {
   const [q, setQ] = useState('');
   const [res, setRes] = useState(null);
+  const [sel, setSel] = useState(new Map()); // 'type:id' -> item
   useEffect(() => {
     const t = setTimeout(() => {
       api('/api/principals?q=' + encodeURIComponent(q)).then(setRes).catch(() => setRes(null));
     }, 200);
     return () => clearTimeout(t);
   }, [q]);
-  const items = res ? [...(res.teams ?? []), ...(res.groups ?? []), ...(includeUsers ? res.users ?? [] : [])] : [];
+  const keyOf = (i) => i.type + ':' + i.id;
+  const items = (res ? [...(res.teams ?? []), ...(res.groups ?? []), ...(res.users ?? [])] : [])
+    .filter((i) => !exclude?.has(keyOf(i)));
+  const toggle = (i) => {
+    const m = new Map(sel);
+    if (m.has(keyOf(i))) m.delete(keyOf(i)); else m.set(keyOf(i), i);
+    setSel(m);
+  };
   return (
     <div className="ppicker">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="사용자·그룹·팀 검색해서 추가" />
-      {!!items.length && (
-        <ul className="ppicker-list">
-          {items.slice(0, 10).map((i) => (
-            <li key={i.type + i.id}>
-              <button type="button" onClick={() => { onPick(i); setQ(''); }}>
-                <span className={'ptag ptag-' + i.type}>{TYPE_LABEL[i.type]}</span> {i.name}
-                {i.email && <span className="muted"> {i.email}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="사용자·그룹·팀 검색" />
+      <ul className="ppicker-list static">
+        {items.map((i) => (
+          <li key={keyOf(i)}>
+            <label>
+              <input type="checkbox" checked={sel.has(keyOf(i))} onChange={() => toggle(i)} />
+              <span className={'ptag ptag-' + i.type}>{TYPE_LABEL[i.type]}</span>
+              <span>{i.name}</span>
+              {i.email && <span className="muted">{i.email}</span>}
+            </label>
+          </li>
+        ))}
+        {!items.length && <li className="muted ppick-empty">검색 결과가 없습니다</li>}
+      </ul>
+      <button type="button" className="btn btn-primary ppicker-add" disabled={!sel.size}
+        onClick={() => { onAdd([...sel.values()]); setSel(new Map()); }}>
+        선택한 {sel.size}개 추가
+      </button>
     </div>
   );
 }
@@ -78,37 +92,42 @@ export function SpacePermissionsModal({ spaceKey, onClose }) {
 function PermRows({ rows, setRows, allowAnyone, roles }) {
   const upd = (i, patch) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
-  const add = (p) => {
-    if (rows.some((r) => r.type === p.type && r.id === Number(p.id))) return;
-    setRows([...rows, { type: p.type, id: Number(p.id), role: 'viewer', name: p.name }]);
+  const add = (picked) => {
+    const next = [...rows];
+    for (const p of [].concat(picked)) {
+      if (!next.some((r) => r.type === p.type && r.id === Number(p.id))) {
+        next.push({ type: p.type, id: Number(p.id), role: 'viewer', name: p.name });
+      }
+    }
+    setRows(next);
   };
   return (
     <>
-      <table className="perm-table">
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.type + r.id}>
-              <td><span className={'ptag ptag-' + r.type}>{TYPE_LABEL[r.type]}</span></td>
-              <td className="perm-name">{r.name}</td>
-              <td>
-                <select value={r.role} onChange={(e) => upd(i, { role: e.target.value })}>
-                  {roles.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
-                </select>
-              </td>
-              <td><button className="btn btn-xs" onClick={() => del(i)}>삭제</button></td>
-            </tr>
-          ))}
-          {!rows.length && <tr><td colSpan={4} className="muted">부여된 권한이 없습니다 (비공개)</td></tr>}
-        </tbody>
-      </table>
-      <div className="perm-add">
-        <PrincipalPicker onPick={add} />
+      <div className="perm-rows">
+        <table className="perm-table">
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.type + r.id}>
+                <td><span className={'ptag ptag-' + r.type}>{TYPE_LABEL[r.type]}</span></td>
+                <td className="perm-name">{r.name}</td>
+                <td>
+                  <select value={r.role} onChange={(e) => upd(i, { role: e.target.value })}>
+                    {roles.map((ro) => <option key={ro} value={ro}>{ROLE_LABEL[ro]}</option>)}
+                  </select>
+                </td>
+                <td><button className="btn btn-xs" onClick={() => del(i)}>삭제</button></td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={4} className="muted">부여된 권한이 없습니다 (비공개)</td></tr>}
+          </tbody>
+        </table>
         {allowAnyone && !rows.some((r) => r.type === 'anyone') && (
           <button className="btn btn-xs" onClick={() => add({ type: 'anyone', id: 0, name: '로그인한 모든 사용자' })}>
             + 전체 공개 규칙
           </button>
         )}
       </div>
+      <PrincipalPicker onAdd={add} exclude={new Set(rows.map((r) => r.type + ':' + r.id))} />
     </>
   );
 }
@@ -148,10 +167,16 @@ export function RestrictionsModal({ pageId, onClose }) {
         ))}
         {!rows.some((r) => r.rtype === rtype) && <li className="muted">제한 없음 — 스페이스 권한을 따릅니다</li>}
       </ul>
-      <PrincipalPicker onPick={(p) => {
-        if (rows.some((r) => r.rtype === rtype && r.type === p.type && r.id === Number(p.id))) return;
-        setRows([...rows, { rtype, type: p.type, id: Number(p.id), name: p.name }]);
-      }} />
+      <PrincipalPicker exclude={new Set(rows.filter((r) => r.rtype === rtype).map((r) => r.type + ':' + r.id))}
+        onAdd={(picked) => {
+          const next = [...rows];
+          for (const p of picked) {
+            if (!next.some((r) => r.rtype === rtype && r.type === p.type && r.id === Number(p.id))) {
+              next.push({ rtype, type: p.type, id: Number(p.id), name: p.name });
+            }
+          }
+          setRows(next);
+        }} />
     </section>
   );
 

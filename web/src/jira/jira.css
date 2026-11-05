@@ -612,7 +612,13 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 
 /* ===== 접근 제어 UI (알파 2단계) ===== */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(9,30,66,.45); display: flex; align-items: center; justify-content: center; z-index: 80; }
-.perm-modal { background: var(--panel); color: var(--text); border-radius: 8px; padding: 22px 24px; width: 560px; max-width: 94vw; max-height: 86vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,.3); }
+.perm-modal {
+  background: var(--panel); color: var(--text); border-radius: 8px; padding: 22px 24px;
+  width: 620px; max-width: 94vw; height: min(760px, 90vh); overflow: auto;
+  display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,.3);
+}
+.perm-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.perm-rows { flex: 1; min-height: 120px; overflow: auto; margin-bottom: 8px; }
 .perm-modal h2 { margin: 0 0 6px; font-size: 18px; }
 .muted2 { color: var(--text2); font-size: 12.5px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -629,6 +635,14 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .ppicker-list { list-style: none; margin: 4px 0 0; padding: 4px; border: 1px solid var(--line, #c2c7d0); border-radius: 4px; background: var(--panel); max-height: 220px; overflow: auto; position: absolute; width: 100%; box-sizing: border-box; z-index: 5; box-shadow: 0 4px 14px rgba(0,0,0,.25); }
 .ppicker-list button { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 8px; border-radius: 4px; cursor: pointer; font: inherit; color: var(--text); }
 .ppicker-list button:hover { background: var(--inset); }
+/* 복수 선택 리스트: 드롭다운 대신 모달 안에 고정 표시 (체크박스로 여러 개 선택) */
+.ppicker-list.static { position: static; box-shadow: none; height: 232px; max-height: none; }
+.ppicker-list.static label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+.ppicker-list.static label:hover { background: var(--inset); }
+.ppicker-list.static input[type=checkbox] { margin: 0; }
+.ppick-name { font-size: 14px; }
+.ppick-empty { padding: 8px; }
+.ppicker-add { margin-top: 8px; align-self: flex-start; }
 .perm-add { display: flex; flex-direction: column; gap: 6px; }
 .gate { display: flex; justify-content: center; padding-top: 80px; min-height: 100vh; background: var(--bg); }
 .gate-card { background: var(--panel); color: var(--text); border-radius: 10px; padding: 28px 32px; width: 480px; max-width: 92vw; box-shadow: 0 8px 26px rgba(0,0,0,.2); height: fit-content; }

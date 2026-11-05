@@ -5,31 +5,46 @@ import { api } from './util.jsx';
 const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
 
-function PrincipalPicker({ onPick }) {
+// 복수 선택 추가: 검색 결과에 체크박스를 두고, 선택을 모아 한꺼번에 추가한다.
+// (검색어를 바꿔도 선택은 유지된다)
+function PrincipalPicker({ onAdd, exclude }) {
   const [q, setQ] = useState('');
   const [res, setRes] = useState(null);
+  const [sel, setSel] = useState(new Map()); // 'type:id' -> item
   useEffect(() => {
     const t = setTimeout(() => {
       api('/api/principals?q=' + encodeURIComponent(q), { quiet: true }).then(setRes).catch(() => setRes(null));
     }, 200);
     return () => clearTimeout(t);
   }, [q]);
-  const items = res ? [...(res.teams ?? []), ...(res.groups ?? []), ...(res.users ?? [])] : [];
+  const keyOf = (i) => i.type + ':' + i.id;
+  const items = (res ? [...(res.teams ?? []), ...(res.groups ?? []), ...(res.users ?? [])] : [])
+    .filter((i) => !exclude?.has(keyOf(i)));
+  const toggle = (i) => {
+    const m = new Map(sel);
+    if (m.has(keyOf(i))) m.delete(keyOf(i)); else m.set(keyOf(i), i);
+    setSel(m);
+  };
   return (
     <div className="ppicker">
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="사용자·그룹·팀 검색해서 추가" />
-      {!!items.length && (
-        <ul className="ppicker-list">
-          {items.slice(0, 10).map((i) => (
-            <li key={i.type + i.id}>
-              <button type="button" onClick={() => { onPick(i); setQ(''); }}>
-                <span className={'ptag ptag-' + i.type}>{TYPE_LABEL[i.type]}</span> {i.name}
-                {i.email && <span className="muted2"> {i.email}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="사용자·그룹·팀 검색" />
+      <ul className="ppicker-list static">
+        {items.map((i) => (
+          <li key={keyOf(i)}>
+            <label>
+              <input type="checkbox" checked={sel.has(keyOf(i))} onChange={() => toggle(i)} />
+              <span className={'ptag ptag-' + i.type}>{TYPE_LABEL[i.type]}</span>
+              <span className="ppick-name">{i.name}</span>
+              {i.email && <span className="muted2">{i.email}</span>}
+            </label>
+          </li>
+        ))}
+        {!items.length && <li className="muted2 ppick-empty">검색 결과가 없습니다</li>}
+      </ul>
+      <button type="button" className="primary ppicker-add" disabled={!sel.size}
+        onClick={() => { onAdd([...sel.values()]); setSel(new Map()); }}>
+        선택한 {sel.size}개 추가
+      </button>
     </div>
   );
 }
@@ -44,9 +59,14 @@ export function ProjectPermissionsModal({ project, onClose }) {
       .catch(() => onClose());
   }, [project]);
 
-  const add = (p) => {
-    if (rows.some((r) => r.type === p.type && r.id === Number(p.id))) return;
-    setRows([...rows, { type: p.type, id: Number(p.id), role: 'viewer', name: p.name }]);
+  const add = (picked) => {
+    const next = [...rows];
+    for (const p of [].concat(picked)) {
+      if (!next.some((r) => r.type === p.type && r.id === Number(p.id))) {
+        next.push({ type: p.type, id: Number(p.id), role: 'viewer', name: p.name });
+      }
+    }
+    setRows(next);
   };
   const save = async () => {
     setBusy(true);
@@ -64,33 +84,33 @@ export function ProjectPermissionsModal({ project, onClose }) {
         <h2>프로젝트 권한 — {project}</h2>
         <p className="muted2">규칙이 하나도 없으면 사이트 관리자만 접근할 수 있는 비공개 상태입니다.
           팀에 준 권한은 하위 파트 소속원에게도 적용됩니다.</p>
-        {!rows ? <p className="muted2">불러오는 중…</p> : <>
-          <table className="perm-table">
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.type + r.id}>
-                  <td><span className={'ptag ptag-' + r.type}>{TYPE_LABEL[r.type]}</span></td>
-                  <td className="perm-name">{r.name}</td>
-                  <td>
-                    <select value={r.role} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, role: e.target.value } : x))}>
-                      {Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                    </select>
-                  </td>
-                  <td><button className="plain linklike" onClick={() => setRows(rows.filter((_, j) => j !== i))}>삭제</button></td>
-                </tr>
-              ))}
-              {!rows.length && <tr><td colSpan={4} className="muted2">부여된 권한이 없습니다 (비공개)</td></tr>}
-            </tbody>
-          </table>
-          <div className="perm-add">
-            <PrincipalPicker onPick={add} />
+        {!rows ? <p className="muted2">불러오는 중…</p> : <div className="perm-body">
+          <div className="perm-rows">
+            <table className="perm-table">
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={r.type + r.id}>
+                    <td><span className={'ptag ptag-' + r.type}>{TYPE_LABEL[r.type]}</span></td>
+                    <td className="perm-name">{r.name}</td>
+                    <td>
+                      <select value={r.role} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, role: e.target.value } : x))}>
+                        {Object.entries(ROLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                      </select>
+                    </td>
+                    <td><button className="plain linklike" onClick={() => setRows(rows.filter((_, j) => j !== i))}>삭제</button></td>
+                  </tr>
+                ))}
+                {!rows.length && <tr><td colSpan={4} className="muted2">부여된 권한이 없습니다 (비공개)</td></tr>}
+              </tbody>
+            </table>
             {!rows.some((r) => r.type === 'anyone') && (
               <button className="plain linklike" onClick={() => add({ type: 'anyone', id: 0, name: '로그인한 모든 사용자' })}>
                 + 전체 공개 규칙 추가
               </button>
             )}
           </div>
-        </>}
+          <PrincipalPicker onAdd={add} exclude={new Set(rows.map((r) => r.type + ':' + r.id))} />
+        </div>}
         <div className="modal-actions">
           <button className="plain" onClick={() => onClose()}>취소</button>
           <button className="primary" disabled={busy || !rows} onClick={save}>저장</button>
