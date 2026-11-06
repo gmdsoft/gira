@@ -108,3 +108,47 @@ CREATE TABLE IF NOT EXISTS api_keys (
   last_used_at timestamptz,
   revoked_at timestamptz
 );
+
+-- 알림 (GIRA-14): 규칙(프로젝트/스페이스별) → 발송 큐(Teams·메일, 재시도) + 인앱 알림(종).
+-- 앱 DB마다 따로 둔다 — Gira는 프로젝트 규칙·이슈 알림, Gonfluence는 스페이스 규칙·문서 알림.
+CREATE TABLE IF NOT EXISTS notify_rules (
+  id bigserial PRIMARY KEY,
+  resource_type text NOT NULL CHECK (resource_type IN ('project','space')),
+  resource_id bigint NOT NULL,
+  events text[] NOT NULL,
+  channel text NOT NULL CHECK (channel IN ('teams','email')),
+  target text NOT NULL DEFAULT '',   -- teams: 웹훅 URL(비우면 TEAMS_WEBHOOK_URL), email: 주소(쉼표) · @assignee · @reporter · @author
+  enabled boolean NOT NULL DEFAULT true,
+  created_by bigint REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS notify_rules_resource ON notify_rules(resource_type, resource_id);
+CREATE TABLE IF NOT EXISTS notify_outbox (
+  id bigserial PRIMARY KEY,
+  rule_id bigint,
+  resource_type text, resource_id bigint,
+  event text NOT NULL,
+  channel text NOT NULL,
+  target text NOT NULL,            -- teams: 웹훅 URL, email: 받는 주소(쉼표)
+  subject text NOT NULL,           -- 제목만 (본문 내용은 담지 않는다)
+  url text NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','sending','sent','failed','skipped')),
+  attempts int NOT NULL DEFAULT 0,
+  next_at timestamptz NOT NULL DEFAULT now(),
+  last_error text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  sent_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS notify_outbox_due ON notify_outbox(status, next_at);
+CREATE INDEX IF NOT EXISTS notify_outbox_resource ON notify_outbox(resource_type, resource_id, id DESC);
+CREATE TABLE IF NOT EXISTS notifications (
+  id bigserial PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  event text NOT NULL,
+  title text NOT NULL,
+  path text NOT NULL,              -- 앱 안의 경로 (예: /browse/GIRA-14)
+  actor_name text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  read_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at DESC);
