@@ -1,3 +1,4 @@
+import { useMobile, isMobile } from '../mobile.js';
 // 이슈 상세: Jira식 2단 (본문 가변 + 우측 고정 패널), 하위 작업 패널, 인라인 필드 변경, 편집 모드
 import React, { useEffect, useRef, useState } from 'react';
 import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from './util.jsx';
@@ -10,9 +11,11 @@ import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
 
 // 클릭하면 제자리에서 입력으로 바뀌는 한 줄 텍스트 (Enter 저장, Esc 취소)
 function InlineText({ value, onSave, as: Tag = 'span', className, placeholder, inputStyle }) {
+  const mobile = useMobile();
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value ?? '');
   useEffect(() => setVal(value ?? ''), [value]);
+  if (mobile) return <Tag className={className}>{value || placeholder}</Tag>;
   if (!editing) {
     return <Tag className={`${className ?? ''} inline-edit`} title="클릭하여 편집" onClick={() => setEditing(true)}>
       {value || <span className="dim">{placeholder}</span>}</Tag>;
@@ -42,10 +45,12 @@ function Popover({ children, onClose, width }) {
 }
 
 function SelectPicker({ display, items, value, onSelect, searchable = false, placeholder = '검색', width = 300 }) {
+  const mobile = useMobile();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const close = () => { setOpen(false); setQ(''); };
   const filtered = items.filter((it) => !q || it.label.toLowerCase().includes(q.toLowerCase()));
+  if (mobile) return <span className="field-display">{display}</span>;
   return (
     <span className="field-picker">
       <button type="button" className="field-display" onClick={() => setOpen((v) => !v)}>
@@ -68,10 +73,12 @@ function SelectPicker({ display, items, value, onSelect, searchable = false, pla
 }
 
 function MultiPicker({ values = [], options = [], emptyLabel, addLabel, searchPlaceholder, onChange, width = 320 }) {
+  const mobile = useMobile();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const close = () => { setOpen(false); setQ(''); };
   const available = options.filter((o) => !values.includes(o) && (!q || o.toLowerCase().includes(q.toLowerCase())));
+  if (mobile) return <span>{values.join(', ') || '-'}</span>;
   return (
     <span className="field-picker">
       {values.map((v) => (
@@ -91,6 +98,7 @@ function MultiPicker({ values = [], options = [], emptyLabel, addLabel, searchPl
 }
 
 function ParentPicker({ project, issueKey, parentKey, parentSummary, onPick, onOpen }) {
+  const mobile = useMobile();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
@@ -110,6 +118,7 @@ function ParentPicker({ project, issueKey, parentKey, parentSummary, onPick, onO
     }, 180);
     return () => { alive = false; clearTimeout(t); };
   }, [open, q, project, issueKey]);
+  if (mobile) return <span className="ilink" onClick={() => parentKey && onOpen(parentKey)}>{parentKey || '-'} {parentSummary}</span>;
   return (
     <span className="field-picker">
       {parentKey && <span className="field-chip parent-chip">
@@ -165,6 +174,7 @@ const HISTORY_ACTION = {
 };
 
 export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew, onHome }) {
+  const mobile = useMobile();
   const [d, setD] = useState(null);
   const [descEditing, setDescEditing] = useState(false);
   const [editingComment, setEditingComment] = useState(null); // {id, text}
@@ -180,9 +190,12 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
   };
   useEffect(() => { setDescEditing(false); setEditingComment(null); load(); }, [issueKey]);
 
+  useEffect(() => { if (mobile) { setDescEditing(false); setEditingComment(null); } }, [mobile]);
+
   if (!d) return <div className="placeholder">불러오는 중…</div>;
 
   const patch = async (json, reload = true) => {
+    if (isMobile()) return;
     await api('/api/issue/' + encodeURIComponent(issueKey), { method: 'PATCH', json });
     if (reload) { load(); onChanged?.(); }
   };
@@ -244,12 +257,12 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
       <div className="comment-main">
         <div className="comment-head">
           <b>{c.author_name ?? '?'}</b>
-          {editingComment?.id !== c.id &&
+          {!mobile && editingComment?.id !== c.id &&
             <button type="button" className="comment-edit" title="댓글 편집"
               onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
         </div>
         <div className="comment-time">{relTime(c.created_at)}</div>
-        {editingComment?.id === c.id
+        {!mobile && editingComment?.id === c.id
           ? <>
               <CommentComposer key={'e' + c.id} issueKey={issueKey} initialText={editingComment.text} autoFocus mini
                 submitLabel="저장" onSubmit={saveComment} onCancel={() => setEditingComment(null)} />
@@ -371,7 +384,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                   onSelect={(v) => patch({ sprintId: v ? Number(v) : null })} /></dd>
             </dl>
             <div className="fieldrow"><div className="flabel2">설명</div>
-              {descEditing
+              {!mobile && descEditing
                 ? <>
                     {hasRichContent(d.description_adf) && (
                       <div className="adf"><div className="panel warning" style={{ fontSize: 12 }}>
@@ -382,7 +395,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                       <button className="mini" onClick={() => setDescEditing(false)}>취소</button>
                     </div>
                   </>
-                : <div className="inline-edit" title="클릭하여 편집" onClick={() => setDescEditing(true)}>
+                : <div className="inline-edit" title="클릭하여 편집" onClick={() => { if (!isMobile()) setDescEditing(true); }}>
                     <AdfView doc={d.description_adf} attachments={d.attachments} />
                   </div>}
             </div>

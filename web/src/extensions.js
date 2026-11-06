@@ -1,9 +1,12 @@
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
+import { hydrateIssueCard } from './issue-card.js';
+import { hydrateLinkCard } from './link-card.js';
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
+import { HighlightedCodeBlock } from './code-block.js';
 import { createToc } from './toc.js';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
@@ -532,10 +535,28 @@ const Anchor = Node.create({
 const JiraIssue = Node.create({
   name: 'jiraIssue', ...inlineAtom,
   addAttributes: () => ({ key: { default: '' } }),
+  parseHTML: () => [{ tag: 'a.jira-issue[data-issue-key]', getAttrs: (el) => ({ key: el.dataset.issueKey }) }],
   renderHTML: ({ node }) => ['a', {
     class: 'jira-issue', target: '_blank', rel: 'noreferrer',
-    href: `https://gmdsoft.atlassian.net/browse/${node.attrs.key}`,
+    'data-issue-key': node.attrs.key,
+    href: `/api/gira/issues/${encodeURIComponent(node.attrs.key)}/open`,
   }, node.attrs.key],
+  addNodeView() {
+    return ({ node }) => {
+      // 편집기: 칩(a)과 상태 표시를 한 덩어리(span)로 둔다
+      const dom = document.createElement('span');
+      dom.className = 'jira-issue-wrap';
+      const a = dom.appendChild(document.createElement('a'));
+      a.className = 'jira-issue';
+      a.target = '_blank';
+      a.rel = 'noreferrer';
+      a.dataset.issueKey = node.attrs.key;
+      a.textContent = node.attrs.key;
+      a.href = `/api/gira/issues/${encodeURIComponent(node.attrs.key)}/open`;
+      const cancel = hydrateIssueCard(a);
+      return { dom, destroy: cancel };
+    };
+  },
 });
 
 const PageLink = Node.create({
@@ -553,6 +574,45 @@ const SpaceLink = Node.create({
   renderHTML: ({ node }) => ['a', {
     class: 'space-link', href: '#', 'data-space': node.attrs.spaceKey ?? '',
   }, node.childCount ? 0 : node.attrs.spaceKey],
+});
+
+const LinkCard = Node.create({
+  name: 'linkCard', group: 'block', atom: true, draggable: true,
+  addAttributes: () => ({
+    href: { default: '' }, title: { default: '' },
+    kind: { default: 'page' }, status: { default: '' },
+  }),
+  parseHTML: () => [{ tag: 'a[data-link-card]', getAttrs: (el) => ({
+    href: el.getAttribute('href'), title: el.querySelector('strong')?.textContent ?? '',
+    kind: el.dataset.kind, status: el.querySelector('.link-card-status')?.textContent ?? '',
+  }) }],
+  renderHTML: ({ node }) => {
+    const { href, title, kind, status } = node.attrs;
+    const safe = /^(https?:\/\/|\/(?!\/))/i.test(href);
+    return ['a', { class: 'link-card', 'data-link-card': '', 'data-kind': kind,
+      href: safe ? href : '#', target: '_blank', rel: 'noopener noreferrer' },
+      ['span', { class: 'link-card-kind' }, kind === 'issue' ? 'Gira' : 'Gonfluence'],
+      ['strong', {}, title || href],
+      ...(status ? [['span', { class: 'link-card-status' }, status]] : []),
+    ];
+  },
+  // 편집기·보기 화면: 저장된 제목·상태로 그린 뒤 최신 값으로 바꾼다
+  addNodeView() {
+    return ({ node }) => {
+      const { href, title, kind, status } = node.attrs;
+      const a = document.createElement('a');
+      a.className = 'link-card';
+      a.dataset.linkCard = '';
+      a.dataset.kind = kind;
+      a.href = /^(https?:\/\/|\/(?!\/))/i.test(href) ? href : '#';
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
+      const k = a.appendChild(document.createElement('span'));
+      k.className = 'link-card-kind'; k.textContent = kind === 'issue' ? 'Gira' : 'Gonfluence';
+      a.appendChild(document.createElement('strong')).textContent = title || href;
+      if (status) { const s = a.appendChild(document.createElement('span')); s.className = 'link-card-status'; s.textContent = status; }
+      return { dom: a, destroy: hydrateLinkCard(a) };
+    };
+  },
 });
 
 const FileLink = Node.create({
@@ -652,7 +712,7 @@ export const TrailingNode = Extension.create({
 // 블록 핸들로 통째 선택하거나, 그 아래에서 Backspace로 삭제할 수 있는 "블록" 종류.
 const SELECTABLE_BLOCKS = new Set([
   'panel', 'expand', 'table', 'blockquote', 'codeBlock',
-  'layout', 'jiraTable', 'cfMacro', 'adfNode', 'horizontalRule', 'mermaid',
+  'linkCard', 'layout', 'jiraTable', 'cfMacro', 'adfNode', 'horizontalRule', 'mermaid',
 ]);
 
 // 블록 바로 아래 문단의 맨 앞에서 Backspace:
@@ -872,14 +932,14 @@ const custom = [
   Panel, Expand, Layout, LayoutSection, LayoutColumn,
   Mermaid, JiraTable, CfMacro, AdfNode,
   Media, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
-  PageLink, SpaceLink, FileLink, CfMacroInline,
+  PageLink, SpaceLink, FileLink, LinkCard, CfMacroInline,
 ];
 
 // 읽기 전용 렌더링·render-check 용 (undo 히스토리 불필요)
-export const extensions = [StarterKit.configure({ history: false }), ...custom];
+export const extensions = [StarterKit.configure({ history: false, codeBlock: false }), HighlightedCodeBlock, ...custom];
 
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
-  StarterKit, ...custom,
+  StarterKit.configure({ codeBlock: false }), HighlightedCodeBlock, ...custom,
   ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize,
 ];

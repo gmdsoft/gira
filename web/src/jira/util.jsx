@@ -1,3 +1,4 @@
+import { useMobile } from '../mobile.js';
 // Jira SPA 공용: API 클라이언트 + 표시 헬퍼
 import React from 'react';
 
@@ -62,6 +63,8 @@ export function CatChips({ rows, catOf = (r) => r.status_category }) {
 
 // 상태 변경 드롭다운 (색상 롯지) — 변경 후 blur: Windows Chrome이 포커스 유지 중 옵션 하이라이트(파란 칠)를 박스에 그대로 보여주는 것 방지
 export function StatusSelect({ statuses, value, category, onChange, small }) {
+  const mobile = useMobile();
+  if (mobile) return <span className={`badge cat-${category}`}>{statuses.find((s) => String(s.id) === String(value))?.name ?? '-'}</span>;
   return (
     <select className={`tstatus cat-${category}${small ? '' : ' lg'}`}
       value={value ?? ''} onClick={(e) => e.stopPropagation()}

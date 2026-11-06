@@ -444,8 +444,10 @@ h1.inline-edit { margin: 0 -6px 8px; }
 .adf { max-width: 780px; }
 .adf p { margin: 6px 0; }
 .adf ul, .adf ol { margin: 6px 0; padding-left: 24px; }
-.adf pre { background: var(--inset); border: 1px solid var(--line); border-radius: 4px; padding: 10px; overflow-x: auto; font-size: 12px; }
-.adf code { background: var(--inset); border-radius: 3px; padding: 1px 4px; font-size: 12px; }
+/* 코드 글꼴: Courier New (Gonfluence와 같게) */
+.adf pre, .adf code { font-family: "Courier New", Courier, "Liberation Mono", "Nimbus Mono PS", monospace; }
+.adf pre { background: var(--inset); border: 1px solid var(--line); border-radius: 4px; padding: 10px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.adf code { background: var(--inset); border-radius: 3px; padding: 1px 4px; font-size: 13px; }
 .adf pre code { background: none; padding: 0; }
 .adf blockquote { border-left: 3px solid var(--line); margin: 6px 0; padding: 2px 12px; color: var(--dim); }
 .adf table { border-collapse: collapse; margin: 8px 0; }
@@ -867,6 +869,57 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
   font-weight: 700; font-size: 12px; color: var(--text2); }
 #list .lgroup .dim { font-weight: 400; margin-left: 4px; }
 
+/* 알파 모바일 보기 전용 */
+.mobile-notice, .mobile-shade { display: none; }
+@media (max-width: 600px) {
+  html, body, #root { height: auto; min-height: 100%; }
+  .topbar { height: auto; min-height: 48px; flex-wrap: wrap; padding: 6px 10px; }
+  .tb-left { min-width: 0; }
+  .tb-center { position: static; transform: none; order: 3; width: 100%; }
+  .tb-search { margin: 0; width: 100%; }
+  .tb-search input { font-size: 16px; }
+  .tb-right > .iconbtn, .tb-sep, .tb-user, .poc-badge, .settings-wrap, .createbtn { display: none; }
+  .mobile-notice { display: block; padding: 8px 12px; background: var(--hover); color: var(--dim); font-size: 12px; }
+  .shell { height: auto; min-height: calc(100dvh - 122px); }
+  .content { min-width: 0; width: 100%; overflow: visible; }
+  .mobile-shade { display: block; position: fixed; inset: 90px 0 0; z-index: 31; border: 0; border-radius: 0; background: #0006; }
+  #sidebar { position: fixed; top: 90px; bottom: 0; left: 0; width: min(304px, 85vw); z-index: 32; }
+  .chead-title h2 { overflow-wrap: anywhere; min-width: 0; }
+  .chead-actions, .desktop-write, .issue-actions, .issue-view .cform, .issue-view .add-link,
+  .issue-view .chip-x, .bcell-add, .bbar > button, .sprintbar button, .lfoot > button:first-child { display: none; }
+  .fbar { flex-wrap: wrap; gap: 6px; }
+  .fbar input, .fbar select, .bbar select { min-width: 0; max-width: 100%; }
+  .fbar input[type="search"], .jqlwrap { flex-basis: 100%; min-width: 0; }
+  #list { max-height: 65dvh; }
+  .chip { white-space: normal; overflow-wrap: anywhere; }
+  .view { height: auto; min-width: 0; }
+  #view-list { display: block; }
+  .lpane { width: 100% !important; min-width: 0; border-right: 0; }
+  #view-list[data-selected="true"] .lpane, .pane-resizer,
+  #view-list[data-selected="false"] #detail { display: none; }
+  #detail { overflow: visible; width: 100%; }
+  .row .sum { white-space: normal; overflow-wrap: anywhere; }
+  .row .meta { flex-wrap: wrap; }
+  .issue-view { padding: 16px 12px 48px; overflow-wrap: anywhere; }
+  .dwrap { flex-direction: column; gap: 16px; }
+  .dmain, .dside { width: 100%; min-width: 0; max-width: 100%; position: static; }
+  .fields2 { grid-template-columns: 100px minmax(0, 1fr); }
+  .fieldrow { display: block; }
+  .inline-edit { cursor: default; }
+  .issue-view .inline-edit:hover { background: transparent; }
+  .adf pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .adf table, .subpanel table { width: 100%; min-width: 0; table-layout: fixed; }
+  .adf td, .adf th, .subpanel td { white-space: normal; overflow-wrap: anywhere; }
+  .adf img { max-width: 100%; height: auto; }
+  .bbar { flex-wrap: wrap; padding: 8px 12px; }
+  #board { padding: 8px 12px 32px; overflow: visible; }
+  .lane { min-width: 0; }
+  .lane-cols { flex-direction: column; }
+  .bcell { min-width: 0; width: 100%; }
+  .card .sum { white-space: normal; overflow-wrap: anywhere; }
+  .lane-head { flex-wrap: wrap; }
+  .home-cols { grid-template-columns: 1fr; }
+}
 /* 댓글 입력: 파일·이미지 첨부 (📎·붙여넣기·끌어 놓기) */
 .composer.drop-over textarea { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(12, 102, 228, .16); }
 .composer-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }

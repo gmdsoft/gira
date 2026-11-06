@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
+import { internalLink } from './internal-links.js';
 import { editExtensions } from './extensions.js';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
@@ -59,6 +60,9 @@ export default function Editor({ pageId, navigate, reloadSpace }) {
 }
 
 function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, saveState, setSaveState, publishing, setPublishing, navigate, reloadSpace }) {
+  const [linkChoice, setLinkChoice] = useState(null);
+  const [linkError, setLinkError] = useState('');
+  const [linkLoading, setLinkLoading] = useState(false);
   const timer = useRef(null);
   const dirty = useRef(false);
   const fileInput = useRef(null);
@@ -130,6 +134,21 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files ?? [])];
         if (files.length) { uploadFiles(files); return true; }
+        const text = event.clipboardData?.getData('text/plain')?.trim();
+        const link = text && internalLink(text, window.location.href);
+        if (link && !view.state.selection.$from.parent.type.spec.code) {
+          // 붙여넣기는 바로 링크로 넣고(Confluence처럼), 그 옆에 '카드로 바꾸기'를 띄운다
+          event.preventDefault();
+          const { state } = view;
+          const from = state.selection.from;
+          const mark = state.schema.marks.link?.create({ href: link.href });
+          view.dispatch(state.tr.replaceSelectionWith(state.schema.text(text, mark ? [mark] : []), false).setMeta('linkPaste', true));
+          const to = from + text.length;
+          const at = view.coordsAtPos(to);
+          setLinkError('');
+          setLinkChoice({ ...link, text, from, to, x: at.left, y: at.bottom });
+          return true;
+        }
         return false;
       },
       handleDrop: (view, event) => {
@@ -138,7 +157,9 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         return false;
       },
     },
-    onUpdate: ({ editor }) => {
+    onUpdate: ({ editor, transaction }) => {
+      // 붙여넣은 뒤 다른 편집을 하면 '카드로 바꾸기'는 닫는다 (위치가 달라지므로)
+      if (!transaction?.getMeta('linkPaste') && !transaction?.getMeta('linkCard')) setLinkChoice(null);
       dirty.current = true;
       setSaveState('변경됨');
       clearTimeout(timer.current);
@@ -249,6 +270,34 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         </div>
       </div>
       <EditingWarning editors={editors} />
+      {linkChoice && <div className="link-choice" role="dialog" aria-label="붙여넣은 링크"
+        style={{ left: Math.max(8, Math.min(linkChoice.x, window.innerWidth - 320)), top: linkChoice.y + 6 }}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setLinkChoice(null); editor?.commands.focus(); } }}>
+        <button className="btn btn-primary" disabled={linkLoading} autoFocus onClick={async () => {
+          setLinkLoading(true);
+          const choice = linkChoice;
+          try {
+            const data = await api(choice.kind === 'page'
+              ? `/api/content/${choice.id}` : `/api/gira/issues/${choice.id}`);
+            if (choice.kind === 'issue' && !data.summary) throw new Error('이슈를 볼 수 없음');
+            if (editor.isDestroyed) return;
+            // 붙여넣은 링크가 그 자리에 그대로 있을 때만 카드로 바꾼다
+            if (editor.state.doc.textBetween(choice.from, choice.to) !== choice.text) { setLinkChoice(null); return; }
+            editor.chain().focus().command(({ tr }) => { tr.setMeta('linkCard', true); return true; })
+              .insertContentAt({ from: choice.from, to: choice.to }, { type: 'linkCard', attrs: {
+                href: choice.href, kind: choice.kind,
+                title: choice.kind === 'page' ? data.title : `${choice.id} · ${data.summary}`,
+                status: data.status || '',
+              } }).run();
+            setLinkChoice(null);
+          } catch { setLinkError('카드를 불러올 수 없습니다 — 링크로 둡니다'); }
+          finally { setLinkLoading(false); }
+        }}>{linkLoading ? '불러오는 중…' : (linkChoice.kind === 'issue' ? '이슈 카드로 바꾸기' : '문서 카드로 바꾸기')}</button>
+        <button className="btn" disabled={linkLoading} title="링크로 둔다 (Esc)"
+          onClick={() => { setLinkChoice(null); editor?.commands.focus(); }}>링크로 두기</button>
+        {linkError && <span role="alert" className="link-choice-err">{linkError}</span>}
+      </div>}
+
       {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
       {editor && mode === 'notion' && (
         <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>

@@ -39,6 +39,16 @@ export function makeSlashItems({ openImageDialog }) {
     { label: '이미지·파일', kw: 'image file upload', run: (e, r) => { del(e, r).run(); openImageDialog(); } },
     { label: '날짜 (오늘)', kw: 'date today', run: (e, r) => del(e, r).insertContent({
       type: 'date', attrs: { date: new Date().toISOString().slice(0, 10) } }).run() },
+    { label: '이슈', kw: 'gira jira issue 카드', run: (e, r) => {
+      const input = window.prompt('Gira 이슈 키 (예: NEXT-123)');
+      if (input === null) return;
+      const key = input.trim().toUpperCase();
+      if (!/^[A-Z][A-Z0-9_]*-[1-9]\d*$/.test(key)) {
+        window.alert('올바른 이슈 키를 입력하세요 (예: NEXT-123).');
+        return;
+      }
+      del(e, r).insertContent([{ type: 'jiraIssue', attrs: { key } }, { type: 'text', text: ' ' }]).run();
+    } },
     { label: '상태', kw: 'status lozenge', run: (e, r) => del(e, r).insertContent({
       type: 'status', attrs: { text: '진행 중', color: 'blue' } }).run() },
     { label: '레이아웃 2단', kw: 'layout column 2단 다단', run: (e, r) => del(e, r).insertContent({

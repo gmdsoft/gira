@@ -1,3 +1,4 @@
+import { useMobile } from '../mobile.js';
 // 보드 카드의 상위 칩 + 메뉴 — Jira 보드처럼 칩을 누르면 다른 상위 후보 목록(바로 변경)과 상위 항목 추가·보기·제거.
 // 칩은 직접 부모를 보여준다: 에픽 바로 아래면 에픽(색 상자 포함), 하위 작업 등은 직접 부모(스토리·작업 — 색 상자 없음).
 // 메뉴는 body에 띄워(portal) 칸 블록에 잘리지 않게 하고, portal 안의 클릭이 카드(상세 열기·끌기)로 번지지 않게 막는다.
@@ -21,7 +22,9 @@ export function cardParent(r) {
 export function ParentChip({ r, project, meta, onOpen, onChanged }) {
   const [open, setOpen] = useState(false);
   const btn = useRef(null);
+  const mobile = useMobile();
   const cur = cardParent(r);
+  if (mobile) return cur ? <span className="chip">{cur.key} {cur.summary}</span> : null;
   if (!cur) return null;
   return <>
     <button type="button" ref={btn} className={`epic-chip${open ? ' on' : ''}`} title={`${cur.key} ${cur.summary ?? ''}`}

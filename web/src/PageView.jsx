@@ -1,3 +1,4 @@
+import { useMobile } from './mobile.js';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { generateHTML } from '@tiptap/html';
@@ -55,6 +56,7 @@ function wrapRefMarks(root, ref) {
 }
 
 export default function PageView({ pageId, navigate, reloadSpace }) {
+  const mobile = useMobile();
   const [page, setPage] = useState(null);
   const editors = useEditPresence(pageId); // 다른 사람이 편집 중인지 (30초마다 조회)
   const [comments, setComments] = useState(null);
@@ -158,7 +160,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   };
 
   return (
-    <article className={`page ${page.fullWidth ? 'page-full' : ''}`} onMouseUp={onMouseUp}>
+    <article className={`page ${page.fullWidth ? 'page-full' : ''}`} onMouseUp={mobile ? undefined : onMouseUp}>
       {page.status !== 'current' && (
         <div className="status-banner">
           이 페이지는 {page.status === 'archived' ? '보관됨' : '휴지통'} 상태입니다.
@@ -210,14 +212,14 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
         {comments?.filter((c) => c.kind === 'footer').map((c) => (
           <Comment key={c.id} comment={c} pageId={page.id} />
         ))}
-        <CommentForm pageId={page.id} onAdded={loadComments} />
+        {!mobile && <CommentForm pageId={page.id} onAdded={loadComments} />}
       </section>
-      {selPop && <InlineCommentPopup pop={selPop} setPop={setSelPop} pageId={page.id}
+      {!mobile && selPop && <InlineCommentPopup pop={selPop} setPop={setSelPop} pageId={page.id}
         onAdded={() => { setSelPop(null); loadComments(); }} />}
-      {present && <Presentation page={page} onClose={() => setPresent(false)} />}
-      {moveOpen && <MoveDialog page={page} navigate={navigate} reloadSpace={reloadSpace}
+      {!mobile && present && <Presentation page={page} onClose={() => setPresent(false)} />}
+      {!mobile && moveOpen && <MoveDialog page={page} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMoveOpen(false)} />}
-      {restrictOpen && <RestrictionsModal pageId={page.id} onClose={() => setRestrictOpen(false)} />}
+      {!mobile && restrictOpen && <RestrictionsModal pageId={page.id} onClose={() => setRestrictOpen(false)} />}
     </article>
   );
 }
