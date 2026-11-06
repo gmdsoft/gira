@@ -148,3 +148,69 @@ export function bodyDoc(body) {
   if (typeof body?.markdown === 'string') return markdownToDoc(body.markdown);
   return null;
 }
+
+// ---------- 역방향: Gonfluence 본문 doc(JSON) → Markdown ----------
+// markdownToDoc이 만드는 노드는 그대로 되돌리고, 그 밖의 노드(패널·매크로·이미지 등)는 안의 글자만 살린다.
+// 용도: Gonfluence 문서를 저장소 사본(docs/*.md)이나 모델 입력으로 내보낼 때.
+function inlineMd(nodes = []) {
+  let out = '';
+  for (const n of nodes) {
+    if (n.type === 'hardBreak') { out += '  \n'; continue; }
+    if (n.type !== 'text') { out += inlineMd(n.content); continue; }
+    let t = n.text ?? '';
+    const marks = n.marks ?? [];
+    const code = marks.some((m) => m.type === 'code');
+    if (code) t = '`' + t + '`';
+    else {
+      if (marks.some((m) => m.type === 'strike')) t = `~~${t}~~`;
+      if (marks.some((m) => m.type === 'italic')) t = `*${t}*`;
+      if (marks.some((m) => m.type === 'bold')) t = `**${t}**`;
+    }
+    const link = marks.find((m) => m.type === 'link');
+    if (link?.attrs?.href) t = `[${t}](${link.attrs.href})`;
+    out += t;
+  }
+  return out;
+}
+
+const indent = (text, pad) => text.split('\n').map((l) => (l ? pad + l : l)).join('\n');
+
+function blockMd(n) {
+  const kids = n.content ?? [];
+  switch (n.type) {
+    case 'paragraph': return inlineMd(kids);
+    case 'heading': return '#'.repeat(Math.min(6, n.attrs?.level ?? 1)) + ' ' + inlineMd(kids);
+    case 'blockquote': return blocksMd(kids).split('\n').map((l) => (l ? '> ' + l : '>')).join('\n');
+    case 'codeBlock': return '```' + (n.attrs?.language ?? '') + '\n' + kids.map((k) => k.text ?? '').join('') + '\n```';
+    case 'horizontalRule': return '---';
+    case 'bulletList':
+    case 'orderedList':
+    case 'taskList': {
+      let i = n.attrs?.start ?? 1;
+      return kids.map((it) => {
+        const mark = n.type === 'orderedList' ? `${i++}. `
+          : n.type === 'taskList' ? `- [${it.attrs?.checked ? 'x' : ' '}] ` : '- ';
+        const body = blocksMd(it.content ?? []);
+        const [first, ...rest] = body.split('\n');
+        return mark + first + (rest.length ? '\n' + indent(rest.join('\n'), ' '.repeat(mark.length)) : '');
+      }).join('\n');
+    }
+    case 'table': {
+      const rows = kids.map((r) => (r.content ?? []).map((c) => blocksMd(c.content ?? []).replace(/\n+/g, ' ').replace(/\|/g, '\\|')));
+      if (!rows.length) return '';
+      const w = Math.max(...rows.map((r) => r.length));
+      const line = (r) => '| ' + Array.from({ length: w }, (_, j) => r[j] ?? '').join(' | ') + ' |';
+      return [line(rows[0]), '| ' + Array(w).fill('---').join(' | ') + ' |', ...rows.slice(1).map(line)].join('\n');
+    }
+    default: return kids.length ? blocksMd(kids) : '';
+  }
+}
+
+function blocksMd(nodes = []) {
+  // 목록 항목 안의 문단끼리는 빈 줄 없이, 그 밖의 블록 사이는 빈 줄 하나
+  return nodes.map(blockMd).filter((s) => s !== '').join('\n\n');
+}
+
+export function docToMarkdown(doc) {
+  return blocksMd(doc?.content ?? []).trim() + '\n';
+}
