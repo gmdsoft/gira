@@ -46,7 +46,8 @@ const { values: args } = parseArgs({
 });
 
 const PROJECT = 'GIRA';
-const WORK_DIR = path.join(ROOT, '..', 'gira-work');
+// 이슈 작업 폴더 (DEV_WORK_DIR로 바꿀 수 있다 — 이 스크립트를 다른 worktree에서 돌릴 때)
+const WORK_DIR = process.env.DEV_WORK_DIR ?? path.join(ROOT, '..', 'gira-work');
 const TIMEOUT_MS = Number(process.env.AGENT_TIMEOUT_MIN ?? 40) * 60 * 1000;
 const WORKER_GUIDE = readFileSync(path.join(ROOT, 'server', 'src', 'dev-agent', 'worker.md'), 'utf8');
 
@@ -185,7 +186,9 @@ function runAgent(executor, dir, prompt, images = []) {
       if (process.env.CODEX_MODEL) argv.splice(1, 0, '-m', process.env.CODEX_MODEL);
     } else {
       cmd = 'opencode';
-      argv = ['run', '--auto', '--title', 'GIRA 처리'];
+      // --standalone: 백그라운드 opencode 서비스에 붙지 않고 이 작업 폴더(cwd)에서 따로 실행한다.
+      // 붙으면 서비스가 띄워진 폴더(메인 저장소)를 고치게 된다 — 2026-11-06 GIRA-20에서 실제로 발생
+      argv = ['run', '--standalone', '--auto', '--title', 'GIRA 처리'];
       if (process.env.OPENCODE_MODEL) argv.push('-m', process.env.OPENCODE_MODEL);
       for (const img of images) argv.push('-f', img);
       argv.push(prompt); // opencode는 메시지를 인자로 받는다
