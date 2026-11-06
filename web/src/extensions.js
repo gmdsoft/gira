@@ -5,6 +5,7 @@ import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tipt
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { HighlightedCodeBlock } from './code-block.js';
+import { createToc } from './toc.js';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
 import TableCellExt from '@tiptap/extension-table-cell';
@@ -395,6 +396,32 @@ function macroSlot(tag, name, params) {
 const CfMacro = Node.create({
   name: 'cfMacro', group: 'block', content: 'block*',
   addAttributes: () => ({ name: { default: '' }, params: { default: {} }, dynamic: { default: false } }),
+  addNodeView() {
+    return ({ node, editor }) => {
+      if (node.attrs.name !== 'toc' || !editor.isEditable) return null;
+      const dom = document.createElement('div');
+      dom.contentEditable = 'false';
+      const render = () => {
+        const headings = [];
+        editor.state.doc.descendants((heading, pos) => {
+          if (heading.type.name !== 'heading') return;
+          headings.push({ level: heading.attrs.level, text: heading.textContent,
+            href: `#heading-${pos}`,
+            scroll: () => editor.view.nodeDOM(pos)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) });
+        });
+        dom.replaceChildren(createToc(headings));
+      };
+      render();
+      editor.on('update', render);
+      return {
+        dom,
+        update: (next) => next.type === node.type && next.attrs.name === 'toc',
+        ignoreMutation: () => true,
+        stopEvent: (event) => event.target.closest('a') !== null,
+        destroy: () => editor.off('update', render),
+      };
+    };
+  },
   renderHTML: ({ node }) => {
     const { name, params, dynamic } = node.attrs;
     // 본문을 가진 매크로는 내용을 직접 렌더링
