@@ -18,6 +18,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { BlockResize, widthAttrs } from './block-resize.js';
 import { HighlightedCodeBlock } from './code-block.js';
 import { createToc } from './toc.js';
+import { roadmapSpec } from './roadmap.js';
 import { HIDDEN_MACROS, BODY_ONLY_MACROS, NOTICE_MACROS, noticeText } from '../../server/src/macro-kinds.mjs';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
@@ -533,6 +534,7 @@ const CfMacro = Node.create({
     const { name, params, dynamic } = node.attrs;
     // 본문을 가진 매크로는 내용을 직접 렌더링
     if (name === 'excerpt') return ['div', { class: 'macro-excerpt' }, 0];
+    if (name === 'roadmap') return ['div', { class: 'cf-macro-roadmap' }, roadmapSpec(params), ['div', { style: 'display: none' }, 0]]; // GIRA-55
     // 내보내기 앱 표시(쪽 나눔 등): 보기에서 숨김, 편집기에서는 얇은 표시만 (styles.css)
     if (HIDDEN_MACROS.has(name)) return ['div', { class: 'cf-macro-hidden', 'data-macro': name }, ['div', { style: 'display: none' }, 0]];
     if (BODY_ONLY_MACROS.has(name)) return ['div', { class: 'macro-body-only', 'data-macro': name }, 0];
