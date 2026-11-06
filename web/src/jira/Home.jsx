@@ -24,7 +24,7 @@ export default function HomeView({ me, meta, recent, onIssue, onProjView, onBoar
   const [err, setErr] = useState(null);
   const recentKeys = recent.map((r) => r.key).join(',');
   useEffect(() => {
-    document.title = '추천 - Gira';
+    document.title = '홈 - Gira';
     api('/api/home?recent=' + encodeURIComponent(recentKeys), { quiet: true })
       .then(setData).catch((e) => setErr(e.message));
   }, [recentKeys]);
@@ -43,7 +43,7 @@ export default function HomeView({ me, meta, recent, onIssue, onProjView, onBoar
 
   return (
     <div className="home">
-      <h2 className="home-title">추천</h2>
+      <h2 className="home-title">홈</h2>
       <p className="home-hello">{me?.display_name}님, 안녕하세요.</p>
 
       <section className="home-sec">

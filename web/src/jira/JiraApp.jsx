@@ -165,7 +165,7 @@ export default function JiraApp() {
     setView('list'); setSelKey(key); setHome(false);
     nav('/browse/' + encodeURIComponent(key)); // 제목은 상세 로드 후 설정
   };
-  const gotoHome = () => { setHome(true); setSelKey(null); nav('/for-you', '추천 - Gira'); };
+  const gotoHome = () => { setHome(true); setSelKey(null); nav('/for-you', '홈 - Gira'); };
   useEffect(() => {
     const onPop = () => {
       if (!meta) return;

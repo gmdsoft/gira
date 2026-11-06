@@ -1,7 +1,7 @@
 // 좌측 전역 사이드바: 최근 항목 / 프로젝트(전체 목록·보드·백로그) / 저장 필터
 import React, { useEffect, useState } from 'react';
 import { hashColor } from './util.jsx';
-import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, IconBacklog, IconFilter, IconStar, IconGrid, IconDashboard, IconSpace, IconProject, IconRocket, IconPlus } from './icons.jsx';
+import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, IconBacklog, IconFilter, IconStar, IconGrid, IconDashboard, IconSpace, IconProject, IconRocket, IconPlus, IconHome } from './icons.jsx';
 import { SPEC_URL, REPO_URL } from '../dev-feedback-ui.jsx';
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent, home, onHome,
@@ -14,7 +14,7 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
     <nav id="sidebar">
       <div className="snav">
         <div className={`sitem snav-top${home ? ' on' : ''}`} onClick={onHome} title="홈 — 내 할당 이슈·최근 본 항목·바로가기">
-          <IconStar size={16} /><span className="strunc">홈 (추천)</span><IconChevronRight size={14} className="sarrow" /></div>
+          <IconHome size={16} /><span className="strunc">홈</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconStar size={16} /><span className="strunc">별표 표시됨</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconGrid size={16} /><span className="strunc">앱</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconDashboard size={16} /><span className="strunc">계획</span><IconChevronRight size={14} className="sarrow" /></div>
