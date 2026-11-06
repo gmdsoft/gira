@@ -996,3 +996,12 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .tbl-ins-col:hover::after { left: 7px; top: 16px; width: 2px; height: var(--len); }
 .tbl-ins-row:hover::after { top: 7px; left: 16px; height: 2px; width: var(--len); }
 .tbl-linemenu { position: fixed; }
+
+/* ---------- 표 폭·열 너비 조절 (GIRA-33) ---------- */
+.col-resize-handle { position: fixed; z-index: 37; width: 6px; cursor: col-resize; }
+.col-resize-handle::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: .7; }
+.col-resize-handle.dragging::after { opacity: 1; }
+body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none; }
+.tbl-width-h { position: fixed; z-index: 38; width: 8px; padding: 0; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-subtle); cursor: col-resize; }
+.tbl-width-h:hover { background: var(--accent); border-color: var(--accent); }

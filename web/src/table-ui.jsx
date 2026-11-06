@@ -6,6 +6,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CellSelection, TableMap, isInTable, selectedRect, selectionCell, moveTableRow, moveTableColumn } from 'prosemirror-tables';
 import { Fragment } from '@tiptap/pm/model';
+import { commitColWidths, previewColWidths } from './extensions.js';
 
 // 셀·패널 배경 팔레트 30색 (연한 / 기본 / 진한 × 10색 계열). 첫 칸 흰색 = 기본(칠하지 않음)
 export const CELL_COLORS = [
@@ -401,6 +402,39 @@ export function TableMenus({ editor }) {
     setLineIdx(i); setOpen(kind); setSub(null);
   };
   const lineRun = (fn) => { fn(); editor.commands.focus(); close(); };
+  // (GIRA-33) 표 오른쪽 가장자리 핸들: 끌어서 표 전체 폭 조절 — 열 비율 유지, 가운데 표는 양쪽으로 넓어진다
+  const startWidthDrag = (e) => {
+    e.preventDefault();
+    if (!tableEl) return;
+    const base = currentColWidths(view, selectedRect(editor.state));
+    const total = base.reduce((a, b) => a + b, 0);
+    const centered = table.attrs.layout !== 'align-start';
+    const host = wrap.closest('.gmain') ?? document.body;
+    const maxW = Math.max(COLUMN_WIDTH, host.clientWidth - 64 - (table.attrs.numberedRows ? 42 : 0));
+    const minW = MIN_COL * base.length;
+    const x0 = e.clientX;
+    let widths = base;
+    document.body.classList.add('col-resizing');
+    const move = (ev) => {
+      const d = ev.clientX - x0;
+      const next = Math.min(maxW, Math.max(minW, total + (centered ? 2 * d : d)));
+      widths = base.map((w) => Math.max(MIN_COL, (w / total) * next));
+      previewColWidths(tableEl, widths);
+      const bw = widths.reduce((a, b) => a + b, 0) + (table.attrs.numberedRows ? 42 : 0);
+      wrap.classList.toggle('breakout', bw > COLUMN_WIDTH);
+      wrap.style.setProperty('--bw', `${Math.round(bw)}px`);
+      rerender();
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      document.body.classList.remove('col-resizing');
+      if (widths !== base) commitColWidths(view, tablePos, widths);
+      editor.commands.focus();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
   const curTable = () => selectedRect(editor.state);
 
   return (
@@ -451,6 +485,9 @@ export function TableMenus({ editor }) {
           <button type="button" key={`ri${i}`} className="tbl-ins tbl-ins-row" title="행 삽입 (Ctrl+Alt+↓)"
             style={{ left: gutterL - 30, top: y - 8, '--len': `${tr.right - gutterL + 30}px` }}
             onMouseDown={(e) => e.preventDefault()} onClick={() => { insertRowAt(editor, i); close(); }}>+</button>))}
+        <button type="button" className="tbl-width-h" title="표 크기 조정 (끌기)" aria-label="표 크기 조정"
+          style={{ left: tr.right + 8, top: tr.top + Math.max(0, tr.height / 2 - 20), height: Math.min(40, tr.height) }}
+          onMouseDown={startWidthDrag} />
         {/* 열 핸들 + 열 사이 삽입 점 */}
         {xs.slice(0, -1).map((x, c) => (
           <button type="button" key={`ch${c}`} className={`tbl-colh${open === 'col' && lineIdx === c ? ' on' : ''}`} title="열 옵션"
