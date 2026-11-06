@@ -1195,7 +1195,12 @@ app.post('/api/access-requests/:id/decide', async (req, reply) => {
 async function redirectToContent(reply, id) {
   const { rows } = await query(
     `SELECT c.id, s.key FROM content c JOIN spaces s ON s.id = c.space_id WHERE c.id = $1`, [id]);
-  if (!rows.length) return reply.code(404).send({ error: `content ${id} not migrated` });
+  // 아직 이관되지 않은 문서는 원본 Confluence로 보낸다 (Gira 원격 링크·예전 주소가 끊기지 않게, GIRA-66). 임시(302)라 이관 뒤엔 다시 여기로
+  if (!rows.length) {
+    if (!/^\d+$/.test(String(id))) return reply.code(404).send({ error: `content ${id} not migrated` });
+    const origin = (process.env.CONFLUENCE_BASE_URL ?? process.env.ATLASSIAN_SITE ?? 'https://gmdsoft.atlassian.net').replace(/\/$/, '');
+    return reply.redirect(`${origin}/wiki/pages/viewpage.action?pageId=${id}`, 302);
+  }
   return reply.redirect(`/s/${rows[0].key}/p/${rows[0].id}`, 301);
 }
 
