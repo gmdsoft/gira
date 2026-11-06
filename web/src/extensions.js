@@ -514,14 +514,17 @@ const JiraIssue = Node.create({
   }, node.attrs.key],
   addNodeView() {
     return ({ node }) => {
-      const dom = document.createElement('a');
-      dom.className = 'jira-issue';
-      dom.target = '_blank';
-      dom.rel = 'noreferrer';
-      dom.dataset.issueKey = node.attrs.key;
-      dom.textContent = node.attrs.key;
-      dom.href = `/api/gira/issues/${encodeURIComponent(node.attrs.key)}/open`;
-      const cancel = hydrateIssueCard(dom);
+      // 편집기: 칩(a)과 상태 표시를 한 덩어리(span)로 둔다
+      const dom = document.createElement('span');
+      dom.className = 'jira-issue-wrap';
+      const a = dom.appendChild(document.createElement('a'));
+      a.className = 'jira-issue';
+      a.target = '_blank';
+      a.rel = 'noreferrer';
+      a.dataset.issueKey = node.attrs.key;
+      a.textContent = node.attrs.key;
+      a.href = `/api/gira/issues/${encodeURIComponent(node.attrs.key)}/open`;
+      const cancel = hydrateIssueCard(a);
       return { dom, destroy: cancel };
     };
   },
