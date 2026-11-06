@@ -692,6 +692,7 @@ export const ConfluenceShortcuts = Extension.create({
       'Shift-Tab': () => ed().commands.liftListItem(ed().isActive('taskItem') ? 'taskItem' : 'listItem'),
       'Mod-Alt-0': () => ed().chain().unsetMark('smallText').setParagraph().run(),
       'Mod-Shift-9': () => ed().commands.toggleBlockquote(),
+      'Mod-Shift-6': () => ed().chain().focus().toggleList('taskList', 'taskItem').run(), // 작업 목록 (Confluence)
       'Mod-Shift-,': () => ed().commands.toggleMark('subscript'),
       'Mod-Shift-.': () => ed().commands.toggleMark('superscript'),
       'Mod-Shift--': () => ed().commands.setHorizontalRule(),

@@ -3,6 +3,7 @@ import { EditorContent, useEditor } from '@tiptap/react';
 import { internalLink } from './internal-links.js';
 import { editExtensions } from './extensions.js';
 import { InsertMenu, EmojiButton } from './element-picker.jsx';
+import { IconTask, IconImage, IconCode, IconLayout, IconTable, IconPanel, IconExpand, IconDivider, IconLink, IconUndo, IconRedo, IconMention } from './editor-icons.jsx';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
@@ -473,13 +474,15 @@ function Toolbar({ editor, onImage }) {
       <B title="오른쪽 정렬" active={editor.isActive({ textAlign: 'right' })}
         onClick={() => chain().setTextAlign('right').run()}><AlignIcon dir="right" /></B>
       <span className="tb-sep" />
-      <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}>{ '{ }' }</B>
+      <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}><IconCode /></B>
       <span className="tb-sep" />
-      <B title="멘션 (@ 입력)" onClick={() => chain().insertContent('@').run()}>@</B>
-      <B title="이미지·파일 업로드" onClick={onImage}>🖼</B>
-      <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}>⫴</B>
+      <B title="작업 항목 ([] 입력, Ctrl+Shift+6)" active={editor.isActive('taskList')}
+        onClick={() => chain().toggleList('taskList', 'taskItem').run()}><IconTask /></B>
+      <B title="멘션 (@ 입력)" onClick={() => chain().insertContent('@').run()}><IconMention /></B>
+      <B title="이미지·파일 업로드" onClick={onImage}><IconImage /></B>
+      <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}><IconLayout /></B>
       <span className="tb-table-wrap">
-        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}>⊞ 표</B>
+        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}><IconTable /><span className="tb-text">표</span></B>
         {grid && (
           <span className="tb-pop tb-grid" onMouseDown={(e) => e.preventDefault()}>
             {Array.from({ length: 6 }, (_, r) => (
@@ -496,19 +499,19 @@ function Toolbar({ editor, onImage }) {
           </span>
         )}
       </span>
-      <B title="정보 패널" onClick={() => insertPanel('info')}>ℹ 패널</B>
-      <B title="펼치기" onClick={insertExpand}>▸ 펼치기</B>
-      <B title="구분선" onClick={() => chain().setHorizontalRule().run()}>—</B>
+      <B title="정보 패널" onClick={() => insertPanel('info')}><IconPanel /><span className="tb-text">패널</span></B>
+      <B title="펼치기" onClick={insertExpand}><IconExpand /><span className="tb-text">펼치기</span></B>
+      <B title="구분선" onClick={() => chain().setHorizontalRule().run()}><IconDivider /></B>
       <B title="링크 (Ctrl+K)" active={editor.isActive('link')} onClick={() => {
         const prev = editor.getAttributes('link').href ?? '';
         const url = window.prompt('링크 URL', prev);
         if (url === null) return;
         if (!url) chain().extendMarkRange('link').unsetMark('link').run();
         else chain().extendMarkRange('link').setMark('link', { href: url }).run();
-      }}>🔗</B>
+      }}><IconLink /></B>
       <span className="tb-sep" />
-      <B title="실행 취소" onClick={() => chain().undo().run()}>↶</B>
-      <B title="다시 실행" onClick={() => chain().redo().run()}>↷</B>
+      <B title="실행 취소" onClick={() => chain().undo().run()}><IconUndo /></B>
+      <B title="다시 실행" onClick={() => chain().redo().run()}><IconRedo /></B>
       <span className="tb-hint muted">입력 중 <code>/</code> 로 블록 삽입</span>
       {editor.isActive('table') && (
         <span className="tb-table-ops">
