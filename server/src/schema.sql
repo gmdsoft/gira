@@ -106,6 +106,8 @@ CREATE TABLE IF NOT EXISTS content_labels (
 
 -- 스페이스 설명 (스페이스 만들기·개요에 표시)
 ALTER TABLE spaces ADD COLUMN IF NOT EXISTS description text;
+-- 스페이스 대표 이미지 (GIRA-21): 이미 있는 DB에도 추가되도록 (CREATE TABLE 안의 정의는 새 DB에만 적용)
+ALTER TABLE spaces ADD COLUMN IF NOT EXISTS icon_key text;
 
 CREATE TABLE IF NOT EXISTS space_permissions (
   space_id bigint NOT NULL REFERENCES spaces(id),
