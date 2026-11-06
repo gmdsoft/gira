@@ -932,7 +932,7 @@ span.cf-macro-slot { display: inline; margin: 0; }
 /* 서식 툴바는 한 줄로 유지하고 보조 도구를 메뉴에 접는다. */
 .toolbar { flex-wrap: nowrap; min-width: 0; }
 .toolbar > * { flex-shrink: 0; }
-.toolbar > .tb-select { min-width: 0; max-width: 210px; flex-shrink: 1; }
+.toolbar > .tb-select { min-width: 120px; max-width: 210px; flex-shrink: 0; }
 .tb-menu { position: relative; }
 .tb-menu > summary { list-style: none; cursor: pointer; white-space: nowrap; }
 .tb-menu > summary::-webkit-details-marker { display: none; }
