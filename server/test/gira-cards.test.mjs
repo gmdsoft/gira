@@ -46,9 +46,19 @@ test('조회자 인증 전달, 최신 상태 재조회, 비공개·오류 시 �
   globalThis.fetch = async () => { throw new Error('timeout'); };
   assert.deepEqual((await request()).json(), { key: 'NEXT-123' });
   assert.equal((await app.inject('/api/gira/issues/invalid')).statusCode, 400);
-  const redirect = await app.inject('/api/gira/issues/NEXT-123/open');
+  // 열기: 사용자가 접속한 호스트의 Gira로 보낸다 (서버 내부 주소 GIRA_URL이 아니라)
+  globalThis.fetch = async () => Response.json({ summary: 'x' });
+  const redirect = await app.inject({ url: '/api/gira/issues/NEXT-123/open', headers: { host: 'wiki.local:3001' } });
   assert.equal(redirect.statusCode, 302);
-  assert.equal(redirect.headers.location, 'https://gira.example/browse/NEXT-123');
+  assert.equal(redirect.headers.location, 'http://wiki.local:3002/browse/NEXT-123');
+  // 권한 없음(403)도 Gira로 — 접근 요청 화면을 보여 준다
+  globalThis.fetch = async () => Response.json({}, { status: 403 });
+  assert.equal((await app.inject({ url: '/api/gira/issues/NEXT-123/open', headers: { host: 'wiki.local:3001' } })).headers.location,
+    'http://wiki.local:3002/browse/NEXT-123');
+  // Gira에 없는 이슈(이관 안 된 프로젝트)는 원본 Jira로 — 예전 링크 동작 유지
+  globalThis.fetch = async () => Response.json({}, { status: 404 });
+  assert.equal((await app.inject({ url: '/api/gira/issues/OLD-7/open', headers: { host: 'wiki.local:3001' } })).headers.location,
+    'https://gmdsoft.atlassian.net/browse/OLD-7');
 });
 
 test('슬래시 이슈 명령은 정규화한 키를 삽입하고 취소·잘못된 입력은 보존한다', async (t) => {

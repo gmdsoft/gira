@@ -1,4 +1,3 @@
-import { registerGiraCards } from './gira-cards.mjs';
 // API 서버 (PoC).
 // - /api/* : 스페이스, 콘텐츠 트리, 본문(ProseMirror JSON), 댓글, 첨부 프록시
 // - /wiki/* : 기존 Confluence URL 호환 리다이렉트 (docs/architecture.md)
@@ -21,6 +20,7 @@ import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
 import { bodyDoc } from './markdown-doc.mjs';
+import { registerGiraCards } from './gira-cards.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
