@@ -258,6 +258,8 @@ const ISSUE_SORT_COLS = {
   resolution: 'i.resolution',
   created: 'i.created_at',
   updated: 'i.updated_at',
+  resolved: 'i.resolved_at',
+  due: 'i.due_date',
 };
 
 const STATS_JOINS = `
@@ -283,6 +285,17 @@ async function jqlCustomFields() {
   return rows;
 }
 
+// JQL 'filter = 이름|id' 용 저장 필터 조회 — 볼 수 있는 원본 이관 필터만 (GIRA-67)
+async function jqlFilterLookup(req) {
+  const access = await collectionAccess(req);
+  const { rows } = await query(`SELECT source_id::text AS sid, name, jql, owner_id, share FROM jira_filters WHERE jql IS NOT NULL`);
+  const ok = rows.filter((r) => canReadCollection(r, access));
+  return (ref) => {
+    const v = String(ref);
+    return (ok.find((r) => r.sid === v) ?? ok.find((r) => r.name.toLowerCase() === v.toLowerCase()))?.jql ?? null;
+  };
+}
+
 app.get('/api/stats', async (req, reply) => {
   reply.header('Cache-Control', 'private, no-store');
   try {
@@ -291,7 +304,7 @@ app.get('/api/stats', async (req, reply) => {
     const p = v => { params.push(v); return `$${params.length}`; };
     const roles = await projectRoles(req.access);
     const scope = `i.project_id = ANY(${p([...roles.keys()])}::bigint[])`;
-    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields() }).where : 'TRUE';
+    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields(), filterJql: /\bfilter\b/i.test(jql) ? await jqlFilterLookup(req) : null }).where : 'TRUE';
     const { rows } = await query(`SELECT i.issue_key, i.summary, i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
       pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
       ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
@@ -318,7 +331,7 @@ app.get('/api/issues', async (req, reply) => {
   for (const one of [].concat(req.query.jql ?? [])) {
     if (!String(one).trim()) continue;
     try {
-      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields() });
+      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields(), filterJql: /\bfilter\b/i.test(one) ? await jqlFilterLookup(req) : null });
       cond.push(r.where);
       if (r.order) jqlOrder = r.order;
     } catch (e) {
@@ -944,7 +957,7 @@ function validColumns(columns) {
 
 // 보드 필터(JQL) 유효성: 문법만 검사 (파라미터는 버린다)
 function jqlErrorOf(jql) {
-  try { parseJql(jql, { p: () => '$1', userId: 0 }); return null; }
+  try { parseJql(jql, { p: () => '$1', userId: 0, filterJql: () => 'ORDER BY key' }); return null; } // 저장 필터 참조는 실행 때 확인
   catch (e) { return e instanceof JqlError ? `JQL 오류: ${e.message}` : (() => { throw e; })(); }
 }
 

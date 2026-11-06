@@ -16,6 +16,7 @@ function Gadget({ gadget }) {
     <h4>{gadget.title ?? '가젯'}</h4>
     {!gadget.params ? <p>지원하지 않는 가젯</p> : gadget.error || error ? <p role="alert">{gadget.error || error}</p> : !data ? <p>불러오는 중…</p> : <>
       <p>전체 {data.total}건</p>
+      {data.missingProjects?.length > 0 && <p role="note" style={{color:'var(--text-subtle)'}}>이관되지 않은 프로젝트: {data.missingProjects.join(', ')}</p>}
       {data.type === 'results' ? <ul>{data.rows.map(r=><li key={r.issue_key}><a href={'/browse/'+r.issue_key}>{r.issue_key}</a> {r.summary}</li>)}</ul>
         : data.type === 'pie' ? <><svg viewBox="0 0 100 100" width="140" role="img" aria-label="원형 통계">{(() => {let offset=0; const sum=data.values.reduce((n,v)=>n+v.count,0); return data.values.map((v,i)=>{const size=sum ? v.count/sum*100 : 0; const start=offset;offset+=size;return <circle key={v.value} cx="50" cy="50" r="25" fill="none" stroke={`hsl(${i*67} 60% 50%)`} strokeWidth="50" pathLength="100" strokeDasharray={`${size} ${100-size}`} strokeDashoffset={-start} transform="rotate(-90 50 50)"/>;});})()}</svg><ul>{data.values.map(v=><li key={v.value}>{v.value || '없음'}: {v.count}</li>)}</ul></>
         : data.type === 'two' ? <table><thead><tr><th></th>{data.columns.map(c=><th key={c}>{c || '없음'}</th>)}</tr></thead><tbody>{data.rows.map(r=><tr key={r.value}><th>{r.value || '없음'}</th>{data.columns.map(c=><td key={c}>{r.cells[c] ?? 0}</td>)}</tr>)}</tbody></table>

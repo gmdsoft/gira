@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS jira_statuses (
   name text NOT NULL,
   category text NOT NULL CHECK (category IN ('new','indeterminate','done'))
 );
+-- 원본 Jira의 번역 전 이름(untranslatedName, 예: 'In Progress') — 원본 필터 JQL이 이 이름을 쓴다
+ALTER TABLE jira_statuses ADD COLUMN IF NOT EXISTS alias text;
 
 CREATE TABLE IF NOT EXISTS jira_issue_types (
   id bigint PRIMARY KEY,
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS jira_issue_types (
   subtask boolean NOT NULL DEFAULT false,
   description text
 );
+ALTER TABLE jira_issue_types ADD COLUMN IF NOT EXISTS alias text; -- 번역 전 이름(예: 'Bug')
 
 -- 필드 사전: UI에서 customfield_* 를 사람이 읽을 이름으로 표시하기 위한 매핑
 CREATE TABLE IF NOT EXISTS jira_fields (
