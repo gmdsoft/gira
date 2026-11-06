@@ -33,6 +33,7 @@ export function makeSlashItems({ openImageDialog }) {
       type: 'panel', attrs: { panelType: 'warning', title: null, bgColor: null }, content: [{ type: 'paragraph' }] }).run() },
     { label: '펼치기', kw: 'expand toggle', run: (e, r) => del(e, r).insertContent({
       type: 'expand', attrs: { title: '제목' }, content: [{ type: 'paragraph' }] }).run() },
+    { label: 'Mermaid 다이어그램', kw: 'mermaid 다이어그램 흐름도', run: (e, r) => del(e, r).insertContent({ type: 'mermaid' }).run() },
     { label: '코드 블록', kw: 'code block', run: (e, r) => del(e, r).toggleCodeBlock().run() },
     { label: '인용', kw: 'quote blockquote', run: (e, r) => del(e, r).toggleBlockquote().run() },
     { label: '구분선', kw: 'hr divider', run: (e, r) => del(e, r).setHorizontalRule().run() },

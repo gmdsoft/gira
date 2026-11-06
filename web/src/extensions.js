@@ -1,3 +1,4 @@
+import { mermaidEditorView } from './mermaid-editor.js';
 import { mountMermaid } from './mermaid-view.js';
 import { TaskItem } from './task-item.js';
 import { datePresentation } from './date-presentation.js';
@@ -437,13 +438,20 @@ const LayoutColumn = Node.create({
 //  image: 원본 Confluence가 미리 그린 PNG(data URI) — 코드가 없으면 이 그림을 그대로 보여 준다
 const Mermaid = Node.create({
   name: 'mermaid', group: 'block', content: 'text*', marks: '', code: true,
+  addKeyboardShortcuts() {
+    return {
+      Enter: () => this.editor.isActive('mermaid') && this.editor.commands.command(({ tr }) => { tr.insertText('\n'); return true; }),
+      'Mod-Enter': () => {
+        if (!this.editor.isActive('mermaid')) return false;
+        const { $from } = this.editor.state.selection;
+        const pos = $from.after();
+        return this.editor.chain().insertContentAt(pos, { type: 'paragraph' }).setTextSelection(pos + 1).run();
+      },
+    };
+  },
   addNodeView() {
-    return ({ node, editor }) => {
-      if (editor.isEditable) {
-        const dom = document.createElement('pre'); dom.className = 'mermaid-src';
-        const contentDOM = document.createElement('code'); dom.append(contentDOM);
-        return { dom, contentDOM };
-      }
+    return ({ node, editor, getPos }) => {
+      if (editor.isEditable) return mermaidEditorView({ node, editor, getPos });
       const dom = document.createElement('div');
       // 부모가 DOM에 붙은 뒤 펼치기 조상을 찾는다.
       let cleanup;

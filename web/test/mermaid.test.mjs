@@ -35,3 +35,24 @@ test('코드가 없는 PNG 원본은 이미지로 표시한다', () => {
   assert.match(html, /<figcaption>원본/);
   assert.ok(!html.includes('mermaid-src'));
 });
+
+test('편집기 여섯 예시의 코드가 게시 HTML에 보존된다', async () => {
+  const { mermaidExamples } = await import('../src/mermaid-editor.js');
+  assert.equal(mermaidExamples.length, 6);
+  for (const [, text] of mermaidExamples) {
+    assert.equal(validateMermaid(text), text);
+    const html = generateHTML({ type: 'doc', content: [{ type: 'mermaid', content: [{ type: 'text', text }] }] }, extensions);
+    assert.match(html, /mermaid-src/);
+    assert.ok(html.includes(text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')));
+  }
+});
+
+test('공유 삽입 메뉴에서 Mermaid 검색 키워드와 삽입 노드를 제공한다', async () => {
+  const { makeSlashItems } = await import('../src/slash-menu.js');
+  const item = makeSlashItems({}).find(item => item.label === 'Mermaid 다이어그램');
+  for (const keyword of ['mermaid', '다이어그램', '흐름도']) assert.ok(`${item.label} ${item.kw}`.includes(keyword));
+  let inserted;
+  const chain = { focus() { return this; }, deleteRange() { return this; }, insertContent(value) { inserted = value; return this; }, run() { return true; } };
+  item.run({ chain: () => chain }, { from: 1, to: 9 });
+  assert.deepEqual(inserted, { type: 'mermaid' });
+});

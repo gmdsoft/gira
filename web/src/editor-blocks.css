@@ -206,3 +206,11 @@
 /* 코드 블록 제목 줄 (보기: 눌러 접기·펼치기, 편집: 표시만) */
 .doc .code-block-head.has-title { font-weight: 600; font-size: 13.5px; color: var(--text); padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .doc .code-block-head:disabled { cursor: default; background: none; }
+
+.doc .mermaid-editor { border: 1px solid var(--border); border-radius: 6px; margin: 12px 0; }
+.doc .mermaid-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+.doc .mermaid-toolbar button, .doc .mermaid-toolbar select { font: inherit; cursor: pointer; }
+.doc .mermaid-editor .code-body { overflow-x: auto; }
+.doc .mermaid-editor .code-body > pre { overflow: visible; font-family: var(--code-font); font-size: 14px; line-height: 24px; padding: 8px; white-space: pre; }
+.doc .mermaid-editor > .mermaid-view[hidden] { display: none; }
+.doc .mermaid-editor > .mermaid-view > details, .doc .mermaid-editor > .mermaid-view > button { display: none; }

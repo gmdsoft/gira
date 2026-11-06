@@ -7,7 +7,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 export const codeLanguages = [
   ['javascript', 'JavaScript'], ['python', 'Python'], ['rust', 'Rust'], ['c', 'C'], ['cpp', 'C++'], ['csharp', 'C#'],
   ['sql', 'SQL'], ['json', 'JSON'], ['bash', 'Bash'],
-  ['plaintext', '일반 텍스트'],
+  ['plaintext', '일반 텍스트'], ['mermaid', 'Mermaid'],
 ];
 const aliases = {
   js: 'javascript', shell: 'bash', sh: 'bash', text: 'plaintext', plain: 'plaintext',
