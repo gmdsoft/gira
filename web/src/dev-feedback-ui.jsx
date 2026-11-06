@@ -10,8 +10,31 @@ const TYPE_LABEL = { epic: '에픽', story: '스토리', task: '작업', subtask
 const MAX_FILES = 5;
 const fmtSize = (n) => (n > 1048576 ? (n / 1048576).toFixed(1) + 'MB' : Math.max(1, Math.round(n / 1024)) + 'KB');
 
-// 개발참여를 새 탭으로 연다 — 같은 이름의 탭을 재사용 (수정 확인을 위해 원래 화면을 새로고침해도 대화가 유지됨)
-export function openDevChat() { window.open('/dev-chat', 'gira-devchat'); }
+// 개발참여를 새 탭으로 연다 — 같은 이름의 탭을 재사용 (수정 확인을 위해 원래 화면을 새로고침해도 대화가 유지됨).
+// 연 화면의 주소를 ?from= 으로 넘겨 등록 이슈의 '환경 정보'에 남긴다
+export function openDevChat() {
+  window.open('/dev-chat?from=' + encodeURIComponent(location.href), 'gira-devchat');
+}
+
+// 빌드 정보 (vite define — 없으면 '알 수 없음')
+// eslint-disable-next-line no-undef
+const BUILD = typeof __APP_BUILD__ !== 'undefined' ? __APP_BUILD__ : '';
+
+// 챗봇을 연 원래 화면·브라우저·앱 정보 (서버가 이슈 설명 끝에 '환경 정보'로 붙인다)
+function clientEnv(appName) {
+  let from = '';
+  try { from = new URLSearchParams(location.search).get('from') || ''; } catch { /* 무시 */ }
+  const ua = navigator.userAgentData;
+  return {
+    url: from,
+    app: appName,
+    build: BUILD,
+    userAgent: navigator.userAgent,
+    platform: ua?.platform || navigator.platform || '',
+    language: navigator.language || '',
+    screen: `${window.screen?.width ?? '?'}x${window.screen?.height ?? '?'} (창 ${window.innerWidth}x${window.innerHeight}, 배율 ${window.devicePixelRatio ?? 1})`,
+  };
+}
 
 export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn', btnPrimary = 'btn btn-primary' }) {
   useEffect(() => { document.title = `개발참여 - ${appName}`; }, []);
@@ -70,7 +93,7 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
     setBusy(true);
     try {
       const r = await api('/api/dev-chat', {
-        method: 'POST', json: { sessionId, message: text, fileIds: ready.map((f) => f.id) }, quiet: true,
+        method: 'POST', json: { sessionId, message: text, fileIds: ready.map((f) => f.id), env: clientEnv(appName) }, quiet: true,
       });
       if (r.sessionId !== sessionId) {
         setSessionId(r.sessionId);

@@ -922,10 +922,10 @@ async function proxyDevChat(req, reply, method, pathName, body) {
   return reply.code(res.status).send(await res.json().catch(() => ({})));
 }
 app.post('/api/dev-chat', async (req, reply) => {
-  const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+  const { rows: me } = await query(`SELECT display_name, email FROM users WHERE id = $1`, [req.access.userId]);
   return proxyDevChat(req, reply, 'POST', '/api/dev-chat', {
-    sessionId: req.body?.sessionId, message: req.body?.message, fileIds: req.body?.fileIds,
-    author: me[0]?.display_name ?? null, source: 'Gonfluence',
+    sessionId: req.body?.sessionId, message: req.body?.message, fileIds: req.body?.fileIds, env: req.body?.env,
+    author: me[0]?.display_name ?? null, authorEmail: me[0]?.email ?? null, source: 'Gonfluence',
   });
 });
 // 첨부 올리기: 작성자 이름을 파일보다 먼저 넣어 Gira로 전달 (Gira가 작성자 기준으로 소유를 구분)
