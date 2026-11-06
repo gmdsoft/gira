@@ -5,6 +5,7 @@
 // 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>] [--pages <id,id,...>] [--templates]
 //   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
+import { fetchWhiteboard } from './lib/confluence-whiteboard.mjs';
 import { fetchDatabase } from './lib/confluence-database.mjs';
 import { importTemplates } from './lib/import-templates.mjs';
 import { parseArgs } from 'node:util';
@@ -93,8 +94,8 @@ if (args.pages) {
     try { return await get(`/wiki/api/v2/pages/${id}?body-format=storage`); }
     catch (e) { if (e.status !== 404 && e.status !== 400) throw e;
       const c = await get(`/wiki/rest/api/content/${id}?expand=space,version,ancestors`);
-      if (c.type !== 'database') throw e;
-      return { ...c, spaceId: c.space?.id, parentId: c.ancestors?.at(-1)?.id }; }
+      if (!['database', 'whiteboard'].includes(c.type)) throw e;
+      return { ...c, spaceId: c.space?.id, parentId: c.ancestors?.at(-1)?.id, parentType: c.ancestors?.at(-1)?.type }; }
   }))
     .filter((p) => { const ok = String(p.spaceId) === String(space.id); if (!ok) console.log(`  ⚠ ${p.id} "${p.title}"는 ${args.space} 스페이스가 아니라 건너뜀`); return ok; });
   console.log(`  페이지 ${pages.length}건`);
@@ -116,9 +117,9 @@ if (args.pages) {
   pages = await mapLimit(changed, 6, (p) => get(`/wiki/api/v2/pages/${p.id}?body-format=storage`));
 }
 
-// Databases are listed independently: they have no storage body in the page API.
-let databases = pages.filter(p => p.type === 'database');
-pages = pages.filter(p => p.type !== 'database');
+// Canvas contents have no storage body and are listed independently of pages.
+let canvases = pages.filter(p => ['database', 'whiteboard'].includes(p.type));
+pages = pages.filter(p => !['database', 'whiteboard'].includes(p.type));
 if (!args.pages) {
   let listed;
   try { listed = await getAll(`/wiki/api/v2/spaces/${space.id}/databases?limit=100`); }
@@ -127,23 +128,25 @@ if (!args.pages) {
     listed = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=database and space="${space.key}"`)}&expand=version,ancestors&limit=100`);
   }
   // Canvas changes need not increment the content version. Refresh each snapshot on incremental runs too.
-  databases = listed;
+  canvases = listed.map(d => ({ ...d, type: 'database' }));
+  const whiteboards = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=whiteboard and space="${space.key}"`)}&expand=version,ancestors&limit=100`);
+  canvases.push(...whiteboards.map(d => ({ ...d, type: 'whiteboard' })));
 }
-// Targeted page imports also retain a database parent instead of orphaning the page.
-for (const p of pages) if (p.parentType === 'database' && !databases.some(d => String(d.id) === String(p.parentId))) {
-  databases.push({ id: p.parentId });
+// Targeted page imports also retain canvas parents instead of orphaning their children.
+for (const p of pages) if (['database', 'whiteboard'].includes(p.parentType) && !canvases.some(d => String(d.id) === String(p.parentId))) {
+  canvases.push({ id: p.parentId, type: p.parentType });
 }
-const databaseData = new Map();
-for (const d of databases) {
-  if (databaseData.has(String(d.id))) continue;
-  const snapshot = await fetchDatabase(d.id, { get, site: SITE });
+const canvasData = new Map();
+for (const d of canvases) {
+  if (canvasData.has(String(d.id))) continue;
+  const snapshot = await (d.type === 'whiteboard' ? fetchWhiteboard : fetchDatabase)(d.id, { get, site: SITE });
   const c = snapshot.content;
-  Object.assign(d, { type: 'database', title: c.title, version: c.version ?? d.version,
+  Object.assign(d, { type: d.type ?? 'database', title: c.title, version: c.version ?? d.version,
     parentId: d.parentId ?? c.ancestors?.at(-1)?.id, parentType: d.parentType ?? c.ancestors?.at(-1)?.type, spaceId: space.id });
-  databaseData.set(String(d.id), snapshot);
-  if (d.parentType === 'database' && !databases.some(parent => String(parent.id) === String(d.parentId))) databases.push({ id: d.parentId });
+  canvasData.set(String(d.id), snapshot);
+  if (['database', 'whiteboard'].includes(d.parentType) && !canvases.some(parent => String(parent.id) === String(d.parentId))) canvases.push({ id: d.parentId, type: d.parentType });
 }
-console.log(`  데이터베이스 ${databases.length}건`);
+console.log(`  캔버스 ${canvases.length}건`);
 
 // 충돌 가드: 원본 페이지와 id가 같은 '로컬에서 만든 페이지'(원본 본문 버전이 하나도 없는 page/live)는
 // 덮어쓰지 않는다 — 로컬 번호가 원본 대역 위에서 발급되던 시절의 페이지 보호
@@ -161,7 +164,7 @@ console.log(`  데이터베이스 ${databases.length}건`);
 // 폴더: 페이지 부모 체인에 등장하는 폴더를 재귀적으로 수집
 const folders = new Map();
 {
-  const queue = [...new Set([...pages, ...databases].filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
+  const queue = [...new Set([...pages, ...canvases].filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
   while (queue.length) {
     const id = queue.shift();
     if (!id || folders.has(id)) continue;
@@ -218,10 +221,10 @@ for (const { doc } of docs) if (doc) walk(doc, (n) => { if (n.type === 'mention'
 // ---------- 사용자 ----------
 
 const accountIds = new Set(mentionIds);
-for (const { data } of databaseData.values()) for (const row of data.rows) for (const field of data.fields) {
+for (const { data } of canvasData.values()) for (const row of data.rows ?? []) for (const field of data.fields ?? []) {
   if (field.type === 'u') for (const value of row.cells[field.id] ?? []) if (value.a) accountIds.add(value.a);
 }
-for (const p of [...pages, ...databases]) {
+for (const p of [...pages, ...canvases]) {
   if (p.authorId) accountIds.add(p.authorId);
   if (p.ownerId) accountIds.add(p.ownerId);
   if (p.version?.authorId) accountIds.add(p.version.authorId);
@@ -315,18 +318,20 @@ for (const [i, p] of pages.entries()) {
      uid(p.authorId), uid(p.ownerId), p.version?.number ?? 1, perPage[i]?.fullWidth ?? false,
      ts(p.createdAt), ts(p.version?.createdAt)]);
 }
-for (const d of databases) {
-  const snap = databaseData.get(String(d.id));
+for (const d of canvases) {
+  const snap = canvasData.get(String(d.id));
   const version = d.version?.number ?? 1;
+  const type = d.type === 'whiteboard' ? 'whiteboard' : 'database';
+  const table = type === 'whiteboard' ? 'whiteboard_snapshots' : 'database_snapshots';
   await query(`INSERT INTO content (id, space_id, type, title, current_version, full_width, updated_at)
-    VALUES ($1,$2,'database',$3,$4,true,$5)
+    VALUES ($1,$2,$6,$3,$4,true,$5)
     ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, current_version=EXCLUDED.current_version, updated_at=EXCLUDED.updated_at
-    WHERE content.type='database'`, [d.id, space.id, d.title, version, ts(d.version?.createdAt ?? d.version?.when)]);
-  await query(`INSERT INTO database_snapshots (content_id,version,data,source_ybin) VALUES ($1,$2,$3,$4)
+    WHERE content.type=EXCLUDED.type`, [d.id, space.id, d.title, version, ts(d.version?.createdAt ?? d.version?.when), type]);
+  await query(`INSERT INTO ${table} (content_id,version,data,source_ybin) VALUES ($1,$2,$3,$4)
     ON CONFLICT (content_id,version) DO UPDATE SET data=EXCLUDED.data,source_ybin=EXCLUDED.source_ybin,fetched_at=now()`,
     [d.id, version, JSON.stringify(snap.data), snap.binary]);
 }
-const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id), ...databases.map(d => d.id)]);
+const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id), ...canvases.map(d => d.id)]);
 // 증분 동기화에서는 부모가 이번 수집에 없을 수 있으므로 DB에 있는지도 본다
 const inDb = async (id) => (await query(`SELECT 1 FROM content WHERE id = $1`, [id])).rows.length > 0;
 const linkable = async (id) => !!id && (knownIds.has(id) || await inDb(id));
@@ -335,7 +340,7 @@ for (const f of folders.values()) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [f.id, f.parentId]);
   }
 }
-for (const p of [...pages, ...databases]) {
+for (const p of [...pages, ...canvases]) {
   if (await linkable(p.parentId)) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [p.id, p.parentId]);
   }

@@ -84,18 +84,19 @@ async function requireAccess(req, reply, contentId, need = 'view') {
 async function reindex(contentId) {
   try {
     const { rows } = await query(
-      `SELECT c.id, c.title, c.type, c.updated_at, s.key AS space_key, v.doc,
+      `SELECT c.id, c.title, c.type, c.updated_at, s.key AS space_key, v.doc, w.data->>'plainText' AS canvas_text,
               u.display_name AS author_name,
               coalesce((SELECT array_agg(l.name) FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = c.id), '{}') AS labels
          FROM content c JOIN spaces s ON s.id = c.space_id
          LEFT JOIN content_versions v ON v.content_id = c.id AND v.version = c.current_version
+         LEFT JOIN whiteboard_snapshots w ON w.content_id = c.id AND w.version = c.current_version
          LEFT JOIN users u ON u.id = c.author_id
         WHERE c.id = $1`, [contentId]);
     if (!rows.length) return;
     const r = rows[0];
     await searchSvc.indexContent({
       id: r.id, title: r.title, spaceKey: r.space_key, type: r.type,
-      labels: r.labels, authorName: r.author_name, updatedAt: r.updated_at, doc: r.doc,
+      labels: r.labels, authorName: r.author_name, updatedAt: r.updated_at, doc: r.doc, text: r.canvas_text,
     });
   } catch (e) {
     console.error('[search] 재색인 실패:', e.message);
@@ -330,8 +331,8 @@ app.get('/api/content/:id', async (req, reply) => {
       WHERE c.id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   const c = rows[0];
-  const database = c.type === 'database'
-    ? (await query('SELECT data FROM database_snapshots WHERE content_id=$1 AND version=$2', [c.id, c.current_version])).rows[0]?.data ?? null
+  const canvas = ['database', 'whiteboard'].includes(c.type)
+    ? (await query(`SELECT data FROM ${c.type === 'whiteboard' ? 'whiteboard_snapshots' : 'database_snapshots'} WHERE content_id=$1 AND version=$2`, [c.id, c.current_version])).rows[0]?.data ?? null
     : undefined;
   const { rows: ver } = await query(
     `SELECT v.version, v.doc, v.source_editor, v.created_at, u.display_name AS author_name
@@ -349,8 +350,8 @@ app.get('/api/content/:id', async (req, reply) => {
   const childOk = await filterViewable(req.access, childRows.map((r) => r.id));
   return {
     children: childRows.filter((r) => childOk.has(String(r.id))),
-    data: database,
-    canEdit: c.type !== 'database' && acc.edit, role: acc.role,
+    data: canvas,
+    canEdit: !['database', 'whiteboard'].includes(c.type) && acc.edit, role: acc.role,
     id: c.id, spaceKey: c.space_key, spaceName: c.space_name, parentId: c.parent_id,
     type: c.type, title: c.title, status: c.status, fullWidth: c.full_width, authorName: c.author_name,
     createdAt: c.created_at, updatedAt: c.updated_at, version: ver[0] ?? null,
@@ -411,17 +412,17 @@ app.get('/api/att/:contentId/:filename', async (req, reply) => {
 
 // ---------- 편집: 초안, 게시, 생성 ----------
 
-async function rejectDatabaseEdit(id, reply) {
+async function rejectCanvasEdit(id, reply) {
   const { rows } = await query('SELECT type FROM content WHERE id=$1', [id]);
-  if (rows[0]?.type !== 'database') return false;
-  reply.code(409).send({ error: '읽기 전용 — 원본에서 이관된 데이터베이스입니다.' });
+  if (!['database', 'whiteboard'].includes(rows[0]?.type)) return false;
+  reply.code(409).send({ error: '읽기 전용 — 원본에서 이관된 캔버스입니다.' });
   return true;
 }
 
 
 app.get('/api/content/:id/draft', async (req, reply) => {
   if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
-  if (await rejectDatabaseEdit(req.params.id, reply)) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const { rows } = await query(`SELECT doc, title, base_version, updated_at FROM drafts WHERE content_id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'no draft' });
   return rows[0];
@@ -429,7 +430,7 @@ app.get('/api/content/:id/draft', async (req, reply) => {
 
 app.put('/api/content/:id/draft', async (req, reply) => {
   if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
-  if (await rejectDatabaseEdit(req.params.id, reply)) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const { doc, title, baseVersion } = req.body;
   const userId = req.access.userId;
   await query(
@@ -479,7 +480,7 @@ app.delete('/api/content/:id/editing', async (req) => {
 app.post('/api/content/:id/publish', async (req, reply) => {
   const id = req.params.id;
   if (!await requireAccess(req, reply, id, 'edit')) return;
-  if (await rejectDatabaseEdit(req.params.id, reply)) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const { rows: cur } = await query(`SELECT current_version FROM content WHERE id = $1`, [id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
   const { rows: dr } = await query(`SELECT doc, title, base_version FROM drafts WHERE content_id = $1`, [id]);
@@ -595,7 +596,7 @@ app.get('/api/content/:id/versions/:v', async (req, reply) => {
 app.post('/api/content/:id/restore', async (req, reply) => {
   const id = req.params.id;
   if (!await requireAccess(req, reply, id, 'edit')) return;
-  if (await rejectDatabaseEdit(req.params.id, reply)) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const v = Number(req.body?.version);
   if (!v) return reply.code(400).send({ error: 'version required' });
   const { rows } = await query(`SELECT doc FROM content_versions WHERE content_id = $1 AND version = $2`, [id, v]);

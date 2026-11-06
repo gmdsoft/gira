@@ -1,3 +1,4 @@
+import WhiteboardView from './WhiteboardView.jsx';
 import DatabaseView from './DatabaseView.jsx';
 import { useMobile } from './mobile.js';
 import CommentComposer from './comment-composer.jsx';
@@ -134,6 +135,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   if (error) return <div className="page-error">불러오기 실패: {error}</div>;
   if (!page) return <div className="page-loading">불러오는 중…</div>;
 
+  if (page.type === 'whiteboard') return <WhiteboardView key={page.id} page={page} />;
   if (page.type === 'database') return <DatabaseView key={page.id} page={page} />;
 
   const setStatus = async (status, confirmMsg) => {
