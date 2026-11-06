@@ -74,6 +74,7 @@ const page = (req, reply) => reply.type('text/html')
   .header('cache-control', 'no-cache') // 재배포 시 옛 빌드가 휴리스틱 캐시로 남지 않도록
   .send(createReadStream(path.join(DIST, 'jira.html')));
 app.get('/', page);
+app.get('/for-you', page);                    // 홈 (추천 — 내 할당 이슈·최근 본 항목·바로가기)
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
 app.get('/dev-chat', page);                    // 개발참여 챗봇 (새 탭 전용 페이지)
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
@@ -282,6 +283,48 @@ app.get('/api/issues', async (req, reply) => {
       ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
       OFFSET ${offset} LIMIT ${limit}`, params);
   return { total, rows };
+});
+
+// 홈(추천): 나에게 할당된 열린 이슈 · 최근 본 이슈(?recent=KEY,KEY — 브라우저에 남긴 순서) · 프로젝트별 보드.
+// 모두 접근 가능한 프로젝트 범위 안에서만 돌려준다.
+const HOME_PER_PROJECT = 20;
+app.get('/api/home', async (req) => {
+  const myRoles = await projectRoles(req.access);
+  const pids = [...myRoles.keys()];
+  if (!pids.length) return { assigned: [], assignedTotal: 0, recent: [], boards: [] };
+  const COLS = `i.issue_key, i.summary, i.priority, i.updated_at, pr.key AS project_key, pr.name AS project_name,
+            t.name AS type_name, s.name AS status_name, s.category AS status_category, u.display_name AS assignee_name`;
+  const JOINS = `FROM jira_issues i JOIN jira_projects pr ON pr.id = i.project_id
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN jira_statuses s ON s.id = i.status_id
+       LEFT JOIN users u ON u.id = i.assignee_id`;
+  const MINE = `i.project_id = ANY($1::bigint[]) AND i.assignee_id = $2 AND COALESCE(s.category, 'new') <> 'done'`;
+  const recentKeys = String(req.query.recent ?? '').split(',').map((k) => k.trim().toUpperCase())
+    .filter((k) => /^[A-Z][A-Z0-9]*-\d+$/.test(k)).slice(0, 10);
+  const [assigned, total, recent, boards] = await Promise.all([
+    // 프로젝트마다 우선순위 → 최근 수정 순으로 최대 HOME_PER_PROJECT건 (project_total은 그 프로젝트의 전체 건수)
+    query(`SELECT * FROM (
+             SELECT ${COLS}, count(*) OVER (PARTITION BY i.project_id)::int AS project_total,
+                    row_number() OVER (PARTITION BY i.project_id
+                      ORDER BY ${ISSUE_SORT_COLS.priority}, i.updated_at DESC NULLS LAST, i.id DESC) AS rn
+               ${JOINS} WHERE ${MINE}) x
+            WHERE rn <= ${HOME_PER_PROJECT} ORDER BY project_key, rn`,
+      [pids, req.access.userId]),
+    query(`SELECT count(*)::int AS n ${JOINS} WHERE ${MINE}`, [pids, req.access.userId]),
+    recentKeys.length
+      ? query(`SELECT ${COLS} ${JOINS} WHERE i.project_id = ANY($1::bigint[]) AND i.issue_key = ANY($2::text[])`,
+        [pids, recentKeys])
+      : { rows: [] },
+    query(`SELECT b.id, b.name, b.type, p.key AS project_key FROM jira_boards b
+             JOIN jira_projects p ON p.id = b.project_id
+            WHERE b.project_id = ANY($1::bigint[]) ORDER BY p.key, b.id`, [pids]),
+  ]);
+  const byKey = new Map(recent.rows.map((r) => [r.issue_key, r]));
+  return {
+    assigned: assigned.rows, assignedTotal: total.rows[0].n,
+    recent: recentKeys.map((k) => byKey.get(k)).filter(Boolean),
+    boards: boards.rows,
+  };
 });
 
 app.get('/api/issue/:key', async (req, reply) => {
