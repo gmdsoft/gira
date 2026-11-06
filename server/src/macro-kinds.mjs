@@ -9,7 +9,7 @@ export const HIDDEN_MACROS = new Set([
 ]);
 
 // 본문만 그대로 보여 주는 감싸기 매크로 (Scroll Ignore 같은 bodied 확장은 adfNode 'bodied-extension'으로 처리)
-export const BODY_ONLY_MACROS = new Set(['scroll-content-block']);
+export const BODY_ONLY_MACROS = new Set(['scroll-content-block', 'table-filter', 'pivot-table']);
 
 // 옮길 수 없는 원본 앱 기능 — 배지 대신 작은 안내
 export const NOTICE_MACROS = new Map([

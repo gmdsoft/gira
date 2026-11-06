@@ -1,3 +1,5 @@
+import { mediaTag } from '../../shared/media-macros.mjs';
+import { storageChart } from './storage-chart.js';
 import { selectAttachments } from '../../shared/macro-attachments.mjs';
 import { templateId } from '../../shared/templates.mjs';
 import { chartQuery, renderChart } from './jira-chart.js';
@@ -101,7 +103,59 @@ function fieldWidget(content, ctx) {
   hydrateMacros(div, ctx);
   return div;
 }
+function macroNote(text) {
+  const note = document.createElement('div');
+  note.className = 'cf-macro-notice'; note.textContent = text;
+  return note;
+}
+
+function sourceMacro(el, params, plantuml = false) {
+  const box = document.createElement('div');
+  box.append(macroNote(plantuml ? 'PlantUML 그림은 렌더 서버 연결 후 표시' : '이관되지 않은 위키 마크업 원문'));
+  const pre = document.createElement('pre'), code = document.createElement('code');
+  code.textContent = params.__body ?? ''; pre.append(code); box.append(pre);
+  if (plantuml && params.__body) {
+    const img = document.createElement('img');
+    img.alt = 'PlantUML 다이어그램'; img.style.maxWidth = '100%';
+    img.onload = () => box.prepend(img);
+    img.src = `/api/plantuml/svg?src=${encodeURIComponent(params.__body)}`;
+  }
+  swap(el, box);
+}
+
 const HANDLERS = {
+  multimedia(el, params, ctx) {
+    const filename = typeof params.name === 'string' ? params.name : params.name?.['ri:filename'];
+    const meta = ctx.page.attachments?.find(a => a.filename === filename);
+    if (!meta) { swap(el, macroNote('미디어 첨부 파일을 찾을 수 없습니다.')); return; }
+    const info = { filename, meta, url: `/api/att/${ctx.page.id}/${encodeURIComponent(filename)}` };
+    const tag = mediaTag(filename);
+    if (!tag) { swap(el, fileCard(info)); return; }
+    const media = document.createElement(tag); media.src = info.url;
+    if (tag === 'img') media.alt = filename;
+    else { media.controls = true; media.preload = 'metadata'; media.append(fileCard(info)); }
+    for (const key of ['width', 'height']) if (/^[1-9]\d*$/.test(String(params[key] ?? ''))) media.setAttribute(key, params[key]);
+    media.style.maxWidth = '100%';
+    swap(el, media);
+  },
+  gliffy(el, params, ctx) {
+    const name = params.name;
+    const rows = ctx.page.attachments ?? [];
+    const preview = rows.find(a => a.filename === `${name}.png`)
+      ?? rows.find(a => a.filename === name && (a.media_type?.startsWith('image/') || mediaTag(a.filename) === 'img'));
+    if (!preview) { swap(el, macroNote('Gliffy 미리보기 첨부 파일을 찾을 수 없습니다.')); return; }
+    const img = document.createElement('img');
+    img.src = `/api/att/${ctx.page.id}/${encodeURIComponent(preview.filename)}`;
+    img.alt = name; img.style.maxWidth = '100%';
+    img.onerror = () => img.replaceWith(macroNote('Gliffy 미리보기를 불러올 수 없습니다.'));
+    swap(el, img);
+  },
+  plantuml(el, params) { sourceMacro(el, params, true); },
+  'unmigrated-wiki-markup'(el, params) { sourceMacro(el, params); },
+  chart(el, params) {
+    const chart = storageChart(el.querySelector('.cf-chart-body table'), params);
+    if (chart) swap(el, chart); else el.querySelector('.macro-badge')?.remove();
+  },
   async 'content-report-table'(el, params, ctx) {
     const rows = await report('content', params, ctx);
     swap(el, rows.length ? tableWidget(['제목', '작성자', '수정됨'], rows.map(r => [navLink(ctx, r.space_key, r.id, r.title), r.author_name, fmtDate(r.updated_at)])) : emptyWidget(params.blankDescription || '문서 없음'));

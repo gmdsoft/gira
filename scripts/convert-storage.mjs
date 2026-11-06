@@ -18,7 +18,7 @@ const DYNAMIC_MACROS = new Set([
   'content-report-table', 'attachments', 'change-history', 'roadmap', 'details', 'detailssummary',
   'profile', 'profile-picture', 'create-from-template', 'jirachart', 'widget', 'viewpdf', 'view-file',
   'viewdoc', 'viewxls', 'viewppt', 'multimedia', 'drawio', 'gliffy', 'plantuml', 'chart', 'vote', 'survey',
-  'excerpt', 'scroll-pagebreak', 'iframe', 'html',
+  'unmigrated-wiki-markup', 'excerpt', 'scroll-pagebreak', 'iframe', 'html',
 ]);
 const PANEL_TYPES = { info: 'info', note: 'note', tip: 'success', success: 'success', warning: 'warning', error: 'error', panel: 'custom' };
 
@@ -263,6 +263,7 @@ export function convertStorage(xhtml) {
       default: {
         if (!BODY_ONLY_MACROS.has(name)) countMacro(name, DYNAMIC_MACROS.has(name) ? stats.dynamicMacros : stats.unsupportedMacros);
         // 옮길 수 없는 앱 매크로도 본문 글(투표 선택지·설문 문항)은 안내와 함께 보여 줄 수 있게 보존 (GIRA-57)
+        if (['plantuml', 'unmigrated-wiki-markup'].includes(name)) params.__body = plainBody(n) ?? '';
         if (NOTICE_MACROS.has(name)) { const pb = plainBody(n); if (pb?.trim()) params.__body = pb.trim().slice(0, 4000); }
         return cfMacro(name, params, rich, inlineCtx);
       }

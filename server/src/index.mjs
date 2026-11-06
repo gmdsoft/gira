@@ -1,3 +1,4 @@
+import { registerPlantuml } from './plantuml.mjs';
 import { reportScope, reportNodes, mergeDetails, labelCounts, walk } from './macro-reports.mjs';
 import { resolveAvatar } from './avatar.mjs';
 // API 서버 (PoC).
@@ -68,6 +69,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
+registerPlantuml(app);
 registerTemplates(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
 registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)

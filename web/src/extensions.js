@@ -494,6 +494,7 @@ export const HYDRATED_MACROS = new Set([
   'create-from-template',
   'toc', 'children', 'pagetree', 'view-file', 'viewdoc', 'viewpdf', 'viewppt', 'viewxls',
   'widget', 'profile', 'contributors', 'recently-updated', 'contentbylabel',
+  'multimedia', 'gliffy', 'plantuml', 'unmigrated-wiki-markup', 'chart',
   'include', 'excerpt-include', 'drawio', 'pagetreesearch', 'livesearch', 'jirachart',
 ]);
 
@@ -540,6 +541,7 @@ const CfMacro = Node.create({
     if (name === 'roadmap') return ['div', { class: 'cf-macro-roadmap' }, roadmapSpec(params), ['div', { style: 'display: none' }, 0]]; // GIRA-55
     // 내보내기 앱 표시(쪽 나눔 등): 보기에서 숨김, 편집기에서는 얇은 표시만 (styles.css)
     if (HIDDEN_MACROS.has(name)) return ['div', { class: 'cf-macro-hidden', 'data-macro': name }, ['div', { style: 'display: none' }, 0]];
+    if (name === 'chart') return ['div', { class: 'cf-macro-slot', 'data-macro': name, 'data-params': JSON.stringify(params ?? {}) }, ['div', { class: 'macro-badge' }], ['div', { class: 'cf-chart-body' }, 0]];
     if (BODY_ONLY_MACROS.has(name)) return ['div', { class: 'macro-body-only', 'data-macro': name }, 0];
     if (NOTICE_MACROS.has(name)) {
       const d = noticeDetail(name, params);
