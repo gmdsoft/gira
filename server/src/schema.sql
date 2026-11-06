@@ -144,3 +144,17 @@ CREATE TABLE IF NOT EXISTS redirects (
   content_id bigint,
   target_url text
 );
+
+CREATE TABLE IF NOT EXISTS space_templates (
+  id bigint PRIMARY KEY,
+  space_id bigint NOT NULL REFERENCES spaces(id),
+  name text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  labels text[] NOT NULL DEFAULT '{}',
+  doc jsonb NOT NULL,
+  source_xhtml text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS space_templates_space ON space_templates(space_id);
+CREATE SEQUENCE IF NOT EXISTS space_template_id_seq START 1000000000000;

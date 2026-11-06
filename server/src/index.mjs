@@ -3,6 +3,7 @@
 // - /wiki/* : 기존 Confluence URL 호환 리다이렉트 (docs/architecture.md)
 // - web/dist 가 있으면 SPA 정적 서빙
 import Fastify from 'fastify';
+import { registerTemplates } from './templates.mjs';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import * as searchSvc from './search.mjs';
@@ -65,6 +66,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
+registerTemplates(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
 registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
 registerSourceSync(app, { appName: 'gonfluence' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)

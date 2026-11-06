@@ -2,9 +2,10 @@
 // Confluence Cloud → 새 서비스 DB 임포터 (PoC: 스페이스 단위, 최신 버전만).
 // 읽기 전용 GET 요청만 사용한다. 전체 버전 이력 이관은 파이프라인 단계에서 확장한다.
 //
-// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>] [--pages <id,id,...>]
+// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>] [--pages <id,id,...>] [--templates]
 //   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
+import { importTemplates } from './lib/import-templates.mjs';
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -14,6 +15,7 @@ try { process.loadEnvFile('.env'); } catch { /* 환경변수 직접 지정 가�
 const { values: args } = parseArgs({
   options: {
     space: { type: 'string' },
+    templates: { type: 'boolean', default: false },
     wipe: { type: 'boolean', default: false },
     since: { type: 'string' }, // 증분 동기화 (ISO 시각): 이후 수정·신규 페이지만 본문까지 받는다
     pages: { type: 'string' }, // 지정 페이지만 (쉼표 구분 id)
@@ -221,6 +223,7 @@ for (const { doc } of docs) if (doc) walk(doc, (n) => {
 console.log('DB 적재...');
 
 if (args.wipe) {
+  await query(`DELETE FROM space_templates WHERE space_id = $1`, [space.id]);
   await query(`DELETE FROM content_labels WHERE content_id IN (SELECT id FROM content WHERE space_id = $1)`, [space.id]);
   await query(`DELETE FROM comments WHERE content_id IN (SELECT id FROM content WHERE space_id = $1)`, [space.id]);
   await query(`DELETE FROM attachments WHERE content_id IN (SELECT id FROM content WHERE space_id = $1)`, [space.id]);
@@ -356,4 +359,5 @@ for (let i = 0; i < pages.length; i++) {
 }
 
 console.log(`완료: 콘텐츠 ${knownIds.size} (폴더 ${folders.size}) / 사용자 ${users.size} / 첨부 ${attCount} / 라벨 ${lblCount} / 댓글 ${cmtCount}`);
+if (args.templates) console.log(`템플릿 ${await importTemplates(args.space, { get, query })}개 이관 완료`);
 await closeDb();
