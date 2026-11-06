@@ -129,7 +129,7 @@ export function registerAiAssist(app, { query, appName, dataDir, jql }) {
     const project = await jql.resolveProject(req, reply, String(req.body?.project ?? ''));
     if (!project) return;
     if (!await quota(req, reply, 'jql')) return;
-    const values = await jql.values(project.id);
+    const values = await jql.values(project.id, req);
     const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
     const context = [
       `[오늘] ${today} (KST)`, `[현재 프로젝트] ${project.key}`,

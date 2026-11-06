@@ -357,7 +357,7 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
             <span className="crumb-key">{modalKey}</span>
           </div>
           <div className="issue-modal-actions">
-            <span className="issue-meta-pill" title="제한됨"><IconLock size={14} /></span>
+            {modalRow?.security_level_id && <span className="issue-meta-pill" title="보안 수준 적용"><IconLock size={14} /></span>}
             <span className="issue-meta-pill"><IconEye size={14} /> 1</span>
             <button className="iconbtn" title="공유 (PoC 미지원)"><IconShare size={16} /></button>
             <button className="iconbtn" title="전체 화면으로 열기" onClick={() => onOpen(modalKey)}><IconExpand size={16} /></button>

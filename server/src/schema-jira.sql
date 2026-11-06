@@ -241,3 +241,19 @@ UPDATE jira_issues SET rank = fields_raw->>'customfield_10019'
  WHERE rank IS NULL AND fields_raw->>'customfield_10019' IS NOT NULL;
 CREATE INDEX IF NOT EXISTS jira_issues_project_rank_idx
  ON jira_issues (project_id, rank COLLATE "C", issue_key);
+
+-- 원본 보안 수준은 미매핑/미이관 상태에서도 비공개로 유지한다 (FK를 두지 않는다).
+CREATE TABLE IF NOT EXISTS jira_security_schemes (id text PRIMARY KEY, name text);
+CREATE TABLE IF NOT EXISTS jira_security_levels (
+  id text PRIMARY KEY, scheme_id text NOT NULL, name text NOT NULL, description text
+);
+CREATE TABLE IF NOT EXISTS jira_security_members (
+  level_id text NOT NULL, kind text NOT NULL CHECK (kind IN ('group','role','user','reporter','assignee','projectLead')),
+  value text NOT NULL DEFAULT '', PRIMARY KEY (level_id, kind, value)
+);
+ALTER TABLE jira_projects ADD COLUMN IF NOT EXISTS security_scheme_id text;
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS security_level_id text;
+UPDATE jira_issues SET security_level_id = fields_raw->'security'->>'id'
+ WHERE security_level_id IS NULL AND fields_raw->'security'->>'id' IS NOT NULL;
+CREATE INDEX IF NOT EXISTS jira_issues_security ON jira_issues(security_level_id);
+ALTER TABLE jira_comments ADD COLUMN IF NOT EXISTS visibility jsonb;

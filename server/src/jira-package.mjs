@@ -1,3 +1,4 @@
+import { viewableIssues, commentVisibilitySql } from './perm.mjs';
 // Gira 프로젝트 패키지 (.zip): manifest.json + attachments/ (로컬 업로드 파일만).
 // 내보내기: 프로젝트 전체(이슈·댓글·첨부 메타·링크·기록·스프린트·보드)와 참조 사용자 목록.
 // 가져오기: 사용자는 이메일→account_id 순으로 기존과 매칭(없으면 생성), 이슈/댓글/첨부는
@@ -12,9 +13,9 @@ export const PKG_FORMAT = 'gira-project';
 
 const all = async (sql, params) => (await query(sql, params)).rows;
 
-export async function exportProject(projectId) {
+export async function exportProject(projectId, access) {
   const [project] = await all(`SELECT * FROM jira_projects WHERE id = $1`, [projectId]);
-  const issues = await all(`SELECT * FROM jira_issues WHERE project_id = $1 ORDER BY id`, [projectId]);
+  const issues = await all(`SELECT * FROM ${viewableIssues(access)} vi WHERE project_id = $1 ORDER BY id`, [projectId]);
   const issueIds = issues.map((i) => i.id);
   const inIssues = `issue_id = ANY($1::bigint[])`;
   const [statuses, types, versions, sprints, boards, comments, attachments, changelog, links] = await Promise.all([
@@ -23,17 +24,17 @@ export async function exportProject(projectId) {
     all(`SELECT * FROM jira_versions WHERE project_id = $1 ORDER BY id`, [projectId]),
     all(`SELECT * FROM jira_sprints WHERE project_id = $1 ORDER BY id`, [projectId]),
     all(`SELECT * FROM jira_boards WHERE project_id = $1 ORDER BY id`, [projectId]),
-    all(`SELECT * FROM jira_comments WHERE ${inIssues} ORDER BY id`, [issueIds]),
+    all(`SELECT c.* FROM jira_comments c JOIN ${viewableIssues(access)} ci ON ci.id = c.issue_id WHERE c.${inIssues} AND ${commentVisibilitySql(access)} ORDER BY c.id`, [issueIds]),
     all(`SELECT * FROM jira_attachments WHERE ${inIssues} ORDER BY id`, [issueIds]),
     all(`SELECT * FROM jira_changelog WHERE ${inIssues} ORDER BY id`, [issueIds]),
-    all(`SELECT * FROM jira_issue_links WHERE inward_issue = ANY($1::bigint[]) OR outward_issue = ANY($1::bigint[])`, [issueIds]),
+    all(`SELECT * FROM jira_issue_links WHERE inward_issue = ANY($1::bigint[]) AND outward_issue = ANY($1::bigint[])`, [issueIds]),
   ]);
   // 참조된 사용자 (매칭용 최소 정보)
   const users = await all(
     `SELECT DISTINCT u.id, u.email, u.display_name, u.confluence_account_id
        FROM users u WHERE u.id IN (
-         SELECT assignee_id FROM jira_issues WHERE project_id = $1 AND assignee_id IS NOT NULL
-         UNION SELECT reporter_id FROM jira_issues WHERE project_id = $1 AND reporter_id IS NOT NULL
+         SELECT assignee_id FROM ${viewableIssues(access)} vi WHERE project_id = $1 AND assignee_id IS NOT NULL
+         UNION SELECT reporter_id FROM ${viewableIssues(access)} vi WHERE project_id = $1 AND reporter_id IS NOT NULL
          UNION SELECT author_id FROM jira_comments WHERE ${inIssues.replace('$1', '$2')} AND author_id IS NOT NULL
          UNION SELECT author_id FROM jira_changelog WHERE ${inIssues.replace('$1', '$2')} AND author_id IS NOT NULL
          UNION SELECT author_id FROM jira_attachments WHERE ${inIssues.replace('$1', '$2')} AND author_id IS NOT NULL
@@ -145,15 +146,15 @@ export async function importProject(buffer, requesterId) {
       const row = await one(
         `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
            priority, resolution, assignee_id, reporter_id, sprint_id, labels, fix_versions, components,
-           created_at, updated_at, resolved_at, fields_raw)
-         VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+           created_at, updated_at, resolved_at, fields_raw, security_level_id)
+         VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
          RETURNING id`,
         [projectId, i.issue_key, typeMap.get(String(i.issue_type_id)) ?? null, statusMap.get(String(i.status_id)) ?? null,
          i.summary, i.description_adf ?? null, i.priority ?? null, i.resolution ?? null,
          mapUser(i.assignee_id), mapUser(i.reporter_id),
          i.sprint_id != null ? sprintMap.get(String(i.sprint_id)) ?? null : null,
          i.labels ?? [], i.fix_versions ?? [], i.components ?? [],
-         i.created_at ?? null, i.updated_at ?? null, i.resolved_at ?? null, i.fields_raw ?? null]);
+         i.created_at ?? null, i.updated_at ?? null, i.resolved_at ?? null, i.fields_raw ?? null, i.security_level_id ?? i.fields_raw?.security?.id ?? null]);
       issueMap.set(String(i.id), Number(row.id));
     }
     for (const i of m.issues ?? []) {
@@ -167,9 +168,9 @@ export async function importProject(buffer, requesterId) {
       const iid = issueMap.get(String(c.issue_id));
       if (!iid) continue;
       await client.query(
-        `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
-         VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, $4, $5)`,
-        [iid, c.body_adf ?? null, mapUser(c.author_id), c.created_at ?? null, c.updated_at ?? null]);
+        `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at, visibility)
+         VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, $4, $5, $6)`,
+        [iid, c.body_adf ?? null, mapUser(c.author_id), c.created_at ?? null, c.updated_at ?? null, c.visibility ?? null]);
     }
 
     const attFiles = []; // [{entryName, localKey}]

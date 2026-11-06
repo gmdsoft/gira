@@ -425,7 +425,12 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
         </div>
       </div>
       <div className="issue-meta-row">
-        <span className="issue-meta-pill"><IconLock size={14} /> 제한됨</span>
+        {d.security_level_name && <span className="issue-meta-pill"><IconLock size={14} /> {d.security_level_name}</span>}
+        {d.project_role === 'admin' && !mobile && <select aria-label="이슈 보안 수준" value={d.security_level_id ?? ''} onChange={e => patch({ securityLevelId: e.target.value || null })}>
+          <option value="">제한 없음</option>
+          {d.security_level_id && !d.securityLevels?.some(l => l.id === d.security_level_id) && <option value={d.security_level_id}>{d.security_level_name}</option>}
+          {(d.securityLevels ?? []).map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select>}
         <span className="issue-meta-pill"><IconEye size={14} /> 1</span>
         <button className="toolbtn"><IconShare size={14} /> 공유</button>
       </div>

@@ -206,3 +206,58 @@ export async function visibleTreeSet(access, spaceId, role, treeRows) {
   }
   return ok;
 }
+
+// SQL에 삽입되는 조직 id는 검증된 정수만 허용한다. 사용자 입력은 이 함수에 넘기지 않는다.
+function accessId(value) {
+  if (!Number.isSafeInteger(Number(value)) || Number(value) < 1) throw new Error('Invalid access id');
+  return String(Number(value));
+}
+export function jiraPrincipalSql(access, alias = 'jp') {
+  const uid = accessId(access.userId);
+  const groups = (access.groups ?? []).map(accessId).join(',') || 'NULL';
+  const teams = (access.teams ?? []).map(accessId).join(',') || 'NULL';
+  return `(${alias}.principal_type = 'anyone'
+    OR (${alias}.principal_type = 'user' AND ${alias}.principal_id = ${uid})
+    OR (${alias}.principal_type = 'group' AND ${alias}.principal_id IN (${groups}))
+    OR (${alias}.principal_type = 'team' AND ${alias}.principal_id IN (${teams})))`;
+}
+export function jiraProjectSql(access, project, admin = false) {
+  if (access?.isAdmin) return 'TRUE';
+  if (!access) return 'FALSE';
+  return `EXISTS (SELECT 1 FROM jira_project_permissions jp WHERE jp.project_id = ${project}
+    ${admin ? "AND jp.role = 'admin'" : ''} AND ${jiraPrincipalSql(access)})`;
+}
+// 보안 구성원의 모든 종류를 한곳에서 판정. 알 수 없는 종류/미매핑 그룹은 일치하지 않는다.
+export function jiraMemberSql(access, kind, value, issue) {
+  const uid = accessId(access.userId);
+  return `((${kind} = 'group' AND EXISTS (SELECT 1 FROM groups sg JOIN user_groups sug ON sug.group_id = sg.id
+      WHERE sg.name = ${value} AND sug.user_id = ${uid}))
+    OR (${kind} = 'role' AND ${value} = '10003' AND ${jiraProjectSql(access, `${issue}.project_id`, true)})
+    OR (${kind} = 'user' AND EXISTS (SELECT 1 FROM users su WHERE su.id = ${uid} AND su.confluence_account_id = ${value}))
+    OR (${kind} = 'reporter' AND ${issue}.reporter_id = ${uid})
+    OR (${kind} = 'assignee' AND ${issue}.assignee_id = ${uid})
+    OR (${kind} = 'projectLead' AND EXISTS (SELECT 1 FROM jira_projects sp WHERE sp.id = ${issue}.project_id AND sp.lead_id = ${uid})))`;
+}
+export function issueVisibilitySql(access, alias = 'si') {
+  if (access?.isAdmin) return 'TRUE';
+  if (!access) return 'FALSE';
+  // fields_raw fallback: 임포터/패키지에서 security_level_id를 아직 채우지 않았어도 닫힌 쪽으로.
+  const level = `COALESCE(${alias}.security_level_id, ${alias}.fields_raw->'security'->>'id')`;
+  return `(${jiraProjectSql(access, `${alias}.project_id`)} AND (${level} IS NULL
+    OR ${jiraProjectSql(access, `${alias}.project_id`, true)}
+    OR EXISTS (SELECT 1 FROM jira_security_members sm WHERE sm.level_id = ${level}
+      AND ${jiraMemberSql(access, 'sm.kind', 'sm.value', alias)})))`;
+}
+// FROM/JOIN 양쪽에 사용: 제한된 부모/링크 이슈의 제목, 집계와 JQL 조인도 함께 차단한다.
+export function viewableIssues(access) {
+  return `(SELECT si.* FROM jira_issues si WHERE ${issueVisibilitySql(access)})`;
+}
+export function commentVisibilitySql(access, alias = 'c', issue = 'ci') {
+  if (access?.isAdmin) return 'TRUE';
+  if (!access) return 'FALSE';
+  const kind = `CASE ${alias}.visibility->>'type' WHEN 'group' THEN 'group' WHEN 'role' THEN 'role' END`;
+  const value = `CASE WHEN ${alias}.visibility->>'type' = 'group'
+    THEN COALESCE(${alias}.visibility->>'value', ${alias}.visibility->>'identifier')
+    ELSE COALESCE(${alias}.visibility->>'identifier', ${alias}.visibility->>'value') END`;
+  return `(${alias}.visibility IS NULL OR ${jiraMemberSql(access, kind, value, issue)})`;
+}

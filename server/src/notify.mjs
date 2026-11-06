@@ -51,7 +51,7 @@ export function publicBase(req, envName) {
   return `${proto}://${host}`;
 }
 
-export function createNotifier({ query, app, env = process.env, log = console, fetchImpl = (...a) => fetch(...a) }) {
+export function createNotifier({ query, app, env = process.env, log = console, fetchImpl = (...a) => fetch(...a), authorize = async () => true, notificationSql = () => 'TRUE' }) {
   // MAIL_* 세트가 다 있으면 그것(메일 전용 앱), 아니면 예전 이름들. 세트를 섞지 않는다(다른 앱의 시크릿과 짝이 안 맞음)
   const dedicated = env.MAIL_TENANT_ID && env.MAIL_CLIENT_ID && env.MAIL_CLIENT_SECRET;
   const mail = dedicated ? {
@@ -88,6 +88,7 @@ export function createNotifier({ query, app, env = process.env, log = console, f
       const people = [...new Set(Object.values(ev.people ?? {}).filter(Boolean).map(Number))]
         .filter((id) => id !== Number(ev.actorId));
       for (const uid of people) {
+        if (!await authorize({ path: ev.path, userId: uid })) continue;
         await query(
           `INSERT INTO notifications (user_id, event, title, path, actor_name) VALUES ($1, $2, $3, $4, $5)`,
           [uid, ev.event, ev.title, ev.path, ev.actorName ?? null]);
@@ -97,6 +98,8 @@ export function createNotifier({ query, app, env = process.env, log = console, f
         `SELECT * FROM notify_rules WHERE resource_type = $1 AND resource_id = $2 AND enabled AND $3 = ANY(events)`,
         [ev.resourceType, ev.resourceId, ev.event]);
       for (const r of rules) {
+        // A shared channel has no per-viewer authorization; restricted issues stay in-app.
+        if (!await authorize({ path: ev.path, external: true })) continue;
         let target = r.target;
         if (r.channel === 'teams') target = r.target || env.TEAMS_WEBHOOK_URL || '';
         else {
@@ -182,6 +185,10 @@ export function createNotifier({ query, app, env = process.env, log = console, f
         RETURNING *`, [limit]);
     const ch = channels();
     for (const m of rows) {
+      if (!await authorize({ path: new URL(m.url, 'http://localhost').pathname, external: true })) {
+        await query("UPDATE notify_outbox SET status = 'skipped', last_error = '접근 제한' WHERE id = $1", [m.id]);
+        continue;
+      }
       const ready = m.channel === 'teams' ? (m.target && validTeamsUrl(m.target)) : ch.email;
       if (!ready) {
         await query(`UPDATE notify_outbox SET status = 'skipped', last_error = $2 WHERE id = $1`,
@@ -321,8 +328,8 @@ export function createNotifier({ query, app, env = process.env, log = console, f
     fastify.get('/api/notifications', async (req) => {
       const { rows } = await query(
         `SELECT id, event, title, path, actor_name, created_at, read_at FROM notifications
-          WHERE user_id = $1 ORDER BY id DESC LIMIT 30`, [req.access.userId]);
-      const { rows: c } = await query(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL`, [req.access.userId]);
+          WHERE user_id = $1 AND (${notificationSql(req.access)}) ORDER BY id DESC LIMIT 30`, [req.access.userId]);
+      const { rows: c } = await query(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL AND (${notificationSql(req.access)})`, [req.access.userId]);
       return { unread: c[0].n, items: rows.map((r) => ({ ...r, label: EVENT_LABELS[r.event] ?? r.event })) };
     });
     fastify.post('/api/notifications/read', async (req) => {

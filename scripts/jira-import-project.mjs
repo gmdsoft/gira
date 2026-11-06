@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { importSecurity } from './lib/jira-security.mjs';
 // Jira Cloud → 새 서비스 DB 임포터 (PoC: 프로젝트 단위, 최신 상태만).
 // 읽기 전용 GET 요청만 사용한다. 변경 이력(changelog)·워크로그는 PoC 범위 밖.
 // 대형 프로젝트(1만+ 이슈)를 위해 페이지 단위로 수집·적재한다 (메모리에 전체를 들지 않음).
@@ -93,6 +94,7 @@ await query(
    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, raw = EXCLUDED.raw`,
   [project.id, project.key, project.name, project.projectTypeKey ?? null, project.style ?? null,
    JSON.stringify({ description: project.description ?? null, avatarUrls: project.avatarUrls ?? null })]);
+await importSecurity({ get, query, project });
 
 for (const [id, s] of statuses) {
   await query(
@@ -171,6 +173,8 @@ async function ensureUsers(accountIds) {
     userIdByAccount.set(id, rows[0].id);
   }
 }
+await ensureUsers(new Set([project.lead?.accountId]));
+await query('UPDATE jira_projects SET lead_id = $2 WHERE id = $1', [project.id, userIdByAccount.get(project.lead?.accountId) ?? null]);
 const uid = (u) => (u?.accountId ? userIdByAccount.get(u.accountId) ?? null : null);
 
 // 구형 스프린트 직렬화 문자열("...Sprint@..[id=5,name=..,state=..]") 대응
@@ -278,14 +282,14 @@ for (;;) {
       `INSERT INTO jira_issues
          (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
           priority, resolution, assignee_id, reporter_id, sprint_id, labels, fix_versions, components,
-          created_at, updated_at, resolved_at, fields_raw, rank)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+          created_at, updated_at, resolved_at, fields_raw, rank, security_level_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
        ON CONFLICT (id) DO UPDATE SET
          status_id = EXCLUDED.status_id, summary = EXCLUDED.summary,
          description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
          resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id, sprint_id = EXCLUDED.sprint_id,
          labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
-         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw, rank = EXCLUDED.rank
+         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw, rank = EXCLUDED.rank, security_level_id = EXCLUDED.security_level_id
        WHERE jira_issues.project_id = EXCLUDED.project_id`,
       [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
        f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
@@ -293,17 +297,17 @@ for (;;) {
        uid(f.assignee), uid(f.reporter), sprintId,
        f.labels ?? [], names(f.fixVersions), names(f.components),
        f.created ?? null, f.updated ?? null, f.resolutiondate ?? null,
-       JSON.stringify(rawRest), f.customfield_10019 ?? null]);
+       JSON.stringify(rawRest), f.customfield_10019 ?? null, f.security?.id ?? null]);
     knownIds.add(Number(iss.id));
     if (f.parent?.id) parentPairs.push([Number(iss.id), Number(f.parent.id)]);
 
     for (const c of commentsByIssue.get(iss.id) ?? []) {
       await query(
-        `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6)
-         ON CONFLICT (id) DO UPDATE SET body_adf = EXCLUDED.body_adf, updated_at = EXCLUDED.updated_at
+        `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at, visibility)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (id) DO UPDATE SET body_adf = EXCLUDED.body_adf, updated_at = EXCLUDED.updated_at, visibility = EXCLUDED.visibility
          WHERE jira_comments.issue_id = EXCLUDED.issue_id`,
-        [c.id, iss.id, c.body ? JSON.stringify(c.body) : null, uid(c.author), c.created ?? null, c.updated ?? null]);
+        [c.id, iss.id, c.body ? JSON.stringify(c.body) : null, uid(c.author), c.created ?? null, c.updated ?? null, c.visibility ? JSON.stringify(c.visibility) : null]);
       cmtCount++;
     }
     for (const a of f.attachment ?? []) {

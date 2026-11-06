@@ -15,7 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
-import { projectRole, projectRoles } from './perm.mjs';
+import { projectRole, projectRoles, viewableIssues, issueVisibilitySql, commentVisibilitySql, getAccess } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
 import { registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
@@ -72,6 +72,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
   GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_sprints), (SELECT last_value FROM jira_sprints_id_seq)))`);
 
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
+app.addHook('onRequest', async (req, reply) => { if (req.url.startsWith('/api/')) reply.header('Cache-Control', 'private, no-store'); });
 registerProjectCreate(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
 registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
@@ -112,19 +113,30 @@ async function commentAttachments(issueId, ids) {
 }
 
 // ---------- 알림 (GIRA-14) ----------
-const notifier = createNotifier({ query, app: 'gira' });
+const notifier = createNotifier({ query, app: 'gira',
+  authorize: async ({ path, userId, external }) => {
+    const key = /^\/browse\/([^/]+)$/.exec(path)?.[1];
+    if (!key) return external && path === '/';
+    const access = external ? null : await getAccess(userId);
+    const { rows } = await query(`SELECT 1 FROM jira_issues si WHERE si.issue_key = $1 AND ${external
+      ? "COALESCE(si.security_level_id, si.fields_raw->'security'->>'id') IS NULL"
+      : issueVisibilitySql(access)}`, [decodeURIComponent(key)]);
+    return rows.length > 0;
+  },
+  notificationSql: access => `EXISTS (SELECT 1 FROM ${viewableIssues(access)} ni WHERE notifications.path = '/browse/' || ni.issue_key)`,
+});
 // 이슈 이벤트 → 알림. 제목은 '키 요약'(상태 변경이면 '이전 → 이후' 덧붙임) — 본문은 담지 않는다
 // 새 이슈: '이슈 등록' + 담당자가 정해져 있으면 '담당자 지정'
 function notifyCreated(req, issueId) {
   notifyIssue(req, issueId, 'issue.created');
-  query(`SELECT assignee_id FROM jira_issues WHERE id = $1`, [issueId])
+  query(`SELECT assignee_id FROM ${viewableIssues(req.access)} visible_issue WHERE id = $1`, [issueId])
     .then(({ rows }) => { if (rows[0]?.assignee_id) notifyIssue(req, issueId, 'issue.assigned'); })
     .catch((e) => console.error('[notify]', e.message));
 }
 function notifyIssue(req, issueId, event, extra) {
   (async () => {
     const { rows } = await query(
-      `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id FROM jira_issues i WHERE i.id = $1`, [issueId]);
+      `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id FROM ${viewableIssues(req.access)} i WHERE i.id = $1`, [issueId]);
     const it = rows[0];
     if (!it) return;
     await notifier.emit({
@@ -136,8 +148,8 @@ function notifyIssue(req, issueId, event, extra) {
   })().catch((e) => console.error('[notify]', e.message));
 }
 
-async function issueByKey(key) {
-  const { rows } = await query(`SELECT id, project_id, issue_key, issue_type_id, rank FROM jira_issues WHERE issue_key = $1`, [key]);
+async function issueByKey(key, req) {
+  const { rows } = await query(`SELECT id, project_id, issue_key, issue_type_id, rank FROM ${viewableIssues(req.access)} visible_issue WHERE issue_key = $1`, [key]);
   return rows[0] ?? null;
 }
 
@@ -179,11 +191,11 @@ app.get('/api/meta', async (req) => {
     query(`SELECT id, name, category FROM jira_statuses ORDER BY
              CASE category WHEN 'new' THEN 0 WHEN 'indeterminate' THEN 1 ELSE 2 END, id`),
     query(`SELECT id, name, subtask FROM jira_issue_types
-            WHERE id IN (SELECT DISTINCT issue_type_id FROM jira_issues) ORDER BY subtask, name`),
+            WHERE id IN (SELECT DISTINCT issue_type_id FROM ${viewableIssues(req.access)} visible_issue) ORDER BY subtask, name`),
     query(`SELECT DISTINCT u.id, u.display_name FROM users u
-            JOIN jira_issues i ON i.assignee_id = u.id OR i.reporter_id = u.id ORDER BY u.display_name`),
-    query(`SELECT DISTINCT priority FROM jira_issues WHERE priority IS NOT NULL`),
-    query(`SELECT DISTINCT resolution FROM jira_issues WHERE resolution IS NOT NULL`),
+            JOIN ${viewableIssues(req.access)} i ON i.assignee_id = u.id OR i.reporter_id = u.id ORDER BY u.display_name`),
+    query(`SELECT DISTINCT priority FROM ${viewableIssues(req.access)} visible_issue WHERE priority IS NOT NULL`),
+    query(`SELECT DISTINCT resolution FROM ${viewableIssues(req.access)} visible_issue WHERE resolution IS NOT NULL`),
   ]);
   return {
     // 접근 가능한 프로젝트만 노출 (role 포함)
@@ -204,14 +216,14 @@ app.get('/api/people', async (req, reply) => {
   if (!pr) return;
   const { rows } = await query(
     `SELECT u.id, u.display_name, max(x.at) AS last_at FROM (
-       SELECT assignee_id AS uid, updated_at AS at FROM jira_issues
+       SELECT assignee_id AS uid, updated_at AS at FROM ${viewableIssues(req.access)} visible_issue
         WHERE project_id = $1 AND assignee_id IS NOT NULL
        UNION ALL
-       SELECT reporter_id, created_at FROM jira_issues
+       SELECT reporter_id, created_at FROM ${viewableIssues(req.access)} visible_issue
         WHERE project_id = $1 AND reporter_id IS NOT NULL
        UNION ALL
        SELECT h.author_id, h.created_at FROM jira_changelog h
-         JOIN jira_issues i ON i.id = h.issue_id
+         JOIN ${viewableIssues(req.access)} i ON i.id = h.issue_id
         WHERE i.project_id = $1 AND h.author_id IS NOT NULL
      ) x JOIN users u ON u.id = x.uid AND u.active
      GROUP BY u.id, u.display_name
@@ -233,7 +245,7 @@ app.get('/api/versions', async (req, reply) => {
 app.get('/api/labels', async (req, reply) => {
   if (!await requireProject(req, reply, req.query.project)) return;
   const one = async (col) => (await query(
-    `SELECT DISTINCT unnest(i.${col}) AS v FROM jira_issues i
+    `SELECT DISTINCT unnest(i.${col}) AS v FROM ${viewableIssues(req.access)} i
        JOIN jira_projects p ON p.id = i.project_id WHERE p.key = $1 ORDER BY v`, [req.query.project]))
     .rows.map((r) => r.v);
   const [labels, components] = await Promise.all([one('labels'), one('components')]);
@@ -258,17 +270,17 @@ const ISSUE_SORT_COLS = {
   updated: 'i.updated_at',
 };
 
-const STATS_JOINS = `
-       FROM jira_issues i
+const statsJoins = (req) => `
+       FROM ${viewableIssues(req.access)} i
        JOIN jira_projects pr ON pr.id = i.project_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN users u ON u.id = i.assignee_id
        LEFT JOIN users ur ON ur.id = i.reporter_id
        LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
-       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
+       LEFT JOIN ${viewableIssues(req.access)} p1 ON p1.id = i.parent_id
        LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
-       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
+       LEFT JOIN ${viewableIssues(req.access)} p2 ON p2.id = p1.parent_id
        LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
 
 // JQL용 사용자 정의 필드 목록 (숨김 필드 제외) — 1분 캐시. 필드 id를 미리 풀어 행마다 jira_fields를 찾지 않게 한다 (GIRA-65)
@@ -292,7 +304,7 @@ app.get('/api/stats', async (req, reply) => {
     const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields() }).where : 'TRUE';
     const { rows } = await query(`SELECT i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
       pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
-      ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
+      ${statsJoins(req)} WHERE ${scope} AND (${parsed})`, params);
     const projects = (await query('SELECT key FROM jira_projects')).rows.map(r => r.key.toUpperCase());
     return { ...aggregate(rows, req.query), missingProjects: [...new Set(requestedProjects(jql).filter(k => !projects.includes(k.toUpperCase())))], project: rows[0]?.project ?? null };
   } catch (e) {
@@ -343,26 +355,26 @@ app.get('/api/issues', async (req, reply) => {
 
   // count에도 본 쿼리와 같은 조인 세트 사용 (JQL 조건이 조인 별칭을 참조)
   const JOINS = `
-       FROM jira_issues i
+       FROM ${viewableIssues(req.access)} i
        JOIN jira_projects pr ON pr.id = i.project_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN users u ON u.id = i.assignee_id
        LEFT JOIN users ur ON ur.id = i.reporter_id
        LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
-       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
+       LEFT JOIN ${viewableIssues(req.access)} p1 ON p1.id = i.parent_id
        LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
-       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
+       LEFT JOIN ${viewableIssues(req.access)} p2 ON p2.id = p1.parent_id
        LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
   const total = (await query(
     `SELECT count(*)::int AS n ${JOINS} WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
   const { rows } = await query(
-    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at, i.fields_raw, i.project_id, i.issue_type_id,
+    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at, i.fields_raw, i.security_level_id, i.project_id, i.issue_type_id,
             i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions, i.assignee_id,
             t.name AS type_name, t.subtask,
             s.id AS status_id, s.name AS status_name, s.category AS status_category,
             u.display_name AS assignee_name, ur.display_name AS reporter_name,
-            (SELECT count(*)::int FROM jira_issues c WHERE c.parent_id = i.id) AS children_count,
+            (SELECT count(*)::int FROM ${viewableIssues(req.access)} c WHERE c.parent_id = i.id) AS children_count,
             -- 소속 에픽: 부모 또는 조부모가 에픽이면 그 이슈 (에픽→스토리→하위작업 3단계)
             CASE WHEN pt1.name = '에픽' THEN p1.id WHEN pt2.name = '에픽' THEN p2.id END AS epic_id,
             CASE WHEN pt1.name = '에픽' THEN p1.issue_key WHEN pt2.name = '에픽' THEN p2.issue_key END AS epic_key,
@@ -395,7 +407,7 @@ app.get('/api/home', async (req) => {
   if (!pids.length) return { assigned: [], assignedTotal: 0, recent: [], boards: [] };
   const COLS = `i.issue_key, i.summary, i.priority, i.updated_at, pr.key AS project_key, pr.name AS project_name,
             t.name AS type_name, s.name AS status_name, s.category AS status_category, u.display_name AS assignee_name`;
-  const JOINS = `FROM jira_issues i JOIN jira_projects pr ON pr.id = i.project_id
+  const JOINS = `FROM ${viewableIssues(req.access)} i JOIN jira_projects pr ON pr.id = i.project_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN users u ON u.id = i.assignee_id`;
@@ -434,12 +446,12 @@ app.get('/api/issue/:key', async (req, reply) => {
             ua.display_name AS assignee_name, ur.display_name AS reporter_name,
             pi.issue_key AS parent_key, pi.summary AS parent_summary,
             sp.name AS sprint_name
-       FROM jira_issues i
+       FROM ${viewableIssues(req.access)} i
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN users ua ON ua.id = i.assignee_id
        LEFT JOIN users ur ON ur.id = i.reporter_id
-       LEFT JOIN jira_issues pi ON pi.id = i.parent_id
+       LEFT JOIN ${viewableIssues(req.access)} pi ON pi.id = i.parent_id
        LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
       WHERE i.issue_key = $1`, [req.params.key]);
   const issue = rows[0];
@@ -447,26 +459,31 @@ app.get('/api/issue/:key', async (req, reply) => {
   const proj = await requireProjectId(req, reply, issue.project_id);
   if (!proj) return;
   issue.project_role = proj.role;
+  issue.security_level_name = (await query('SELECT name FROM jira_security_levels WHERE id = $1', [issue.security_level_id])).rows[0]?.name
+    ?? issue.fields_raw?.security?.name ?? (issue.security_level_id ? '제한됨' : null);
+  issue.securityLevels = proj.role === 'admin' ? (await query(`SELECT id, name FROM jira_security_levels
+    WHERE scheme_id = (SELECT security_scheme_id FROM jira_projects WHERE id = $1) ORDER BY name`, [issue.project_id])).rows : [];
+
   issue.customFields = normalizeCustomFields((await query('SELECT * FROM jira_fields WHERE custom')).rows, issue.fields_raw, issue.project_id, issue.issue_type_id);
   delete issue.fields_raw;
 
   const [comments, attachments, links, subtasks, history, weblinks] = await Promise.all([
-    query(`SELECT c.id, c.body_adf, c.created_at, u.display_name AS author_name
+    query(`SELECT c.id, c.body_adf, c.visibility, c.created_at, u.display_name AS author_name
              FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
-            WHERE c.issue_id = $1 ORDER BY c.created_at`, [issue.id]),
+            WHERE c.issue_id = $1 AND EXISTS (SELECT 1 FROM jira_issues ci WHERE ci.id = c.issue_id AND ${commentVisibilitySql(req.access)}) ORDER BY c.created_at`, [issue.id]),
     query(`SELECT id, filename, media_type, media_id, file_size, created_at FROM jira_attachments
             WHERE issue_id = $1 ORDER BY created_at`, [issue.id]),
     query(`SELECT l.id, l.link_type, l.inward_issue, l.outward_issue,
                   ii.issue_key AS inward_key, ii.summary AS inward_summary,
                   oi.issue_key AS outward_key, oi.summary AS outward_summary
              FROM jira_issue_links l
-             LEFT JOIN jira_issues ii ON ii.id = l.inward_issue
-             LEFT JOIN jira_issues oi ON oi.id = l.outward_issue
+             LEFT JOIN ${viewableIssues(req.access)} ii ON ii.id = l.inward_issue
+             LEFT JOIN ${viewableIssues(req.access)} oi ON oi.id = l.outward_issue
             WHERE l.inward_issue = $1 OR l.outward_issue = $1`, [issue.id]),
     query(`SELECT i.issue_key, i.summary, i.priority, i.resolved_at,
                   s.id AS status_id, s.name AS status_name, s.category AS status_category,
                   t.name AS type_name, u.display_name AS assignee_name
-             FROM jira_issues i
+             FROM ${viewableIssues(req.access)} i
              LEFT JOIN jira_statuses s ON s.id = i.status_id
              LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
              LEFT JOIN users u ON u.id = i.assignee_id
@@ -478,8 +495,8 @@ app.get('/api/issue/:key', async (req, reply) => {
              FROM jira_web_links w LEFT JOIN users u ON u.id = w.author_id
             WHERE w.issue_id = $1 ORDER BY w.id`, [issue.id]),
   ]);
-  return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
-           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)) };
+  return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows.filter(l => l.inward_key && l.outward_key),
+           subtasks: subtasks.rows, history: history.rows.map(h => ({ ...h, items: (h.items ?? []).filter(item => !['link', 'issuelinks', 'parent', 'epic link', 'security', 'security level'].includes(String(item.field ?? '').toLowerCase())) })).filter(h => h.items.length), weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)) };
 });
 
 // ---------- 이슈 생성/수정 ----------
@@ -494,7 +511,7 @@ app.post('/api/issues', async (req, reply) => {
   if (!project) return;
   let parentId = null;
   if (parentKey?.trim()) {
-    const parent = await issueByKey(parentKey.trim().toUpperCase());
+    const parent = await issueByKey(parentKey.trim().toUpperCase(), req);
     if (!parent) return reply.code(400).send({ error: `상위 이슈 ${parentKey}를 찾을 수 없습니다` });
     if (parent.project_id !== project.id) return reply.code(400).send({ error: '상위 이슈는 같은 프로젝트여야 합니다' });
     parentId = parent.id;
@@ -531,40 +548,54 @@ app.post('/api/issues', async (req, reply) => {
 });
 
 app.patch('/api/issue/:key', async (req, reply) => {
-  const issue = await issueByKey(req.params.key);
+  const issue = await issueByKey(req.params.key, req);
   if (!issue) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   const b = req.body ?? {};
   const sets = [];
   const params = [issue.id];
   const p = (v) => { params.push(v); return `$${params.length}`; };
+  let rawExpression = "COALESCE(fields_raw, '{}'::jsonb)";
+  let rawChanged = false;
   if ('rankBefore' in b || 'rankAfter' in b) {
     if (('rankBefore' in b) === ('rankAfter' in b)) return reply.code(400).send({ error: 'rankBefore 또는 rankAfter 하나를 지정하세요' });
     const before = 'rankBefore' in b;
-    const target = await issueByKey(String(before ? b.rankBefore : b.rankAfter).toUpperCase());
+    const target = await issueByKey(String(before ? b.rankBefore : b.rankAfter).toUpperCase(), req);
     if (!target || target.project_id !== issue.project_id || target.id === issue.id) {
       return reply.code(400).send({ error: '같은 프로젝트의 다른 이슈를 지정하세요' });
     }
     if (!target.rank) {
-      const { rows: last } = await query(`SELECT rank FROM jira_issues WHERE project_id = $1 AND rank IS NOT NULL
+      const { rows: last } = await query(`SELECT rank FROM ${viewableIssues(req.access)} visible_issue WHERE project_id = $1 AND rank IS NOT NULL
         ORDER BY rank COLLATE "C" DESC LIMIT 1`, [issue.project_id]);
       target.rank = rankBetween(last[0]?.rank ?? null, null);
       await query('UPDATE jira_issues SET rank = $1 WHERE id = $2 AND rank IS NULL', [target.rank, target.id]);
     }
-    const { rows } = await query(`SELECT rank FROM jira_issues
+    const { rows } = await query(`SELECT rank FROM ${viewableIssues(req.access)} visible_issue
       WHERE project_id = $1 AND id <> $2 AND rank COLLATE "C" ${before ? '<' : '>'} $3 COLLATE "C"
       ORDER BY rank COLLATE "C" ${before ? 'DESC' : 'ASC'} LIMIT 1`, [issue.project_id, issue.id, target.rank]);
     try {
       sets.push(`rank = ${p(rankBetween(before ? rows[0]?.rank ?? null : target.rank, before ? target.rank : rows[0]?.rank ?? null))}`);
     } catch (e) { return reply.code(409).send({ error: e.message }); }
   }
+  if ('securityLevelId' in b) {
+    if (await projectRole(req.access, issue.project_id) !== 'admin') return reply.code(403).send({ error: '프로젝트 관리자만 보안 수준을 변경할 수 있습니다' });
+    const level = b.securityLevelId == null || b.securityLevelId === '' ? null : String(b.securityLevelId);
+    if (level && !(await query(`SELECT 1 FROM jira_security_levels sl JOIN jira_projects pr ON pr.security_scheme_id = sl.scheme_id
+      WHERE pr.id = $1 AND sl.id = $2`, [issue.project_id, level])).rows.length) return reply.code(400).send({ error: '프로젝트의 보안 수준이 아닙니다' });
+    sets.push(`security_level_id = ${p(level)}`);
+    // raw fallback도 동시에 갱신해 제한 해제가 다시 소급 적용되지 않도록 한다.
+    rawExpression = `jsonb_set(${rawExpression}, '{security}', ${p(JSON.stringify(level ? { id: level } : null))}::jsonb)`;
+    rawChanged = true;
+  }
   if ('customFields' in b) {
     const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
     try {
       const raw = validateCustomPatch(b.customFields, defs, issue.project_id, b.typeId ?? issue.issue_type_id);
-      sets.push(`fields_raw = COALESCE(fields_raw, '{}'::jsonb) || ${p(JSON.stringify(raw))}::jsonb`);
+      rawExpression = `(${rawExpression} || ${p(JSON.stringify(raw))}::jsonb)`;
+      rawChanged = true;
     } catch (e) { return reply.code(400).send({ error: e.message }); }
   }
+  if (rawChanged) sets.push(`fields_raw = ${rawExpression}`);
   if ('statusId' in b) {
     sets.push(`status_id = ${p(b.statusId)}`);
     // done 카테고리로 이동하면 해결 시각 기록, 아니면 해제
@@ -575,7 +606,7 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if ('parentKey' in b) {
     if (!b.parentKey) sets.push(`parent_id = NULL`);
     else {
-      const parent = await issueByKey(String(b.parentKey).trim().toUpperCase());
+      const parent = await issueByKey(String(b.parentKey).trim().toUpperCase(), req);
       if (!parent) return reply.code(400).send({ error: `상위 이슈 ${b.parentKey}를 찾을 수 없습니다` });
       if (parent.project_id !== issue.project_id) return reply.code(400).send({ error: '상위 이슈는 같은 프로젝트여야 합니다' });
       if (parent.id === issue.id) return reply.code(400).send({ error: '자기 자신을 상위로 지정할 수 없습니다' });
@@ -601,13 +632,13 @@ app.patch('/api/issue/:key', async (req, reply) => {
   }
   if (!sets.length) return reply.code(400).send({ error: '변경할 필드가 없습니다' });
   sets.push(`updated_at = now()`);
-  const before = await issueSnapshot(issue.id);
+  const before = await issueSnapshot(issue.id, req);
   const categoryOf = async () => (await query(
-    `SELECT s.category FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id WHERE i.id = $1`, [issue.id])).rows[0]?.category;
+    `SELECT s.category FROM ${viewableIssues(req.access)} i LEFT JOIN jira_statuses s ON s.id = i.status_id WHERE i.id = $1`, [issue.id])).rows[0]?.category;
   const catBefore = 'statusId' in b ? await categoryOf() : null;
   await query(`UPDATE jira_issues SET ${sets.join(', ')} WHERE id = $1`, params);
   // 로컬 수정도 Jira처럼 기록(changelog)에 남긴다
-  const after = await issueSnapshot(issue.id);
+  const after = await issueSnapshot(issue.id, req);
   const items = [];
   if ('customFields' in b) {
     const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
@@ -637,7 +668,7 @@ const SNAP_FIELDS = {
   status: 'status', issuetype: 'type', assignee: 'assignee', priority: 'priority', summary: 'summary',
   resolution: 'resolution', labels: 'labels', Component: 'components', 'Fix Version': 'fix_versions', Sprint: 'sprint', Parent: 'parent',
 };
-async function issueSnapshot(id) {
+async function issueSnapshot(id, req) {
   const { rows } = await query(
     `SELECT i.summary, i.priority, i.resolution, i.fields_raw,
             array_to_string(i.labels, ', ') AS labels, array_to_string(i.components, ', ') AS components,
@@ -645,12 +676,12 @@ async function issueSnapshot(id) {
             s.name AS status, t.name AS type, u.display_name AS assignee,
             sp.name AS sprint, pi.issue_key AS parent,
             md5(coalesce(i.description_adf::text, '')) AS desc_md5
-       FROM jira_issues i
+       FROM ${viewableIssues(req.access)} i
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN users u ON u.id = i.assignee_id
        LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
-       LEFT JOIN jira_issues pi ON pi.id = i.parent_id
+       LEFT JOIN ${viewableIssues(req.access)} pi ON pi.id = i.parent_id
       WHERE i.id = $1`, [id]);
   return rows[0];
 }
@@ -658,7 +689,7 @@ async function issueSnapshot(id) {
 // ---------- 댓글 ----------
 
 app.post('/api/issue/:key/comments', async (req, reply) => {
-  const issue = await issueByKey(req.params.key);
+  const issue = await issueByKey(req.params.key, req);
   if (!issue) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   const text = req.body?.text?.trim() ?? '';
@@ -678,8 +709,8 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
 app.patch('/api/comments/:id', async (req, reply) => {
   const text = req.body?.text?.trim() ?? '';
   const { rows: cm } = await query(
-    `SELECT c.author_id, c.body_adf, c.issue_id, i.project_id FROM jira_comments c JOIN jira_issues i ON i.id = c.issue_id
-      WHERE c.id = $1`, [req.params.id]);
+    `SELECT c.author_id, c.body_adf, c.issue_id, i.project_id FROM jira_comments c JOIN ${viewableIssues(req.access)} i ON i.id = c.issue_id
+      WHERE c.id = $1 AND ${commentVisibilitySql(req.access, "c", "i")}`, [req.params.id]);
   if (!cm.length) return reply.code(404).send({ error: 'not found' });
   const proj = await requireProjectId(req, reply, cm[0].project_id, 'editor');
   if (!proj) return;
@@ -723,7 +754,7 @@ app.get('/api/issue-search', async (req) => {
   if (!ids.length) return [];
   const { rows } = await query(
     `SELECT i.issue_key, i.summary, t.name AS type_name, s.name AS status_name, s.category AS status_category
-       FROM jira_issues i
+       FROM ${viewableIssues(req.access)} i
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
        LEFT JOIN jira_statuses s ON s.id = i.status_id
       WHERE i.project_id = ANY($1::bigint[]) AND (i.issue_key = upper($2) OR i.summary ILIKE $3)
@@ -737,10 +768,10 @@ const logLink = (issueId, userId, toString, fromString = null) => query(
   [issueId, userId, JSON.stringify([{ field: 'Link', fromString, toString }])]);
 
 app.post('/api/issue/:key/links', async (req, reply) => {
-  const issue = await issueByKey(req.params.key);
+  const issue = await issueByKey(req.params.key, req);
   if (!issue) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
-  const other = await issueByKey(String(req.body?.otherKey ?? '').trim().toUpperCase());
+  const other = await issueByKey(String(req.body?.otherKey ?? '').trim().toUpperCase(), req);
   if (!other) return reply.code(400).send({ error: '연결할 이슈를 찾을 수 없습니다' });
   if (other.id === issue.id) return reply.code(400).send({ error: '자기 자신과는 연결할 수 없습니다' });
   if (!await requireProjectId(req, reply, other.project_id)) return; // 상대 이슈를 볼 수 있어야 한다
@@ -764,8 +795,8 @@ app.delete('/api/links/:id', async (req, reply) => {
   const { rows } = await query(
     `SELECT l.id, l.link_type, l.inward_issue, l.outward_issue, ii.project_id AS ip, oi.project_id AS op,
             ii.issue_key AS ik, oi.issue_key AS ok
-       FROM jira_issue_links l LEFT JOIN jira_issues ii ON ii.id = l.inward_issue
-       LEFT JOIN jira_issues oi ON oi.id = l.outward_issue WHERE l.id = $1`, [req.params.id]);
+       FROM jira_issue_links l LEFT JOIN ${viewableIssues(req.access)} ii ON ii.id = l.inward_issue
+       LEFT JOIN ${viewableIssues(req.access)} oi ON oi.id = l.outward_issue WHERE l.id = $1`, [req.params.id]);
   const l = rows[0];
   if (!l) return reply.code(404).send({ error: 'not found' });
   // 어느 한쪽 프로젝트의 편집 권한이 있으면 지울 수 있다
@@ -780,7 +811,7 @@ app.delete('/api/links/:id', async (req, reply) => {
 
 // ---------- 웹 링크 (GIRA-28) ----------
 app.post('/api/issue/:key/weblinks', async (req, reply) => {
-  const issue = await issueByKey(req.params.key);
+  const issue = await issueByKey(req.params.key, req);
   if (!issue) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   let url;
@@ -797,7 +828,7 @@ app.post('/api/issue/:key/weblinks', async (req, reply) => {
 
 app.delete('/api/weblinks/:id', async (req, reply) => {
   const { rows } = await query(
-    `SELECT w.id, w.issue_id, w.source_id, i.project_id FROM jira_web_links w JOIN jira_issues i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
+    `SELECT w.id, w.issue_id, w.source_id, i.project_id FROM jira_web_links w JOIN ${viewableIssues(req.access)} i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, rows[0].project_id, 'editor')) return;
   if (rows[0].source_id != null) return reply.code(403).send({ error: '원본 링크는 삭제할 수 없습니다' });
@@ -808,7 +839,7 @@ app.delete('/api/weblinks/:id', async (req, reply) => {
 // ---------- 첨부 ----------
 
 app.post('/api/issue/:key/attachments', async (req, reply) => {
-  const issue = await issueByKey(req.params.key);
+  const issue = await issueByKey(req.params.key, req);
   if (!issue) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
   const file = await req.file();
@@ -832,7 +863,7 @@ app.post('/api/issue/:key/attachments', async (req, reply) => {
 app.get('/api/attachment/:id', async (req, reply) => {
   const { rows } = await query(
     `SELECT a.filename, a.media_type, a.source_url, a.local_key, i.project_id
-       FROM jira_attachments a JOIN jira_issues i ON i.id = a.issue_id WHERE a.id = $1`, [req.params.id]);
+       FROM jira_attachments a JOIN ${viewableIssues(req.access)} i ON i.id = a.issue_id WHERE a.id = $1`, [req.params.id]);
   const att = rows[0];
   if (!att) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, att.project_id)) return;
@@ -850,7 +881,7 @@ app.get('/api/attachment/:id', async (req, reply) => {
 app.get('/api/sprints', async (req, reply) => {
   if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
-    `SELECT s.*, (SELECT count(*) FROM jira_issues i WHERE i.sprint_id = s.id) AS issue_count
+    `SELECT s.*, (SELECT count(*) FROM ${viewableIssues(req.access)} i WHERE i.sprint_id = s.id) AS issue_count
        FROM jira_sprints s JOIN jira_projects p ON p.id = s.project_id
       WHERE p.key = $1
       ORDER BY CASE s.state WHEN 'active' THEN 0 WHEN 'future' THEN 1 ELSE 2 END,
@@ -1040,7 +1071,7 @@ registerDevChat(app, { textToAdf, onIssueCreated: (req, id) => notifyCreated(req
 app.get('/api/projects/:key/export', async (req, reply) => {
   const pr = await requireProject(req, reply, req.params.key, 'admin');
   if (!pr) return;
-  const { zip } = await exportProject(pr.id);
+  const { zip } = await exportProject(pr.id, req.access);
   reply.header('content-type', 'application/zip');
   reply.header('content-disposition', `attachment; filename="gira-${pr.key}-${new Date().toISOString().slice(0, 10)}.zip"`);
   return reply.send(zip.toBuffer());
@@ -1220,18 +1251,18 @@ registerAiAssist(app, {
   jql: {
     resolveProject: (req, reply, key) => requireProject(req, reply, key),
     check: (text) => jqlErrorOf(text),
-    values: async (projectId) => {
+    values: async (projectId, req) => {
       const list = async (sql, params = []) => (await query(sql, params)).rows.map((r) => r.v).filter((v) => v != null && v !== '');
       return {
         '상태 (이름 — 분류)': (await query(`SELECT name, category FROM jira_statuses ORDER BY id`)).rows.map((r) => `${r.name} — ${r.category}`),
-        '해결 상태(resolution)': await list(`SELECT DISTINCT resolution AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1`, [projectId]),
-        '이슈 유형(type)': await list(`SELECT DISTINCT t.name AS v FROM jira_issues i JOIN jira_issue_types t ON t.id = i.issue_type_id WHERE i.project_id = $1 ORDER BY 1`, [projectId]),
-        '우선순위(priority)': await list(`SELECT DISTINCT priority AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1`, [projectId]),
-        '수정 버전(fixVersion)': await list(`SELECT DISTINCT unnest(fix_versions) AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1 LIMIT 80`, [projectId]),
-        '컴포넌트(component)': await list(`SELECT DISTINCT unnest(components) AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1 LIMIT 60`, [projectId]),
-        '레이블(labels, 많이 쓰는 순)': await list(`SELECT l AS v FROM jira_issues, unnest(labels) l WHERE project_id = $1 GROUP BY l ORDER BY count(*) DESC LIMIT 60`, [projectId]),
+        '해결 상태(resolution)': await list(`SELECT DISTINCT resolution AS v FROM ${viewableIssues(req.access)} visible_issue WHERE project_id = $1 ORDER BY 1`, [projectId]),
+        '이슈 유형(type)': await list(`SELECT DISTINCT t.name AS v FROM ${viewableIssues(req.access)} i JOIN jira_issue_types t ON t.id = i.issue_type_id WHERE i.project_id = $1 ORDER BY 1`, [projectId]),
+        '우선순위(priority)': await list(`SELECT DISTINCT priority AS v FROM ${viewableIssues(req.access)} visible_issue WHERE project_id = $1 ORDER BY 1`, [projectId]),
+        '수정 버전(fixVersion)': await list(`SELECT DISTINCT unnest(fix_versions) AS v FROM ${viewableIssues(req.access)} visible_issue WHERE project_id = $1 ORDER BY 1 LIMIT 80`, [projectId]),
+        '컴포넌트(component)': await list(`SELECT DISTINCT unnest(components) AS v FROM ${viewableIssues(req.access)} visible_issue WHERE project_id = $1 ORDER BY 1 LIMIT 60`, [projectId]),
+        '레이블(labels, 많이 쓰는 순)': await list(`SELECT l AS v FROM ${viewableIssues(req.access)} visible_issue, unnest(labels) l WHERE project_id = $1 GROUP BY l ORDER BY count(*) DESC LIMIT 60`, [projectId]),
         '스프린트(sprint)': await list(`SELECT name AS v FROM jira_sprints WHERE project_id = $1 ORDER BY position NULLS LAST, id DESC LIMIT 40`, [projectId]),
-        '담당자·보고자(표시 이름)': await list(`SELECT DISTINCT u.display_name AS v FROM jira_issues i JOIN users u ON u.id IN (i.assignee_id, i.reporter_id) WHERE i.project_id = $1 ORDER BY 1 LIMIT 120`, [projectId]),
+        '담당자·보고자(표시 이름)': await list(`SELECT DISTINCT u.display_name AS v FROM ${viewableIssues(req.access)} i JOIN users u ON u.id IN (i.assignee_id, i.reporter_id) WHERE i.project_id = $1 ORDER BY 1 LIMIT 120`, [projectId]),
       };
     },
   },

@@ -4,6 +4,7 @@
 // 대화는 dev_chat_* 테이블에 API 응답 블록 그대로 append-only로 저장한다 (thinking 블록 보존 규칙).
 // 필요한 환경변수: ANTHROPIC_API_KEY (없으면 503), 선택: DEV_CHAT_MODEL (기본 claude-opus-5-5)
 import Anthropic from '@anthropic-ai/sdk';
+import { viewableIssues } from './perm.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -174,11 +175,11 @@ async function devProject() {
   return rows[0];
 }
 
-async function toolSearch({ query: q }) {
+async function toolSearch({ query: q }, access) {
   const pr = await devProject();
   const { rows } = await query(
     `SELECT i.issue_key, i.summary, s.name AS status, t.name AS type
-       FROM jira_issues i
+       FROM ${viewableIssues(access)} i
        LEFT JOIN jira_statuses s ON s.id = i.status_id
        LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
       WHERE i.project_id = $1
@@ -246,7 +247,7 @@ async function toolCreate({ items }, ctx, textToAdf) {
     let pid = byRef.get(c.parent)?.id;
     if (!pid) {
       const { rows } = await query(
-        `SELECT id FROM jira_issues WHERE issue_key = $1 AND project_id = $2`, [c.parent.toUpperCase(), pr.id]);
+        `SELECT id FROM ${viewableIssues(ctx.access)} vi WHERE issue_key = $1 AND project_id = $2`, [c.parent.toUpperCase(), pr.id]);
       pid = rows[0]?.id;
     }
     if (pid) {
@@ -339,6 +340,7 @@ export function registerDevChat(app, { textToAdf, onIssueCreated: hook }) {
     }
     const { rows: me } = await query(`SELECT display_name, email FROM users WHERE id = $1`, [req.access.userId]);
     const ctx = {
+      access: req.access,
       userId: req.access.userId,
       author: req.body?.author || me[0]?.display_name || null,
       // 작성자 메일: Gonfluence 프록시는 로그인 사용자의 메일을 함께 보낸다 (서비스 키 계정의 메일이 아니라)
@@ -414,7 +416,7 @@ export function registerDevChat(app, { textToAdf, onIssueCreated: hook }) {
           if (b.type !== 'tool_use') continue;
           try {
             let out;
-            if (b.name === 'search_issues') out = await toolSearch(b.input);
+            if (b.name === 'search_issues') out = await toolSearch(b.input, req.access);
             else if (b.name === 'create_issues') {
               out = await toolCreate(b.input, ctx, textToAdf);
               created.push(...out);
