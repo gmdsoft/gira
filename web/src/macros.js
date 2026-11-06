@@ -409,8 +409,9 @@ const HANDLERS = {
     swap(el, listWidget('macro-labelled', rows.map((r) => navLink(ctx, r.space_key, r.id, r.title))));
   },
 
-  async include(el, params, ctx) { await includePage(el, params, ctx, false); },
-  async 'excerpt-include'(el, params, ctx) { await includePage(el, params, ctx, true); },
+  // 대상 문서가 아직 이관되지 않았으면(제목으로 못 찾음) 배지 대신 안내 — 원본 제목은 남긴다
+  async include(el, params, ctx) { try { await includePage(el, params, ctx, false); } catch { swap(el, missingInclude(params)); } },
+  async 'excerpt-include'(el, params, ctx) { try { await includePage(el, params, ctx, true); } catch { swap(el, missingInclude(params)); } },
 
   drawio(el, params, ctx) {
     const name = params.diagramName;
@@ -487,6 +488,14 @@ function macroSpaceKey(params) {
 function highlightOnly(html) {
   const esc = String(html).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   return esc.replace(/&lt;em&gt;/g, '<em>').replace(/&lt;\/em&gt;/g, '</em>');
+}
+
+function missingInclude(params) {
+  const ref = params[''] ?? params.page ?? {};
+  const div = document.createElement('div');
+  div.className = 'muted';
+  div.textContent = `포함된 문서 '${ref['ri:content-title'] ?? '(제목 없음)'}'가 아직 이관되지 않았습니다`;
+  return div;
 }
 
 async function includePage(el, params, ctx, excerptOnly) {
