@@ -508,15 +508,6 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .comment-mark { background: #fff0b3; border-bottom: 2px solid #f5cd47; }
 
 /* ---------- 편집기 모드 (Confluence / Notion) ---------- */
-.mode-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
-.mode-switch button { border: 0; background: var(--panel); padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
-.mode-switch button.on { background: var(--accent); color: #fff; }
-.notion-hint { padding: 6px 24px; font-size: 12.5px; border-bottom: 1px solid var(--border); background: var(--panel); }
-.notion-hint code { background: var(--bg-subtle); border-radius: 3px; padding: 0 5px; }
-.bubble-menu { display: flex; gap: 2px; background: #1d2125; border-radius: 8px; padding: 4px 6px; box-shadow: 0 8px 24px rgba(9,30,66,.35); }
-.bubble-menu button { border: 0; background: none; color: #dee4ea; font-size: 13px; padding: 4px 8px; border-radius: 5px; cursor: pointer; }
-.bubble-menu button:hover { background: #333c43; }
-.bubble-menu button.on { background: #09326c; color: #85b8ff; }
 
 /* 편집기 제목 입력 */
 .title-input { display: block; width: 100%; box-sizing: border-box; border: 0; outline: none;
@@ -553,7 +544,6 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .move-picked { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 직접 구현 버블 메뉴 (tippy 미사용) */
-.bubble-floating { position: fixed; transform: translateX(-50%); z-index: 70; }
 
 
 /* 로그인·사용자 표시 */
