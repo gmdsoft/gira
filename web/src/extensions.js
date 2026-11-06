@@ -8,6 +8,7 @@ import { hydrateLinkCard } from './link-card.js';
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule, InputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
+import { BlockResize, widthAttrs } from './block-resize.js';
 import { HighlightedCodeBlock } from './code-block.js';
 import { createToc } from './toc.js';
 import TableExt from '@tiptap/extension-table';
@@ -327,6 +328,8 @@ function expandViewAttrs(node) {
   node.descendants((n) => { if (n.type.name === 'table') bw = Math.max(bw, tableRenderWidth(n) ?? 0); });
   const attrs = { class: 'expand' };
   if (bw > COLUMN_WIDTH) { attrs.class += ' breakout'; attrs.style = `--bw: ${Math.round(bw) + 26}px`; }
+  const width = widthAttrs(node);
+  if (width.style) Object.assign(attrs, width);
   return attrs;
 }
 
@@ -358,6 +361,7 @@ const Expand = Node.create({
         const details = document.createElement('details');
         const attrs = expandViewAttrs(node);
         details.className = attrs.class;
+        if (attrs['data-block-width']) details.setAttribute('data-block-width', attrs['data-block-width']);
         if (attrs.style) details.setAttribute('style', attrs.style);
         const summary = document.createElement('summary');
         summary.textContent = node.attrs.title || '여기를 클릭하여 펼치기...';
@@ -371,6 +375,7 @@ const Expand = Node.create({
       const applyAttrs = (n) => {
         const a = expandViewAttrs(n);
         dom.className = `${a.class} expand-edit`;
+        if (a['data-block-width']) dom.setAttribute('data-block-width', a['data-block-width']); else dom.removeAttribute('data-block-width');
         if (a.style) dom.setAttribute('style', a.style);
         else dom.removeAttribute('style');
       };
@@ -421,7 +426,7 @@ const Expand = Node.create({
 const Layout = Node.create({
   name: 'layout', group: 'block', content: 'layoutSection+',
   parseHTML: () => [{ tag: 'div.layout' }],
-  renderHTML: () => ['div', { class: 'layout' }, 0],
+  renderHTML: ({ node }) => ['div', { class: 'layout', ...widthAttrs(node) }, 0],
 });
 const LayoutSection = Node.create({
   name: 'layoutSection', content: 'layoutColumn+',
@@ -429,15 +434,16 @@ const LayoutSection = Node.create({
   parseHTML: () => [{
     tag: 'div.layout-section',
     getAttrs: (el) => ({
-      kind: [...el.classList].find((c) => c.startsWith('layout-') && c !== 'layout-section')?.slice(7) || 'single',
+      kind: (el.getAttribute('class') || '').split(/\s+/).find((c) => c.startsWith('layout-') && c !== 'layout-section')?.slice(7) || 'single',
     }),
   }],
   renderHTML: ({ node }) => ['div', { class: `layout-section layout-${node.attrs.kind}` }, 0],
 });
 const LayoutColumn = Node.create({
   name: 'layoutColumn', content: 'block*',
+  addAttributes: () => ({ width: { default: null, parseHTML: el => Number(el.getAttribute('data-column-width')) || null, renderHTML: () => ({}) } }),
   parseHTML: () => [{ tag: 'div.layout-column' }],
-  renderHTML: () => ['div', { class: 'layout-column' }, 0],
+  renderHTML: ({ node }) => ['div', { class: 'layout-column', ...(node.attrs.width > 0 ? { 'data-column-width': node.attrs.width, style: `--column-width:${node.attrs.width}` } : {}) }, 0],
 });
 
 const Mermaid = Node.create({
@@ -1257,7 +1263,7 @@ const custom = [
   Underline, Subscript, Superscript, LinkMark, TextColor, SmallText, Highlight, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
-  Panel, Expand, Layout, LayoutSection, LayoutColumn,
+  BlockResize, Panel, Expand, Layout, LayoutSection, LayoutColumn,
   Mermaid, JiraTable, CfMacro, AdfNode,
   Media, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
   PageLink, SpaceLink, FileLink, LinkCard, CfMacroInline,

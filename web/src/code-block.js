@@ -1,3 +1,4 @@
+import { widthAttrs } from './block-resize.js';
 // 코드 문자열만 토큰화한다. 원문과 language 속성은 저장 시 변경하지 않는다.
 import CodeBlock from '@tiptap/extension-code-block';
 import { Plugin } from '@tiptap/pm/state';
@@ -120,7 +121,7 @@ export const HighlightedCodeBlock = CodeBlock.extend({
       offset = token.to;
     }
     if (offset < text.length) parts.push(text.slice(offset));
-    const preAttrs = {};
+    const preAttrs = widthAttrs(node);
     if (node.attrs.collapsed) preAttrs['data-collapsed'] = 'true';
     if (node.attrs.wrap) preAttrs['data-wrap'] = 'true';
     preAttrs['data-line-numbers'] = String(node.attrs.lineNumbers);
@@ -170,6 +171,9 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         return `${name} · ${lines}줄`;
       };
       const paint = (n) => {
+        const width = widthAttrs(n);
+        if (width.style) { dom.setAttribute('data-block-width', width['data-block-width']); dom.style.setProperty('--block-width', `${n.attrs.blockWidth}px`); }
+        else { dom.removeAttribute('data-block-width'); dom.style.removeProperty('--block-width'); }
         // Confluence처럼 머리줄 없이 — '보기에서 접어 두기'를 켠 블록만 보기 화면에 접기/펼치기 줄을 둔다
         head.hidden = editor.isEditable || !n.attrs.collapsed;
         const shown = editor.isEditable || open;
