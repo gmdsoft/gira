@@ -16,7 +16,7 @@ export function embedHeight(value) {
   return match && Number(match[1]) > 0 ? Number(match[1]) : 400;
 }
 
-// connect/formを閉じることで、opaque originでも送信自体が可能なAPI要求を止める。
+// 격리 iframe(opaque origin)이라도 fetch·폼 전송으로 외부 요청은 보낼 수 있으므로 connect·form을 막는다.
 export function isolatedHtml(html) {
   // doctype보다 먼저 meta를 넣으면 표준 문서도 quirks mode로 바뀐다.
   const source = String(html ?? '');
