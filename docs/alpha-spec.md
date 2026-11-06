@@ -1,5 +1,5 @@
 <!-- spec-sync: 자동 생성 사본 — 직접 고치지 말고 Gonfluence 원본을 고친 뒤 'node scripts/spec-sync.mjs --pull' -->
-> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://172.21.1.1:3001/s/GIRA/p/1000000000009), 버전 11
+> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://172.21.1.1:3001/s/GIRA/p/1000000000009), 버전 13
 
 ## 개요
 
@@ -300,13 +300,64 @@ PM은 별도 직책이 아니라 'PM들' 그룹으로 다룬다 — 생성 권�
 - Enter 다음 항목, Tab 중첩, 빈 중첩 항목 Enter 한 단계 내어쓰기, 빈 최상위 항목 Enter 목록 탈출, 내용 있는 항목 맨 앞 Backspace는 문단으로.
 - 담당은 @멘션, 기한은 날짜(작업 안의 오늘 날짜는 '오늘', 지난 날짜는 빨간색).
 
+#### 11) Mermaid 다이어그램 (GIRA-18)
+
+- 전용 'Mermaid 다이어그램' 블록: 내용은 Mermaid 코드, 보기 화면에서 그림(SVG)으로 그린다. 라이브러리는 다이어그램이 있는 문서에서만 불러온다.
+- 보안: strict 모드(스크립트·클릭 콜백 금지, HTML 라벨 끔 — <br/> 줄바꿈은 허용), 원문 2만 자 제한. 문법 오류면 원문 코드와 오류 안내, 페이지는 정상.
+- 편집: '/'·'+ 삽입'으로 넣고, 코드 입력 + 실시간 미리보기, 예시(흐름도·시퀀스·간트·클래스·상태·ER). mermaid 언어 코드 블록은 다이어그램으로 바꾸기.
+- 원본 Confluence(55개 문서): Mermaid Chart 앱 매크로 — diagramCode(코드)가 있으면 코드로 그리고, 코드 없이 미리 그린 PNG만 있으면 그 그림을 보여 준다.
+
 **범위 밖**: AI(글쓰기·리믹스·요약·제목 제안·듣기·이미지 편집·이미지 만들기), 탭 블록·페이지 포함(embed)(후순위), 동기화 블록, 데이터베이스·화이트보드·다이어그램, Jira 가젯·차트, 표 → 차트, 외부 임베드(Loom·SharePoint·Dropbox), 블록 템플릿 갤러리, 헤더 이미지·페이지 이모지·압축 밀도(필요 시 별도).
 
 ### 데이터
 
 - 전체 이관: 현재 4개 스페이스·1,066페이지 → 전체 234개 스페이스·26,249페이지·첨부 약 102 GiB.
-- 이관 중 변환 실패·미지원 매크로는 목록으로 수집해 등급을 매긴다(그대로 표시 / 대체 렌더 / 미지원 안내).
+- 이관 중 변환 실패·미지원 매크로는 목록으로 수집해 등급을 매긴다(그대로 표시 / 대체 렌더 / 미지원 안내) — 2026-11-06 전수 조사 결과와 대응 계획은 '원본 Confluence 호환성' 절(에픽 GIRA-47).
 - Gira ↔ Gonfluence 상호 링크(이슈 키, 페이지 링크)가 이관 후에도 유효한지 전수 검증.
+
+## 원본 Confluence 호환성 (2026-11-06 전수 조사)
+
+전체 이관 전에 원본 Confluence 전체(234개 스페이스, 문서 26,431개 — 일반 25,241·라이브 1,189·블로그 1)를 읽기 전용(GET)으로 다시 읽어, 지금 변환기·화면으로 대응이 안 되는 것을 찾았다. 조사 도구는 `scripts/confluence-fullscan.mjs`(본문을 받아 변환기를 그대로 돌려 문서별 미지원 매크로·앱 블록을 기록, 결과는 `analysis/raw/` — gitignore). 데이터베이스·화이트보드·임베드는 하나씩 열어 원본 화면과 데이터 구조를 확인했다. 에픽 GIRA-47.
+
+**요약**: 본문 변환 실패는 0건. 화면에 '매크로: 이름' 배지가 남는 문서 1,143개 중 1,014개는 내보내기 앱의 쪽 나눔 표시뿐이고, 실제로 내용이 빠지는 문서는 129개 + 앱 블록 163개 문서다. 이관 자체가 안 되는 유형은 데이터베이스 48·화이트보드 33·임베드 9·블로그 글 1.
+
+| 구분 | 대상 (문서 수) | 대응 | 이슈 |
+| --- | --- | --- | --- |
+| 내보내기 앱 표시 | scroll-pagebreak 1,004, Scroll 앱 블록 7, export-button·title 12, Scroll Ignore·content block 7, 스마트 버튼 1, 프로젝트 링커 11 | 보기에서 숨김(모델엔 보존), 감싼 본문만 표시, 옮길 수 없는 앱은 안내 | GIRA-48 |
+| HTML 블록 | HTML Macro Pro 145(블록 약 194, 스크립트 포함 80%+, 외부 CDN), html 67(65개가 Figma iframe), iframe 10 | 격리 iframe(sandbox, allow-same-origin 없음)으로 원본 그대로 | GIRA-49 |
+| 데이터베이스 | 48개, 항목 1,727, 필드 10종, 보기 표·카드·보드 | 이관 + 읽기 전용 보기 | GIRA-50 |
+| Jira 차트 | jirachart 270(2차원 표 411·원형 20·생성 대 해결 6) | Gira JQL 집계로 그리기 | GIRA-51 |
+| 템플릿 버튼 | create-from-template 398(FB 주간 보고 201, 교육 만족도 160) | 스페이스 템플릿 이관 + 버튼으로 새 문서 | GIRA-52 |
+| 검색 | pagetreesearch 123(개인 스페이스 홈), livesearch 11 | Gonfluence 검색으로 | GIRA-53 |
+| 목록·보고서 | content-report-table 23, tasks-report 10, decisionreport 8, detailssummary 7, change-history 7, profile-picture 5, 레이블 8, blog-posts·attachments·toc-zone 각 3, 기타 3 | 우리 데이터로 다시 그리기 | GIRA-54 |
+| 로드맵 | roadmap 21 | source JSON → 정적 타임라인 | GIRA-55 |
+| 미디어·다이어그램·표 앱 | multimedia 7, plantuml 5, gliffy 3, table-filter 8, pivot-table 2, chart 1, 위키 마크업 1, BPMN 1 | 동영상 태그, 미리보기 PNG, 서버 렌더 또는 코드, 본문 표 | GIRA-56 |
+| 옮길 수 없는 앱 | 테스트 관리 보고서 26(QA), calendar 2, gadget 2, vote 5, survey 1 | 배지 대신 안내 카드(투표는 질문·선택지만) | GIRA-57 |
+| 화이트보드 | 33개(빈 보드 8), 요소 2,764 | 이관 + 정적 SVG 보기 | GIRA-58 |
+| 임베드 | 9개(Figma 6, Confluence 문서 2, [claude.ai](http://claude.ai) 1) | embedUrl 이관 + iframe/링크 | GIRA-59 |
+| 트리 정합 | 데이터베이스·화이트보드 아래 문서 13·폴더 3, 블로그 글 1 | 부모 행 유지, 블로그 이관 | GIRA-60 |
+
+이미 대응하는 것: 라이브 문서(1,189)·폴더(600), 매크로 71종 중 35종(Jira·상태·펼치기·패널·코드·Mermaid 등 블록 변환, 목차·첨부 보기·include·하위 문서 등 실데이터 렌더), 결정 목록(450 문서)·ADF 패널(314). 예전 집계의 'ADF 확장 1,156'은 결정·패널 같은 일반 ADF 노드까지 센 값이었고, 실제 앱 블록은 163개 문서다. 조사에서 '모르는 태그'로 잡힌 p(2,424 문서)는 이미지 캡션 안 문단이라 정상 처리된다.
+
+### 데이터베이스·화이트보드 원본 데이터 받기
+
+공개 REST v2는 둘 다 메타정보(제목·부모·작성자)만 주고 본문이 비어 있다. 원본 화면은 내부 협업 서비스에서 Yjs 문서 스냅샷을 받아 그린다. 임포터도 같은 경로를 **GET만으로** 쓸 수 있음을 확인했다(81개 모두 성공).
+
+1. `GET /wiki/rest/internal/1.0/canvas/session/bulk?ids=<콘텐츠 id>` (API 토큰) → 접근 토큰·media 토큰
+2. `GET /wiki/rest/api/content/<id>` → referenceId
+3. `GET /gateway/api/canvas-tenant-context/site/<cloudId>/api/_internal/collab/<ari>?skipSteps=true&v=2` (헤더 `x-access-token`) → Yjs 스냅샷(최신). ari는 화이트보드 = referenceId, 데이터베이스 = `ari:cloud:canvas:<cloudId>:database/<referenceId>`.
+4. 파일·이미지는 media 토큰으로 api.media.atlassian.com에서 받는다.
+
+내부 API라 예고 없이 바뀔 수 있으므로, 이관 때 원본 Yjs 바이너리도 함께 보관해 나중에 다시 풀 수 있게 한다.
+
+- **데이터베이스**: fbi(필드 정의 — 이름·형식·선택지), ebi(항목별 셀), vbi(보기 — 표 84·카드 3·보드 3, 필터·정렬·숨김 열). 필드 형식은 텍스트·선택·날짜·숫자·사용자·링크·파일·Jira 이슈·Jira 필드(연결 이슈의 값을 그때그때 표시)·페이지 링크. 우리 쪽은 Jira 필드를 Gira 이슈 값으로 채운다.
+- **화이트보드**: board(요소: 도형·텍스트·커넥터·섹션·스티커·이미지·스탬프·자유 그리기·댓글), dimensions(위치·크기·회전), paths(커넥터 시작·끝·꺾임), zindex(순서). 시제품 SVG로 단순 보드는 원본과 거의 같게 그려짐을 확인했다.
+
+**범위**: 1차는 둘 다 **읽기 전용 보기**(편집은 '원본에서 편집' 안내, 컷오버 뒤 편집 범위는 미결 사항). 새로 만들기는 알파 범위 밖으로 둔다.
+
+### HTML 블록 보안 원칙
+
+HTML Macro Pro·html·iframe 매크로는 사용자가 넣은 임의 HTML·스크립트다. 항상 `sandbox` iframe(allow-scripts·팝업만, **allow-same-origin 없음**)에서 그려, 블록 안 코드가 Gonfluence 쿠키·API·부모 문서에 닿지 못하게 한다. 외부 CDN 로드는 허용(원본도 그렇게 동작), 내부망 주소를 가리키는 iframe 허용 여부와 CSP frame-src 목록은 구현 때 문서화한다.
 
 ## MS Entra 연동 (마지막 단계)
 
@@ -360,5 +411,8 @@ PM은 별도 직책이 아니라 'PM들' 그룹으로 다룬다 — 생성 권�
 - [ ] 스토리 포인트 필드 이관 여부 (현재 미이관, "스토리 포인트 추가" 링크 미동작)
 - [x] (결정) 알림 연동(GIRA-14): Teams 채널(Webhook)과 메일 모두 사용. 메일은 SMTP 대신 Microsoft Graph(앱 토큰 방식)로 보낸다
 - [ ] 백업·복원: 보관 위치(TrueNAS 다른 볼륨 / 외부), 보관 기간, 목표 복구 시간·허용 데이터 손실(예: 하루 1회 백업이면 최대 하루치)
+- [ ] 원본 호환: 데이터베이스·화이트보드를 컷오버 뒤 Gonfluence에서 편집할 수 있게 할지(1차는 읽기 전용 보기)
+- [ ] 원본 호환: 옮길 수 없는 앱 데이터(QA 테스트 관리 보고서 26개 문서, 투표 결과, 팀 캘린더)를 컷오버 전에 화면 이미지로 떠서 남길지
+- [ ] 원본 호환: HTML 블록에서 내부망 주소 iframe·외부 CDN을 허용할 범위
 - [ ] 병행 동기화 충돌 규칙 확정: 제안은 '원본 우선 + 로컬 신규는 유지' — 병행기에 이쪽 편집을 허용할지도 함께 결정
 - [x] (결정) 공동 개발 처리 워커: 챗봇(Claude API)은 이슈 등록까지, 처리는 Claude Code 개발 세션 + codex/opencode 헤드리스(요청 시·매일 새벽 cron). 승인은 needs-approval 레이블 해제 — 승인 알림 채널은 알림 연동(GIRA-14)과 함께 결정
