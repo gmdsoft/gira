@@ -193,3 +193,15 @@ CREATE TABLE IF NOT EXISTS jira_filters (
 
 -- 칸반 보드 하위 필터(Jira 'Kanban board sub-filter', 예: fixVersion in unreleasedVersions() OR fixVersion is EMPTY)
 ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS sub_jql text;
+
+-- 업무 항목 연결·웹 링크 (GIRA-26·28): 로컬에서 만든 연결은 1e12 이상 번호 (원본 Jira 링크 id와 겹치지 않게)
+CREATE SEQUENCE IF NOT EXISTS jira_issue_link_id_seq;
+CREATE TABLE IF NOT EXISTS jira_web_links (
+  id bigserial PRIMARY KEY,
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  url text NOT NULL,
+  title text,
+  author_id bigint REFERENCES users(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS jira_web_links_issue ON jira_web_links(issue_id);
