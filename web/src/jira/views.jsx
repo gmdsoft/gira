@@ -64,8 +64,34 @@ function ListFoot({ total, shown, loading, onNew, onRefresh }) {
 }
 
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
+const GROUPERS = {
+  status: (r) => r.status_name ?? '(없음)',
+  assignee: (r) => r.assignee_name ?? '(미지정)',
+  type: (r) => r.type_name ?? '(없음)',
+  epic: (r) => r.epic_key ? `${r.epic_key} ${r.epic_summary ?? ''}` : '(에픽 없음)',
+  priority: (r) => r.priority ?? '(없음)',
+};
+// 그룹화(툴바 '그룹화'): 로드된 범위 안에서 묶어 [{__group, __count}, 행…] 순으로 펼친다
+// (스크롤로 더 불러오면 그룹이 늘어난다). 목록·전체 목록이 함께 쓴다.
+function groupRows(rows, group) {
+  if (!group || !GROUPERS[group]) return rows;
+  const groups = new Map();
+  for (const r of rows) {
+    const g = GROUPERS[group](r);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(r);
+  }
+  const out = [];
+  for (const [g, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ko'))) {
+    out.push({ __group: g, __count: list.length });
+    out.push(...list);
+  }
+  return out;
+}
+
 export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, onHome, boardJql }) {
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100, extraJql: [boardJql] });
+  const ordered = useMemo(() => groupRows(rows, filters.group), [rows, filters.group]);
   const [paneWidth, setPaneWidth] = useState(() => {
     const v = Number(localStorage.getItem('jira.listPaneWidth'));
     return Number.isFinite(v) && v >= 280 ? v : 440;
@@ -97,7 +123,9 @@ export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOp
     <div className="view on" id="view-list">
       <div className="lpane" style={{ width: paneWidth }}>
       <div id="list" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
-        {rows.map((r) => (
+        {ordered.map((r, i) => r.__group !== undefined
+          ? <div className="lgroup" key={'g' + i}>{r.__group} <span className="dim">{r.__count}건</span></div>
+          : (
           <div className={`row${r.issue_key === selKey ? ' sel' : ''}`} key={r.id} onClick={() => onOpen(r.issue_key)}>
             <div className="top">
               <TypeIcon name={r.type_name} />
@@ -131,13 +159,6 @@ const TABLE_COLS = [
   ['key', '키'], ['summary', '업무'], ['type', '타입'], ['assignee', '담당자'], ['reporter', '보고자'],
   ['priority', '우선 순위'], ['status', '상태'], ['resolution', '해결'], ['created', '만듦'], ['updated', '업데이트됨'],
 ];
-const GROUPERS = {
-  status: (r) => r.status_name ?? '(없음)',
-  assignee: (r) => r.assignee_name ?? '(미지정)',
-  type: (r) => r.type_name ?? '(없음)',
-  epic: (r) => r.epic_key ? `${r.epic_key} ${r.epic_summary ?? ''}` : '(에픽 없음)',
-  priority: (r) => r.priority ?? '(없음)',
-};
 
 // 열 폭: 사용자가 머리글 경계를 드래그해 조절한다. 업무(요약) 열은 최소 폭을 크게 잡아
 // 창이 좁아져도 내용이 잘리지 않고 표가 가로 스크롤되도록 한다.
@@ -213,22 +234,7 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
     else setWidths((w) => ({ ...w, [field]: DEFAULT_COL_WIDTHS[field] }));
   };
 
-  const ordered = useMemo(() => {
-    if (!filters.group) return rows;
-    // 그룹화는 로드된 범위 안에서만 (스크롤로 더 불러오면 그룹이 늘어난다)
-    const groups = new Map();
-    for (const r of rows) {
-      const g = GROUPERS[filters.group](r);
-      if (!groups.has(g)) groups.set(g, []);
-      groups.get(g).push(r);
-    }
-    const out = [];
-    for (const [g, list] of [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'ko'))) {
-      out.push({ __group: g, __count: list.length });
-      out.push(...list);
-    }
-    return out;
-  }, [rows, filters.group]);
+  const ordered = useMemo(() => groupRows(rows, filters.group), [rows, filters.group]);
 
   const clickSort = (f) => setSort((s) => s?.field === f ? { ...s, dir: -s.dir } : { field: f, dir: 1 });
   const changeStatus = async (r, id) => {
