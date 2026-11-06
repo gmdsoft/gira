@@ -227,3 +227,10 @@ LANGUAGE sql IMMUTABLE AS $$
     ) child
   ) SELECT COALESCE(array_agg(v #>> '{}') FILTER (WHERE jsonb_typeof(v) IN ('string', 'number', 'boolean') AND v #>> '{}' <> ''), ARRAY[]::text[]) FROM leaves;
 $$;
+
+-- Rank migration: only missing values are backfilled; local reorderings survive startup.
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS rank text;
+UPDATE jira_issues SET rank = fields_raw->>'customfield_10019'
+ WHERE rank IS NULL AND fields_raw->>'customfield_10019' IS NOT NULL;
+CREATE INDEX IF NOT EXISTS jira_issues_project_rank_idx
+ ON jira_issues (project_id, rank COLLATE "C", issue_key);

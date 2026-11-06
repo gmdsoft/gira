@@ -70,7 +70,7 @@ const ORDER_FIELDS = {
   assignee: 'assignee', reporter: 'reporter', priority: 'priority', status: 'status',
   resolution: 'resolution', created: 'created', createddate: 'created',
   updated: 'updated', updateddate: 'updated',
-  rank: 'key', // Rank(수동 순서)는 미보유 — 키 순서로 근사
+  rank: 'rank',
 };
 
 const REL_MS = { m: 60e3, h: 3600e3, d: 86400e3, w: 604800e3 };

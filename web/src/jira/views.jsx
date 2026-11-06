@@ -390,7 +390,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
   // 보드 필터(JQL) + 스크럼 보드는 활성 스프린트만 (실제 Jira 스크럼 보드 동작)
   // 칸반 보드는 하위 필터(sub_jql)까지 적용 — Jira처럼 출시된 버전의 이슈 등은 보드에서 빠진다
   const extraJql = board ? [board.jql, board.type === 'scrum' ? 'sprint IN activeSprints()' : board.sub_jql].filter(Boolean) : [];
-  const { rows, total } = useIssues(project, filters, bump, { extraJql }); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
+  const { rows, total } = useIssues(project, filters, bump, { extraJql, sort: 'rank' }); // 보드는 순위순 1,000건 (가상 스크롤 대상 아님)
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
   const [over, setOver] = useState(null);       // 'lane|col'
@@ -465,7 +465,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
     return {};
   };
 
-  const drop = async (lane, colIdx) => {
+  const drop = async (lane, colIdx, targetKey, after = false) => {
     setOver(null);
     if (isMobile() || !dragKey) return;
     const r = cards.find((x) => x.issue_key === dragKey);
@@ -480,6 +480,10 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
       }
       Object.assign(json, laneFields(lane));
     }
+    if (targetKey === dragKey) return;
+    const last = lane.buckets[colIdx].filter(x => x.issue_key !== dragKey).at(-1);
+    if (targetKey) json[after ? 'rankAfter' : 'rankBefore'] = targetKey;
+    else if (last) json.rankAfter = last.issue_key;
     if (!Object.keys(json).length) return;
     await api('/api/issue/' + encodeURIComponent(dragKey), { method: 'PATCH', json });
     onChanged();
@@ -568,6 +572,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
                           <div className="cards">
                             {lane.buckets[i].map((r) => (
                               <BoardCard key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen} project={project} meta={meta} onChanged={onChanged}
+                                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); drop(lane, i, r.issue_key, e.clientY > e.currentTarget.getBoundingClientRect().top + e.currentTarget.offsetHeight / 2); }}
                                 onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => { setDragKey(null); setOver(null); }} />
                             ))}
                           </div>
@@ -630,9 +635,9 @@ function SprintBar({ sprint, rows, onComplete }) {
 }
 
 // 보드 카드: 제목 / 에픽·버전·레이블 칩 / 타입·키 + 우선순위·담당자
-function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta, onChanged }) {
+function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, onDrop, project, meta, onChanged }) {
   return (
-    <div className={`card${dragging ? ' dragging' : ''}`} draggable={!isMobile()} onDragStart={onDragStart} onDragEnd={onDragEnd}
+    <div className={`card${dragging ? ' dragging' : ''}`} draggable={!isMobile()} onDrop={onDrop} onDragOver={(e) => e.preventDefault()} onDragStart={onDragStart} onDragEnd={onDragEnd}
       onClick={() => onOpen(r.issue_key)}>
       <EpicBar r={r} />
       <div className="sum">{r.summary}</div>
@@ -694,7 +699,7 @@ function ClosedSprint({ project, s, onOpen }) {
     const next = !open;
     setOpen(next);
     if (next && list === null) {
-      const qs = new URLSearchParams({ project, sprint: s.id, limit: 1000, offset: 0 });
+      const qs = new URLSearchParams({ project, sprint: s.id, limit: 1000, offset: 0, sort: 'rank' });
       setList((await api('/api/issues?' + qs)).rows);
     }
   };
@@ -753,13 +758,14 @@ function QuickCreate({ meta, project, sprintId, open, onToggle, onCreated }) {
 // ---------- 백로그 (스프린트 + 인라인 계층) ----------
 export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardJql, board }) {
   // 사용자 JQL은 백로그에 적용하지 않지만(실제 Jira 백로그도 JQL 미지원), 보드 컨텍스트 필터는 적용한다.
-  // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 최신순 1,000건
+  // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 순위순 1,000건
   //   — 보드 필터의 ORDER BY가 로드 윈도우를 바꿔 스프린트 이슈가 빠지는 문제 방지 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
   // 실제 Jira 백로그처럼 완료(done) 이슈는 어디에도 표시하지 않는다 (완료분은 보드/목록·완료 스프린트 그룹에서)
   const { rows: sprRows } = useIssues(project, { ...filters, sprint: '', jql: '' }, bump,
-    { extraJql: [boardJql, 'sprint IN openSprints()', 'statusCategory != done'] });
+    { extraJql: [boardJql, 'sprint IN openSprints()', 'statusCategory != done'], sort: 'rank' });
   const { rows: backRows, total: backTotal } = useIssues(project, { ...filters, sprint: 'none', jql: '' }, bump,
-    { extraJql: [boardJql, 'statusCategory != done'], sort: '-key' });
+    { extraJql: [boardJql, 'statusCategory != done'], sort: 'rank' });
+  const dragIssue = useRef(null);
   const [expanded, setExpanded] = useState(() => new Set());
   const [showClosed, setShowClosed] = useState(false);
   const [qc, setQc] = useState(() => new Set()); // 인라인 '+ 만들기'가 열린 섹션 (스프린트 id | 'none')
@@ -807,7 +813,16 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
   };
 
   const IssueRow = ({ r, child, twisty }) => (
-    <div className={`srow${child ? ' child' : ''}`}>
+    <div className={`srow${child ? ' child' : ''}`} draggable={!isMobile()}
+      onDragStart={() => { dragIssue.current = r.issue_key; }} onDragEnd={() => { dragIssue.current = null; }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!dragIssue.current || dragIssue.current === r.issue_key) return;
+        const after = e.clientY > e.currentTarget.getBoundingClientRect().top + e.currentTarget.offsetHeight / 2;
+        await api('/api/issue/' + encodeURIComponent(dragIssue.current), { method: 'PATCH', json: { [after ? 'rankAfter' : 'rankBefore']: r.issue_key, sprintId: r.sprint_id } });
+        dragIssue.current = null; onChanged();
+      }}>
       <EpicBar r={r} />
       {twisty}
       <TypeIcon name={r.type_name} />
