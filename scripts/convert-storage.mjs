@@ -5,6 +5,7 @@
 // 모듈: import { convertStorage } from './convert-storage.mjs'
 // CLI : node scripts/convert-storage.mjs <storage.xhtml 파일>
 
+import { safeEmbedUrl, embedHeight } from '../shared/html-embed.mjs';
 import { parseDocument } from 'htmlparser2';
 import { decodeHTML } from 'entities';
 import { readFileSync } from 'node:fs';
@@ -196,6 +197,10 @@ export function convertStorage(xhtml) {
     const params = macroParams(n);
     const rich = childEl(n, 'ac:rich-text-body');
     switch (name) {
+      case 'html':
+        return { type: 'htmlEmbed', attrs: { source: 'html', html: plainBody(n) ?? '', height: embedHeight(params.height) } };
+      case 'iframe':
+        return { type: 'htmlEmbed', attrs: { source: 'iframe', src: safeEmbedUrl(params.src?.['ri:value'] ?? params.src), width: params.width ?? null, height: embedHeight(params.height) } };
       case 'code': case 'noformat': {
         // ProseMirror는 빈 텍스트 노드를 허용하지 않는다 — 빈 코드 블록은 content 생략
         const code = (plainBody(n) ?? '').replace(/\r\n/g, '\n');
@@ -302,6 +307,16 @@ export function convertStorage(xhtml) {
     // inline-extension은 인라인 자리(ac:adf-extension이 문단 안)에서 cfMacroInline으로 바뀐다 — inline() 참고
     if (type === 'extension' || type === 'inline-extension') {
       const key = String(attrs['extension-key'] ?? '');
+      if (key.endsWith('hmpcost-html-macro-pro')) {
+        const guest = attrs.parameters?.['guest-params'] ?? attrs['guest-params'] ?? {};
+        const encoded = String(guest.body ?? '').replace(/\s/g, '');
+        // Buffer.from는 잘못된 base64도 허용하므로 정규 형식과 UTF-8을 검사한다.
+        let html = '';
+        if (/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          try { html = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(encoded, 'base64')); } catch {}
+        }
+        return { type: 'htmlEmbed', attrs: { source: 'hmp', html, height: embedHeight(guest.height) } };
+      }
       const shortName = key.split('/').pop() || 'extension';
       countMacro('adf-ext:' + shortName, stats.unsupportedMacros);
       return { type: 'cfMacro', attrs: { name: 'adf-ext:' + shortName, params: attrs, dynamic: false } };
@@ -338,9 +353,18 @@ export function convertStorage(xhtml) {
       const h = /^h([1-6])$/.exec(n.name);
       if (h) { items.push({ node: { type: 'heading', attrs: { level: Number(h[1]) }, content: inline(n.children, []) } }); continue; }
       switch (n.name) {
-        case 'p':
-          items.push({ node: para(inline(n.children, [])) });
+        case 'p': {
+          // 구형 html 매크로는 문단 안에도 들어간다. 블록 노드를 문단 밖으로 꺼낸다.
+          let pending = [], pushed = false;
+          const flush = () => { if (pending.length) { items.push({ node: para(pending) }); pushed = true; } pending = []; };
+          for (const node of inline(n.children, [])) {
+            if (node.type === 'htmlEmbed') { flush(); items.push({ node }); pushed = true; }
+            else pending.push(node);
+          }
+          flush();
+          if (!pushed) items.push({ node: para([]) }); // 빈 문단은 예전처럼 유지 (간격)
           break;
+        }
         case 'ul': case 'ol': {
           // 목록 항목은 문단으로 시작해야 한다(스키마 'paragraph block*') — 하위 목록·코드 등으로 시작하면 빈 문단을 앞에 둔다. 빈 목록은 버린다 (GIRA-75)
           const lis = childEls(n, 'li');

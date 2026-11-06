@@ -1,3 +1,4 @@
+import { HtmlEmbed } from './html-embed.js';
 import { mermaidEditorView } from './mermaid-editor.js';
 import { mountMermaid } from './mermaid-view.js';
 import { TaskItem } from './task-item.js';
@@ -1356,7 +1357,7 @@ const custom = [
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
   BlockResize, Panel, Expand, Layout, LayoutSection, LayoutColumn,
-  Mermaid, JiraTable, CfMacro, AdfNode,
+  Mermaid, HtmlEmbed, JiraTable, CfMacro, AdfNode,
   Media, MediaCaption, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
   PageLink, SpaceLink, FileLink, LinkCard, CfMacroInline,
 ];
