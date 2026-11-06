@@ -18,7 +18,7 @@ const DYNAMIC_MACROS = new Set([
   'viewdoc', 'viewxls', 'viewppt', 'multimedia', 'drawio', 'gliffy', 'plantuml', 'chart', 'vote', 'survey',
   'excerpt', 'scroll-pagebreak', 'iframe', 'html',
 ]);
-const PANEL_TYPES = { info: 'info', note: 'note', tip: 'success', warning: 'warning', panel: 'custom' };
+const PANEL_TYPES = { info: 'info', note: 'note', tip: 'success', success: 'success', warning: 'warning', error: 'error', panel: 'custom' };
 
 const dec = (s) => decodeHTML(s ?? '');
 const isEl = (n) => n.type === 'tag';
@@ -80,10 +80,16 @@ export function convertStorage(xhtml) {
         case 'sup': withMark({ type: 'superscript' }); break;
         case 'a': withMark({ type: 'link', attrs: { href: dec(n.attribs.href ?? '') } }); break;
         case 'br': out.push({ type: 'hardBreak' }); break;
+        case 'small': withMark({ type: 'smallText' }); break;
+        case 'mark':
         case 'span': {
-          const color = /color:\s*([^;]+)/.exec(n.attribs.style ?? '')?.[1];
-          if (color) withMark({ type: 'textColor', attrs: { color: color.trim() } });
-          else out.push(...inline(n.children, marks));
+          const style = n.attribs.style ?? '';
+          const next = [...marks];
+          const color = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style)?.[1];
+          const background = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(style)?.[1];
+          if (color) next.push({ type: 'textColor', attrs: { color: color.trim() } });
+          if (background || n.name === 'mark') next.push({ type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
+          out.push(...inline(n.children, next));
           break;
         }
         case 'time':
@@ -161,10 +167,15 @@ export function convertStorage(xhtml) {
       case 'code': case 'noformat': {
         // ProseMirror는 빈 텍스트 노드를 허용하지 않는다 — 빈 코드 블록은 content 생략
         const code = (plainBody(n) ?? '').replace(/\r\n/g, '\n');
-        return { type: 'codeBlock', attrs: { language: params.language ?? null },
-          ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
+        const truthy = (v) => v === true || v === 'true';
+        return { type: 'codeBlock', attrs: {
+          language: params.language ?? null,
+          wrap: truthy(params.wrap),
+          lineNumbers: params.linenumbers == null ? true : truthy(params.linenumbers),
+          collapsed: truthy(params.collapse),
+        }, ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
       }
-      case 'info': case 'note': case 'tip': case 'warning': case 'panel':
+      case 'info': case 'note': case 'tip': case 'success': case 'warning': case 'error': case 'panel':
         return { type: 'panel', attrs: {
           panelType: PANEL_TYPES[name], title: params.title ?? null, bgColor: params.bgColor ?? null,
           panelIcon: params.panelIconText ?? params.panelIcon ?? null,
@@ -300,12 +311,27 @@ export function convertStorage(xhtml) {
           collectCols(n);
           const tableWidth = n.attribs['data-table-width'] ? Math.round(Number(n.attribs['data-table-width'])) || null : null;
           const layout = dec(n.attribs['data-layout'] ?? '') || null;
+          const displayMode = n.attribs['data-table-display-mode'] === 'fixed' ? 'fixed' : null;
+          const cellsOf = (tr) => (tr.children ?? []).filter((c) => isEl(c) && (c.name === 'td' || c.name === 'th'));
+          // 번호가 매겨진 행: Confluence는 맨 앞에 class="numberingColumn" 칸을 실제로 둔다 → 표 속성으로 바꾸고 칸은 뺀다
+          const isNum = (c) => /(^|\s)numberingColumn(\s|$)/.test(c?.attribs?.class ?? '');
+          const numberedRows = rows.length > 0 && rows.every((tr) => isNum(cellsOf(tr)[0]));
+          if (numberedRows && colwidths.length) colwidths.shift();
+          const cellAttrs = (cell) => {
+            const a = { colspan: Number(cell.attribs.colspan ?? 1), rowspan: Number(cell.attribs.rowspan ?? 1) };
+            const bg = (cell.attribs['data-highlight-colour'] ?? '').trim().toLowerCase();
+            if (/^#[0-9a-f]{3,8}$/.test(bg) && bg !== '#ffffff' && bg !== '#fff') a.background = bg;
+            const va = /vertical-align:\s*(middle|bottom)/.exec(cell.attribs.style ?? '')?.[1] ?? (/^(middle|bottom)$/.test(cell.attribs.valign ?? '') ? cell.attribs.valign : null);
+            if (va) a.valign = va;
+            return a;
+          };
           items.push({ node: { type: 'table',
-            attrs: { tableWidth, layout, colwidths: colwidths.some((w) => w) ? colwidths : null },
+            attrs: { tableWidth, layout, colwidths: colwidths.some((w) => w) ? colwidths : null,
+              ...(numberedRows ? { numberedRows: true } : {}), ...(displayMode ? { displayMode } : {}) },
             content: rows.map((tr) => ({ type: 'tableRow',
-            content: (tr.children ?? []).filter((c) => isEl(c) && (c.name === 'td' || c.name === 'th')).map((cell) => ({
+            content: cellsOf(tr).slice(numberedRows ? 1 : 0).map((cell) => ({
               type: cell.name === 'th' ? 'tableHeader' : 'tableCell',
-              attrs: { colspan: Number(cell.attribs.colspan ?? 1), rowspan: Number(cell.attribs.rowspan ?? 1) },
+              attrs: cellAttrs(cell),
               content: ensureBlocks(blocks(cell.children)),
             })) })) } });
           break;
@@ -337,6 +363,9 @@ export function convertStorage(xhtml) {
         }
         case 'div': case 'section': case 'article': case 'center': case 'colgroup': case 'ac:rich-text-body':
           items.push(...blocks(n.children).map((node) => ({ node })));
+          break;
+        case 'ac:adf-node':
+          items.push({ node: adfNode(n) });
           break;
         case 'ac:adf-extension': {
           // 신 편집기 ADF 노드. 대부분 서드파티 Forge 앱 임베드(extension)이고,

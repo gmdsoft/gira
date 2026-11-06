@@ -25,6 +25,8 @@ const keywords = {
   cpp: new RegExp(`^(?:${C_KEYWORDS}|class|namespace|template|typename|public|private|protected|virtual|override|final|new|delete|this|using|nullptr|try|catch|throw|operator|friend|constexpr|noexcept|std)$`),
   csharp: /^(?:abstract|as|async|await|base|bool|break|byte|case|catch|char|class|const|continue|decimal|default|delegate|do|double|else|enum|event|explicit|false|finally|float|for|foreach|get|if|in|int|interface|internal|is|lock|long|namespace|new|null|object|out|override|params|private|protected|public|readonly|record|ref|return|sealed|set|short|static|string|struct|switch|this|throw|true|try|typeof|uint|ulong|using|var|virtual|void|while|yield)$/,
 };
+// 제어문 키워드: Confluence는 같은 파랑에 굵게 표시한다(return·if 등). 자료형(int 등)은 보통 굵기
+const CONTROL = /^(?:return|if|else|elif|for|foreach|while|do|switch|case|break|continue|goto|default|try|catch|except|finally|throw|raise|yield|await|match|loop|then|fi|done|esac)$/;
 export function codeTokens(text, language) {
   let lang = aliases[language?.toLowerCase()] || language?.toLowerCase();
   if (!lang || lang === 'auto') {
@@ -43,7 +45,7 @@ export function codeTokens(text, language) {
   const pattern = lang === 'python'
     ? /#[^\n]*|(?:[rbfuRBFU]{1,2})?(?:"""[\s\S]*?(?:"""|$)|'''[\s\S]*?(?:'''|$)|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')|\b\d+(?:\.\d+)?\b|\b[A-Za-z_]\w*\b/g
     : cLike
-      ? /^[ \t]*#[ \t]*\w+|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?[fFlLuU]*\b|\b[A-Za-z_]\w*\b/gm
+      ? /(?<=^[ \t]*#[ \t]*include[ \t]*)<[^>\n]*>|^[ \t]*#[ \t]*\w+|\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?[fFlLuU]*\b|\b[A-Za-z_]\w*\b/gm
     : lang === 'csharp'
       ? /\/\/[^\n]*|\/\*[\s\S]*?(?:\*\/|$)|[@$]{1,2}"(?:""|[^"])*"|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\b\d+(?:\.\d+)?[fFdDmMlLuU]*\b|\b[A-Za-z_]\w*\b/g
     : lang === 'sql'
@@ -54,14 +56,29 @@ export function codeTokens(text, language) {
   const tokens = [];
   for (const match of text.matchAll(pattern)) {
     const value = match[0];
-    const kind = cLike && /^\s*#/.test(value) ? 'keyword' // 전처리 지시문 (#include 등)
+    const kind = cLike && /^\s*#/.test(value) ? 'meta' // 전처리 지시문 (#include 등) — Confluence는 기본 글자색
+      : cLike && value.startsWith('<') ? 'string' // #include <헤더>
       : /^(?:\/\/|\/\*|--|#)/.test(value) ? 'comment'
       : /^(?:[rbfuRBFU]{1,2})?["'`]|^[@$]{1,2}"/.test(value) ? (lang === 'json' && /^\s*:/.test(text.slice(match.index + value.length)) ? 'attr' : 'string')
         : /^\d/.test(value) ? 'number'
           : /^(?:true|false|null|undefined)$/i.test(value) ? 'literal'
             : lang === 'bash' && value.startsWith('$') ? 'variable'
               : keywords[lang]?.test(value) ? 'keyword' : null;
-    if (kind) tokens.push({ from: match.index, to: match.index + value.length, kind });
+    if (!kind) continue;
+    const from = match.index;
+    if (kind === 'keyword' && CONTROL.test(value)) { tokens.push({ from, to: from + value.length, kind: 'control' }); continue; }
+    // 문자열 안 이스케이프(\n 등)는 따로 색칠한다 (토큰은 겹치면 안 되므로 문자열을 조각낸다)
+    if (kind === 'string' && value.includes('\\')) {
+      let last = 0;
+      for (const m of value.matchAll(/\\(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|[0-7]{1,3}|.)/g)) {
+        if (m.index > last) tokens.push({ from: from + last, to: from + m.index, kind: 'string' });
+        tokens.push({ from: from + m.index, to: from + m.index + m[0].length, kind: 'escape' });
+        last = m.index + m[0].length;
+      }
+      if (last < value.length) tokens.push({ from: from + last, to: from + value.length, kind: 'string' });
+      continue;
+    }
+    tokens.push({ from, to: from + value.length, kind });
   }
   return tokens;
 }
@@ -81,6 +98,17 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         rendered: false,
         parseHTML: (element) => element.getAttribute('data-collapsed') === 'true',
       },
+      // 긴 줄을 접어서 보여줄지, 줄 번호를 붙일지 (플로팅 도구 모음에서 바꾼다)
+      wrap: {
+        default: false,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute('data-wrap') === 'true',
+      },
+      lineNumbers: {
+        default: true,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute('data-line-numbers') !== 'false',
+      },
     };
   },
   renderHTML({ node }) {
@@ -92,7 +120,12 @@ export const HighlightedCodeBlock = CodeBlock.extend({
       offset = token.to;
     }
     if (offset < text.length) parts.push(text.slice(offset));
-    return ['pre', node.attrs.collapsed ? { 'data-collapsed': 'true' } : {},
+    const preAttrs = {};
+    if (node.attrs.collapsed) preAttrs['data-collapsed'] = 'true';
+    if (node.attrs.wrap) preAttrs['data-wrap'] = 'true';
+    preAttrs['data-line-numbers'] = String(node.attrs.lineNumbers);
+    if (node.attrs.wrap) preAttrs.class = 'code-wrap';
+    return ['pre', preAttrs,
       ['code', node.attrs.language ? { class: `language-${node.attrs.language}` } : {}, ...parts]];
   },
   addProseMirrorPlugins() {
@@ -111,30 +144,9 @@ export const HighlightedCodeBlock = CodeBlock.extend({
     })];
   },
   addNodeView() {
-    return ({ node, editor, getPos }) => {
+    return ({ node, editor }) => {
       const dom = document.createElement('div');
       dom.className = 'code-block';
-      const setAttr = (name, value) => {
-        const pos = getPos();
-        if (typeof pos === 'number') editor.view.dispatch(editor.state.tr.setNodeAttribute(pos, name, value));
-      };
-
-      // 편집: 언어 선택 + '보기에서 접어 두기'
-      const bar = document.createElement('div');
-      bar.className = 'code-block-bar';
-      bar.contentEditable = 'false';
-      const select = document.createElement('select');
-      select.setAttribute('aria-label', '코드 블록 언어');
-      select.add(new Option('자동 감지', ''));
-      for (const [value, label] of codeLanguages) select.add(new Option(label, value));
-      select.addEventListener('change', () => setAttr('language', select.value || null));
-      const foldLabel = document.createElement('label');
-      foldLabel.className = 'code-block-fold-opt';
-      const fold = document.createElement('input');
-      fold.type = 'checkbox';
-      fold.addEventListener('change', () => setAttr('collapsed', fold.checked));
-      foldLabel.append(fold, ' 보기에서 접어 두기');
-      bar.append(select, foldLabel);
 
       // 보기: 머리줄을 눌러 접기·펼치기 (저장하지 않는 화면 상태)
       const head = document.createElement('button');
@@ -142,8 +154,15 @@ export const HighlightedCodeBlock = CodeBlock.extend({
       head.className = 'code-block-head';
       head.contentEditable = 'false';
       let open = !node.attrs.collapsed;
+      const body = document.createElement('div');
+      body.className = 'code-body';
+      const gutter = document.createElement('div');
+      gutter.className = 'code-gutter';
+      gutter.contentEditable = 'false';
+      gutter.hidden = true;
       const pre = document.createElement('pre');
       const code = pre.appendChild(document.createElement('code'));
+      body.append(gutter, pre);
       const labelOf = (n) => {
         const lang = n.attrs.language || '';
         const name = codeLanguages.find(([v]) => v === lang)?.[1] || lang || '코드';
@@ -151,27 +170,39 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         return `${name} · ${lines}줄`;
       };
       const paint = (n) => {
-        const editing = editor.isEditable;
-        bar.hidden = !editing;
-        head.hidden = editing;
-        const shown = editing || open;
+        // Confluence처럼 머리줄 없이 — '보기에서 접어 두기'를 켠 블록만 보기 화면에 접기/펼치기 줄을 둔다
+        head.hidden = editor.isEditable || !n.attrs.collapsed;
+        const shown = editor.isEditable || open;
         pre.hidden = !shown;
+        gutter.hidden = !shown || !n.attrs.lineNumbers;
+        body.hidden = !shown;
         dom.classList.toggle('is-collapsed', !shown);
-        head.textContent = `${shown ? '▾' : '▸'} ${labelOf(n)}`;
+        dom.classList.toggle('has-line-numbers', !!n.attrs.lineNumbers);
+        pre.classList.toggle('code-wrap', !!n.attrs.wrap);
+        head.textContent = shown ? `▾ 코드 접기` : `▸ ${labelOf(n)} — 펼치기`;
         head.setAttribute('aria-expanded', String(shown));
+      };
+      // 줄 번호 거터 — 코드 내용이 바뀌면 줄 수만큼 다시 만든다
+      const paintGutter = (n) => {
+        if (!n.attrs.lineNumbers) { gutter.replaceChildren(); return; }
+        const count = Math.max(1, n.textContent ? n.textContent.split('\n').length : 1);
+        if (gutter.childElementCount === count) return;
+        gutter.replaceChildren(...Array.from({ length: count }, (_, i) => {
+          const line = document.createElement('span');
+          line.textContent = String(i + 1);
+          return line;
+        }));
       };
       head.addEventListener('click', () => { open = !open; paint(node); });
 
       const sync = (n) => {
         const language = n.attrs.language || '';
-        if (![...select.options].some((o) => o.value === language)) select.add(new Option(language, language));
-        select.value = language;
-        fold.checked = !!n.attrs.collapsed;
         code.className = language ? `language-${language}` : '';
+        paintGutter(n);
         paint(n);
       };
       sync(node);
-      dom.append(bar, head, pre);
+      dom.append(head, body);
       return {
         dom, contentDOM: code,
         update(n) {
@@ -179,7 +210,7 @@ export const HighlightedCodeBlock = CodeBlock.extend({
           if (n.attrs.collapsed !== node.attrs.collapsed) open = !n.attrs.collapsed;
           node = n; sync(n); return true;
         },
-        stopEvent: (event) => bar.contains(event.target) || head.contains(event.target),
+        stopEvent: (event) => head.contains(event.target),
         ignoreMutation: (mutation) => mutation.type !== 'selection' && !code.contains(mutation.target),
       };
     };

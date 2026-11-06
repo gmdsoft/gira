@@ -54,3 +54,13 @@ assert.ok(detect('#include <vector>\nstd::vector<int> v;').includes('#include'))
 assert.ok(detect('#include <stdio.h>\nint main(void) { return 0; }').includes('#include'));
 assert.doesNotThrow(() => generateHTML({ type: 'doc', content: [{ type: 'codeBlock' }] }, extensions));
 console.log('code-block-check: JS/Python/Rust/C/C++/C#/SQL/JSON/Bash, 접기 설정, 자동 감지, 보기 HTML·편집 decorations, 언어·원문 왕복 통과');
+
+// 줄 번호 기본 표시와 명시적으로 숨긴 설정, 줄 바꿈이 HTML 왕복에서 유지된다.
+for (const lineNumbers of [undefined, true, false]) {
+  const attrs = { wrap: true, ...(lineNumbers === undefined ? {} : { lineNumbers }) };
+  const html = generateHTML({ type: 'doc', content: [{ type: 'codeBlock', attrs }] }, extensions);
+  const restored = generateJSON(html, extensions).content[0];
+  assert.equal(restored.attrs.lineNumbers, lineNumbers ?? true);
+  assert.equal(restored.attrs.wrap, true);
+}
+assert.equal(generateJSON('<pre><code>x</code></pre>', extensions).content[0].attrs.lineNumbers, true);

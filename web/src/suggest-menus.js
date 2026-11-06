@@ -3,6 +3,7 @@
 import { Extension } from '@tiptap/core';
 import { PluginKey } from '@tiptap/pm/state';
 import Suggestion from '@tiptap/suggestion';
+import { EMOJIS, createEmojiPicker } from './emoji-picker.js';
 
 // 공용 팝업 렌더러: items = [{ label, desc?, run }]
 function popupRender() {
@@ -91,16 +92,6 @@ export function mentionMenu() {
 }
 
 // ':' 이모지: 상용 유니코드 목록 (Atlassian 커스텀 이모지는 범위 밖 — editor-spec.md)
-const EMOJIS = [
-  ['🙂', 'smile 웃음'], ['😄', 'laugh 큰웃음'], ['😉', 'wink 윙크'], ['😛', 'cheeky 메롱'], ['🙁', 'sad 슬픔'],
-  ['👍', 'thumbs-up +1 좋아요'], ['👎', 'thumbs-down -1 싫어요'], ['👏', 'clap 박수'], ['🙏', 'pray 부탁 감사'],
-  ['✅', 'check tick 완료 확인'], ['❌', 'cross x 아니오 실패'], ['⚠️', 'warning 경고 주의'], ['❓', 'question 질문'],
-  ['ℹ️', 'information info 정보'], ['💡', 'bulb idea 아이디어'], ['🔥', 'fire 불'], ['🎉', 'party tada 축하'],
-  ['⭐', 'star 별'], ['❤️', 'heart 하트'], ['🚀', 'rocket 로켓 출시'], ['📌', 'pin 고정'], ['📅', 'calendar 달력 일정'],
-  ['📝', 'memo note 메모'], ['📊', 'chart 차트 그래프'], ['📁', 'folder 폴더'], ['🔗', 'link 링크'],
-  ['🔴', 'red circle 빨강'], ['🟡', 'yellow circle 노랑'], ['🟢', 'green circle 초록'], ['🔵', 'blue circle 파랑'],
-  ['⏰', 'alarm clock 시계 마감'], ['🐛', 'bug 버그'], ['🔒', 'lock 잠금 보안'], ['💬', 'comment 댓글 말풍선'],
-];
 
 export function emojiMenu() {
   return Extension.create({
@@ -113,9 +104,8 @@ export function emojiMenu() {
         allowSpaces: false,
         command: ({ editor, range, props }) => props.run(editor, range),
         items: ({ query }) => {
-          if (query.length < 2) return []; // "오후 3:00" 같은 일반 콜론 입력에 뜨지 않게
           const q = query.toLowerCase();
-          return EMOJIS.filter(([, kw]) => kw.includes(q)).slice(0, 8).map(([ch, kw]) => ({
+          return EMOJIS.filter(([, kw]) => kw.includes(q)).map(([ch, kw]) => ({
             label: `${ch}  :${kw.split(' ')[0]}:`,
             run: (e, r) => e.chain().focus().deleteRange(r).insertContent([
               { type: 'emoji', attrs: { shortName: `:${kw.split(' ')[0]}:`, text: ch } },
@@ -123,7 +113,26 @@ export function emojiMenu() {
             ]).run(),
           }));
         },
-        render: popupRender,
+        render: () => {
+          let el, latest, selected = 0;
+          return {
+            onStart(props) {
+              latest = props;
+              el = createEmojiPicker(item => latest.command({ run: (e, r) => e.chain().focus().deleteRange(r).insertContent({ type: 'emoji', attrs: { text: item[0], shortName: `:${item[1].split(' ')[0]}:` } }).run() }), props.query);
+              el.classList.add('emoji-suggestion'); document.body.append(el);
+              const rect = props.clientRect?.(); if (rect) { el.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 300))}px`; el.style.top = `${Math.max(8, Math.min(rect.bottom + 4, window.innerHeight - 300))}px`; }
+            },
+            onUpdate(props) { latest = props; selected = 0; el?.setQuery(props.query); },
+            onKeyDown({ event }) {
+              const buttons = [...(el?.querySelectorAll('button') || [])];
+              if (event.key === 'Escape') { el?.remove(); return true; }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { selected = (selected + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length; buttons[selected]?.focus(); return true; }
+              if (event.key === 'Enter' && buttons.length) { buttons[selected]?.click(); return true; }
+              return false;
+            },
+            onExit() { el?.remove(); },
+          };
+        },
       })];
     },
   });
