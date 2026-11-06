@@ -21,6 +21,7 @@ import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
 import { bodyDoc } from './markdown-doc.mjs';
 import { registerGiraCards } from './gira-cards.mjs';
+import { createNotifier, publicBase } from './notify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -397,6 +398,7 @@ app.post('/api/content/:id/publish', async (req, reply) => {
     [id, next, newTitle || null]);
   await query(`DELETE FROM drafts WHERE content_id = $1`, [id]);
   reindex(id);
+  notifyPage(req, id, next === 1 ? 'page.created' : 'page.updated');
   return { ok: true, version: next };
 });
 
@@ -428,6 +430,7 @@ app.post('/api/content', async (req, reply) => {
        VALUES ($1, 1, $2, $3, false, $4, now())`,
       [rows[0].id, JSON.stringify(initialDoc), req.body?.message ?? null, userId]);
     reindex(rows[0].id);
+    notifyPage(req, rows[0].id, 'page.created');
   }
   return { id: rows[0].id, spaceKey, type, version: initialDoc ? 1 : 0 };
 });
@@ -671,6 +674,7 @@ app.post('/api/content/:id/comments', async (req, reply) => {
     `INSERT INTO comments (id, content_id, kind, inline_ref, doc, author_id, created_at)
      VALUES (nextval('comment_id_seq'), $1, $2, $3, $4, $5, now()) RETURNING id`,
     [req.params.id, k, k === 'inline' ? inlineRef.trim().slice(0, 500) : null, JSON.stringify(body), userId]);
+  notifyPage(req, req.params.id, 'page.comment');
   return { ok: true, id: rows[0].id };
 });
 
@@ -789,6 +793,24 @@ app.get('/api/principals', async (req) => {
 
 
 // 스페이스 권한 (스페이스 admin 이상)
+// ---------- 알림 (GIRA-14) ----------
+const notifier = createNotifier({ query, app: 'gonfluence' });
+// 문서 이벤트 → 알림. 제목만(본문 미포함). 인앱 알림은 문서 작성자·소유자에게 (행동한 사람 제외)
+function notifyPage(req, contentId, event) {
+  (async () => {
+    const { rows } = await query(
+      `SELECT c.id, c.title, c.space_id, c.author_id, c.owner_id, s.key AS space_key
+         FROM content c JOIN spaces s ON s.id = c.space_id WHERE c.id = $1`, [contentId]);
+    const c = rows[0];
+    if (!c) return;
+    await notifier.emit({
+      event, resourceType: 'space', resourceId: c.space_id, title: c.title || '제목 없는 문서',
+      path: `/s/${encodeURIComponent(c.space_key)}/p/${c.id}`, baseUrl: publicBase(req, 'GONFLUENCE_PUBLIC_URL'),
+      actorId: req.access.userId, people: { author: c.author_id, reporter: c.owner_id },
+    });
+  })().catch((e) => console.error('[notify]', e.message));
+}
+
 async function requireSpaceAdmin(req, reply, spaceKey) {
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
   if (!sp.length) { reply.code(404).send({ error: 'space not found' }); return null; }
@@ -1102,6 +1124,21 @@ app.get('/healthz', async () => {
 });
 
 const port = Number(process.env.PORT ?? 3001);
+// 알림 규칙(스페이스 관리자)·인앱 알림 API, 발송 작업
+notifier.registerRoutes(app, {
+  resourceType: 'space',
+  resolve: async (req, reply, key, need, id) => {
+    const { rows: sp } = id != null
+      ? await query(`SELECT id, key FROM spaces WHERE id = $1`, [id])
+      : await query(`SELECT id, key FROM spaces WHERE key = $1`, [String(key ?? '')]);
+    if (!sp.length) { reply.code(404).send({ error: 'space not found' }); return null; }
+    const role = await spaceRole(req.access, sp[0].id);
+    if (need === 'admin' && role !== 'admin') { reply.code(403).send({ error: '스페이스 관리자만 알림 규칙을 정할 수 있습니다' }); return null; }
+    return { id: sp[0].id, label: sp[0].key };
+  },
+});
+notifier.start();
+
 await app.listen({ port, host: '0.0.0.0' });
 console.log(`API http://localhost:${port}`);
 

@@ -20,6 +20,7 @@ import { exportProject, importProject } from './jira-package.mjs';
 import { registerDevChat } from './dev-chat.mjs';
 import { registerProjectCreate } from './jira-project-create.mjs';
 import { parseJql, JqlError } from './jql.mjs';
+import { createNotifier, publicBase } from './notify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 try { process.loadEnvFile(path.join(here, '..', '..', '.env')); } catch { /* 환경변수 직접 지정 가능 */ }
@@ -104,6 +105,24 @@ async function commentAttachments(issueId, ids) {
     `SELECT id, filename FROM jira_attachments WHERE issue_id = $1 AND id = ANY($2::bigint[])`, [issueId, list]);
   const byId = new Map(rows.map((r) => [Number(r.id), r]));
   return list.map((id) => byId.get(id)).filter(Boolean);
+}
+
+// ---------- 알림 (GIRA-14) ----------
+const notifier = createNotifier({ query, app: 'gira' });
+// 이슈 이벤트 → 알림. 제목은 '키 요약'(상태 변경이면 '이전 → 이후' 덧붙임) — 본문은 담지 않는다
+function notifyIssue(req, issueId, event, extra) {
+  (async () => {
+    const { rows } = await query(
+      `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id FROM jira_issues i WHERE i.id = $1`, [issueId]);
+    const it = rows[0];
+    if (!it) return;
+    await notifier.emit({
+      event, resourceType: 'project', resourceId: it.project_id,
+      title: `${it.issue_key} ${it.summary}${extra ? ` (${extra})` : ''}`,
+      path: `/browse/${encodeURIComponent(it.issue_key)}`, baseUrl: publicBase(req, 'GIRA_PUBLIC_URL'),
+      actorId: req.access.userId, people: { assignee: it.assignee_id, reporter: it.reporter_id },
+    });
+  })().catch((e) => console.error('[notify]', e.message));
 }
 
 async function issueByKey(key) {
@@ -440,6 +459,7 @@ app.post('/api/issues', async (req, reply) => {
   // 완료 컬럼에서 바로 만든 경우 해결 시각도 기록
   await query(`UPDATE jira_issues SET resolved_at = now()
                 WHERE id = $1 AND (SELECT category FROM jira_statuses WHERE id = status_id) = 'done'`, [rows[0].id]);
+  notifyIssue(req, rows[0].id, 'issue.created');
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
 
@@ -495,6 +515,7 @@ app.patch('/api/issue/:key', async (req, reply) => {
     if (before[label] !== after[label]) items.push({ field, fromString: before[label], toString: after[label] });
   }
   if (before.desc_md5 !== after.desc_md5) items.push({ field: 'description', fromString: null, toString: null });
+  if (before.status !== after.status) notifyIssue(req, issue.id, 'issue.status', `${before.status ?? '?'} → ${after.status ?? '?'}`);
   if (items.length) {
     await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
       [issue.id, req.access.userId, JSON.stringify(items)]);
@@ -541,6 +562,7 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
      VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, now(), now()) RETURNING id`,
     [issue.id, JSON.stringify(body), req.access.userId]);
   await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [issue.id]);
+  notifyIssue(req, issue.id, 'issue.comment');
   return { id: rows[0].id };
 });
 
@@ -977,6 +999,16 @@ app.get('/healthz', async () => {
 });
 
 const port = Number(process.env.JIRA_VIEWER_PORT ?? 3002);
+// 알림 규칙(프로젝트 관리자)·인앱 알림 API, 발송 작업
+notifier.registerRoutes(app, {
+  resourceType: 'project',
+  resolve: async (req, reply, key, need, id) => {
+    const p = id != null ? await requireProjectId(req, reply, id, need) : await requireProject(req, reply, String(key ?? ''), need);
+    return p ? { id: p.id, label: p.key } : null;
+  },
+});
+notifier.start();
+
 await app.listen({ port, host: '0.0.0.0' });
 console.log(`Jira 뷰어: http://0.0.0.0:${port}`);
 
