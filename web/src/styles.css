@@ -1074,13 +1074,19 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 
 .doc .mermaid-view { margin: 12px 0; min-width: 0; max-width: 100%; }
 .doc .mermaid-output { overflow-x: auto; padding: 8px; text-align: center; }
-.doc .mermaid-output svg { max-width: none !important; height: auto; }
+/* 크기: Confluence처럼 다이어그램은 자연 크기(Mermaid가 넣는 max-width)로, 본문보다 크면 본문 폭에 맞춰 줄인다 — 확대하지 않는다.
+   원본이 미리 그린 PNG(고해상도)는 size 설정 폭으로 줄여 보인다 (Confluence 보통 ≈ 400px) */
+.doc .mermaid-output svg { height: auto; }
 .doc .mermaid-output img { max-width: 100%; height: auto; }
-.doc .mermaid-view[data-size="small"] .mermaid-output svg { width: 480px; }
-.doc .mermaid-view[data-size="medium"] .mermaid-output svg { width: 720px; }
-.doc .mermaid-view[data-size="large"] .mermaid-output svg { width: 960px; }
+.doc .mermaid-view[data-size="small"] .mermaid-output img { max-width: min(100%, 240px); }
+.doc .mermaid-view[data-size="medium"] .mermaid-output img, .doc .mermaid-view:not([data-size]) .mermaid-output img { max-width: min(100%, 400px); }
 .doc .mermaid-view details { margin-top: 8px; }
 .doc .mermaid-view summary { cursor: pointer; color: var(--muted); }
 .doc .mermaid-view button { margin-top: 6px; }
 .doc .mermaid-status, .doc .mermaid-caption { color: var(--muted); font-size: 13px; }
 .mermaid-scratch { position: absolute; left: -100000px; top: 0; width: 1000px; visibility: hidden; }
+/* 원문 보기·코드 복사는 다이어그램에 마우스를 올리거나(키보드로) 다가갈 때만 — Confluence처럼 평소엔 그림만 */
+.doc .mermaid-view > details, .doc .mermaid-view > button { opacity: 0; transition: opacity .15s; }
+.doc .mermaid-view:hover > details, .doc .mermaid-view:hover > button,
+.doc .mermaid-view:focus-within > details, .doc .mermaid-view:focus-within > button,
+.doc .mermaid-view > details[open], .doc .mermaid-view.has-error > details, .doc .mermaid-view.has-error > button { opacity: 1; }
