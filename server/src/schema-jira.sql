@@ -283,3 +283,11 @@ CREATE TABLE IF NOT EXISTS jira_dashboards (
  owner_id bigint REFERENCES users(id), share jsonb NOT NULL DEFAULT '[]', gadgets jsonb NOT NULL DEFAULT '[]'
 );
 ALTER TABLE jira_filters ALTER COLUMN owner_id DROP NOT NULL;
+-- GIRA-69: 최초 이관 시각은 증분 재실행에서도 유지한다.
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS watchers_imported_at timestamptz;
+CREATE TABLE IF NOT EXISTS jira_issue_watchers (
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (issue_id, user_id)
+);

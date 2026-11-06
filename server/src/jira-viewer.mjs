@@ -1,5 +1,6 @@
 import { adfPageLink } from './adf-page-links.mjs';
 import { canReadCollection, gadgetParams } from './jira-collections.mjs';
+import { addWatcher, watchIssuePeople } from './jira-watchers.mjs';
 import { remoteLinkView } from './jira-remote-links.mjs';
 import { scheduleFields, parseDuration } from './jira-schedule.mjs';
 import { rankBetween, RANK_COLUMN } from './jira-rank.mjs';
@@ -20,7 +21,7 @@ import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
-import { registerAvatarRoutes } from './avatar.mjs';
+import { resolveAvatar, registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
@@ -118,7 +119,8 @@ async function commentAttachments(issueId, ids) {
 const notifier = createNotifier({ query, app: 'gira' });
 // 이슈 이벤트 → 알림. 제목은 '키 요약'(상태 변경이면 '이전 → 이후' 덧붙임) — 본문은 담지 않는다
 // 새 이슈: '이슈 등록' + 담당자가 정해져 있으면 '담당자 지정'
-function notifyCreated(req, issueId) {
+async function notifyCreated(req, issueId) {
+  await watchIssuePeople(query, issueId);
   notifyIssue(req, issueId, 'issue.created');
   query(`SELECT assignee_id FROM jira_issues WHERE id = $1`, [issueId])
     .then(({ rows }) => { if (rows[0]?.assignee_id) notifyIssue(req, issueId, 'issue.assigned'); })
@@ -130,7 +132,9 @@ function notifyIssue(req, issueId, event, extra) {
       `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id FROM jira_issues i WHERE i.id = $1`, [issueId]);
     const it = rows[0];
     if (!it) return;
+    const { rows: watchers } = await query('SELECT user_id FROM jira_issue_watchers WHERE issue_id = $1', [issueId]);
     await notifier.emit({
+      watchers: watchers.map(w => w.user_id),
       event, resourceType: 'project', resourceId: it.project_id,
       title: `${it.issue_key} ${it.summary}${extra ? ` (${extra})` : ''}`,
       path: `/browse/${encodeURIComponent(it.issue_key)}`, baseUrl: publicBase(req, 'GIRA_PUBLIC_URL'),
@@ -513,10 +517,22 @@ app.get('/api/issue/:key', async (req, reply) => {
              FROM jira_worklogs w LEFT JOIN users u ON u.id = w.author_id
             WHERE w.issue_id = $1 ORDER BY w.started_at DESC`, [issue.id]),
   ]);
-  return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
+  const { rows: watchers } = await query(`SELECT u.id, u.display_name, u.avatar_key, u.avatar_external_url FROM jira_issue_watchers w JOIN users u ON u.id = w.user_id WHERE w.issue_id = $1 ORDER BY u.display_name, u.id`, [issue.id]);
+  return { ...issue, watchers: watchers.map(w => ({ id: w.id, display_name: w.display_name, avatar_url: resolveAvatar(w) })), watching: watchers.some(w => String(w.id) === String(req.access.userId)), comments: comments.rows, attachments: attachments.rows, links: links.rows,
            subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)),
            worklogs: worklogs.rows };
 });
+
+for (const method of ['post', 'delete']) {
+  app[method]('/api/issue/:key/watch', async (req, reply) => {
+    const issue = await issueByKey(req.params.key);
+    if (!issue) return reply.code(404).send({ error: 'not found' });
+    if (!await requireProjectId(req, reply, issue.project_id)) return;
+    if (method === 'post') await addWatcher(query, issue.id, req.access.userId);
+    else await query('DELETE FROM jira_issue_watchers WHERE issue_id = $1 AND user_id = $2', [issue.id, req.access.userId]);
+    return { ok: true };
+  });
+}
 
 // ---------- 이슈 생성/수정 ----------
 
@@ -562,7 +578,7 @@ app.post('/api/issues', async (req, reply) => {
   // 완료 컬럼에서 바로 만든 경우 해결 시각도 기록
   await query(`UPDATE jira_issues SET resolved_at = now()
                 WHERE id = $1 AND (SELECT category FROM jira_statuses WHERE id = status_id) = 'done'`, [rows[0].id]);
-  notifyCreated(req, rows[0].id);
+  await notifyCreated(req, rows[0].id);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
 
@@ -662,6 +678,7 @@ app.patch('/api/issue/:key', async (req, reply) => {
     `SELECT s.category FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id WHERE i.id = $1`, [issue.id])).rows[0]?.category;
   const catBefore = 'statusId' in b ? await categoryOf() : null;
   await query(`UPDATE jira_issues SET ${sets.join(', ')} WHERE id = $1`, params);
+  if ('assigneeId' in b && b.assigneeId) await addWatcher(query, issue.id, b.assigneeId);
   // 로컬 수정도 Jira처럼 기록(changelog)에 남긴다
   const after = await issueSnapshot(issue.id);
   const items = [];
@@ -727,6 +744,7 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
      VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, now(), now()) RETURNING id`,
     [issue.id, JSON.stringify(body), req.access.userId]);
   await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [issue.id]);
+  await addWatcher(query, issue.id, req.access.userId);
   notifyIssue(req, issue.id, 'issue.comment');
   return { id: rows[0].id };
 });
@@ -1114,16 +1132,17 @@ app.post('/api/dev-feedback', async (req, reply) => {
     `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary,
        description_adf, labels, reporter_id, assignee_id, created_at, updated_at, fields_raw)
      VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), '{}')
-     RETURNING issue_key`,
+     RETURNING id, issue_key`,
     [pr[0].id, `${pr[0].key}-${mx[0].n}`, tp[0]?.id ?? null, st[0]?.id ?? null,
      `[${KINDS[kind]}] ${title.trim()}`, JSON.stringify(textToAdf(body)),
      ['dev-feedback', kind], req.access.userId, pr[0].default_assignee_id ?? null]);
+  await watchIssuePeople(query, rows[0].id);
   return { issueKey: rows[0].issue_key };
 });
 
 // 개발참여 챗봇 (자연어 요청·첨부 → 답변 + GIRA 이슈 등록까지) — dev-chat.mjs
 // 챗봇이 만든 이슈도 등록·담당자 지정 알림을 보낸다
-registerDevChat(app, { textToAdf, onIssueCreated: (req, id) => notifyCreated(req, id) });
+registerDevChat(app, { textToAdf, onIssueCreated: (req, id) => notifyCreated(req, id).catch(e => console.error('[watchers]', e.message)) });
 
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
 

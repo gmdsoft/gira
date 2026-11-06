@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { syncWatchers } from './lib/jira-watchers.mjs';
 // Jira Cloud → 새 서비스 DB 임포터 (PoC: 프로젝트 단위, 최신 상태만).
 // 읽기 전용 GET 요청만 사용한다. 변경 이력(changelog)·워크로그는 PoC 범위 밖.
 // 대형 프로젝트(1만+ 이슈)를 위해 페이지 단위로 수집·적재한다 (메모리에 전체를 들지 않음).
@@ -333,6 +334,7 @@ for (;;) {
     }
   }
 
+  await syncWatchers(issues, { get, query, ensureUsers, uid });
   await syncRemoteLinks(issues, { get, query });
   await syncWorklogs(issues, { get, query, ensureUsers, uid }); // GIRA-71
 
