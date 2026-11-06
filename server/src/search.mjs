@@ -68,12 +68,12 @@ export function plainText(doc) {
   return out.join(' ').replace(/\s+\n/g, '\n').replace(/[ \t]+/g, ' ').trim();
 }
 
-export async function indexContent({ id, title, spaceKey, type, labels, authorName, updatedAt, doc }) {
+export async function indexContent({ id, title, spaceKey, type, labels, authorName, updatedAt, doc, text }) {
   try {
     await ensureIndex();
     await os('PUT', `/${INDEX}/_doc/${id}`, {
       title, spaceKey, type, labels: labels ?? [], authorName: authorName ?? null,
-      updatedAt: updatedAt ?? null, text: doc ? plainText(doc) : '',
+      updatedAt: updatedAt ?? null, text: text ?? (doc ? plainText(doc) : ''),
     });
   } catch (e) {
     console.error('[search] 색인 실패:', e.message);
@@ -88,7 +88,7 @@ export async function bulkIndex(items) {
     lines.push(JSON.stringify({
       title: it.title, spaceKey: it.spaceKey, type: it.type, labels: it.labels ?? [],
       authorName: it.authorName ?? null, updatedAt: it.updatedAt ?? null,
-      text: it.doc ? plainText(it.doc) : '',
+      text: it.text ?? (it.doc ? plainText(it.doc) : ''),
     }));
   }
   const res = await fetch(`${SEARCH_URL}/_bulk`, {

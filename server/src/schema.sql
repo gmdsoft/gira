@@ -154,6 +154,14 @@ CREATE TABLE IF NOT EXISTS database_snapshots (
   fetched_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (content_id, version)
 );
+CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
+  content_id bigint NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+  version int NOT NULL,
+  data jsonb NOT NULL,
+  source_ybin bytea NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (content_id, version)
+);
 CREATE TABLE IF NOT EXISTS space_templates (
   id bigint PRIMARY KEY,
   space_id bigint NOT NULL REFERENCES spaces(id),

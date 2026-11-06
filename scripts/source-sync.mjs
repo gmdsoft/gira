@@ -52,6 +52,7 @@ const APPS = {
               WHERE EXISTS (SELECT 1 FROM content c JOIN content_versions v ON v.content_id = c.id
                              WHERE c.space_id = s.id AND v.source_xhtml IS NOT NULL)
                  OR EXISTS (SELECT 1 FROM content c JOIN database_snapshots d ON d.content_id = c.id WHERE c.space_id = s.id)
+                 OR EXISTS (SELECT 1 FROM content c JOIN whiteboard_snapshots w ON w.content_id = c.id WHERE c.space_id = s.id)
               ORDER BY s.key`,
     steps: (key, since) => [['scripts/import-space.mjs', '--space', key, '--since', since]],
   },

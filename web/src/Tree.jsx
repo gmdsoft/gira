@@ -58,7 +58,7 @@ function TreeNode({ node, children, spaceKey, currentId, navigate, onMove, depth
     if (isCurrent || hasDescendant(node, children, currentId)) setOpen(true);
   }, [currentId]);
   const icon = TYPE_ICON[node.type];
-  const navigable = ['page', 'live', 'database', 'embed'].includes(node.type);
+  const navigable = ['page', 'live', 'database', 'whiteboard', 'embed'].includes(node.type);
 
   // 놓을 수 있는 곳: 자기 자신, 자기 하위, 지금 부모가 아닌 문서·폴더
   const canDrop = () => dnd && dragging && String(dragging.id) !== String(node.id)
