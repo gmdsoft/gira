@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS content (
   id bigint PRIMARY KEY,
   space_id bigint NOT NULL REFERENCES spaces(id),
   parent_id bigint REFERENCES content(id),
-  type text NOT NULL CHECK (type IN ('page','live','folder','whiteboard','database','embed')),
+  type text NOT NULL CHECK (type IN ('page','live','folder','whiteboard','database','embed','blogpost')),
   title text NOT NULL,
   position int,
   status text NOT NULL DEFAULT 'current',
@@ -175,3 +175,12 @@ CREATE TABLE IF NOT EXISTS space_templates (
 );
 CREATE INDEX IF NOT EXISTS space_templates_space ON space_templates(space_id);
 CREATE SEQUENCE IF NOT EXISTS space_template_id_seq START 1000000000000;
+
+-- GIRA-60: 블로그 글 종류 허용 (기존 DB의 CHECK 제약 갱신, 여러 번 실행해도 안전)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'content_type_check'
+             AND pg_get_constraintdef(oid) NOT LIKE '%blogpost%') THEN
+    ALTER TABLE content DROP CONSTRAINT content_type_check;
+    ALTER TABLE content ADD CONSTRAINT content_type_check CHECK (type IN ('page','live','folder','whiteboard','database','embed','blogpost'));
+  END IF;
+END $$;

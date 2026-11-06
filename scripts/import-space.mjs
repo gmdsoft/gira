@@ -94,6 +94,7 @@ if (args.pages) {
   pages = (await mapLimit(ids, 6, async (id) => {
     try { return await get(`/wiki/api/v2/pages/${id}?body-format=storage`); }
     catch (e) { if (e.status !== 404 && e.status !== 400) throw e;
+      try { const b = await get(`/wiki/api/v2/blogposts/${id}?body-format=storage`); return { ...b, _blog: true }; } catch { /* 블로그도 아님 */ }
       const c = await get(`/wiki/rest/api/content/${id}?expand=space,version,ancestors`);
       if (!['database', 'whiteboard', 'embed'].includes(c.type)) throw e;
       return { ...c, spaceId: c.space?.id, parentId: c.ancestors?.at(-1)?.id, parentType: c.ancestors?.at(-1)?.type }; }
@@ -103,6 +104,9 @@ if (args.pages) {
 } else if (!args.since) {
   console.log('페이지 수집 (본문 포함)...');
   pages = await getAll(`/wiki/api/v2/spaces/${space.id}/pages?body-format=storage&limit=100`);
+  // 블로그 글(GIRA-60): 본문 구조는 문서와 같고 API 경로만 다르다 — 트리 밖(부모 없음)에 type 'blogpost'로
+  const blogs = await getAll(`/wiki/api/v2/spaces/${space.id}/blogposts?body-format=storage&limit=100`).catch(() => []);
+  pages.push(...blogs.map((b) => ({ ...b, _blog: true, parentId: null })));
   console.log(`  페이지 ${pages.length}건`);
 } else {
   // 증분: 목록(본문 없이)만 받아 바뀐 페이지를 고르고, 그것만 본문을 받는다 (1시간 여유)
@@ -194,11 +198,11 @@ console.log('페이지별 첨부/라벨/댓글 수집...');
 let done = 0;
 const perPage = await mapLimit(pages, 6, async (p) => {
   const [attachments, labels, footer, inline, props] = await Promise.all([
-    getAll(`/wiki/api/v2/pages/${p.id}/attachments?limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/labels?limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/footer-comments?body-format=storage&limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/inline-comments?body-format=storage&limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/properties?key=content-appearance-published`).catch(() => []),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/attachments?limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/labels?limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/footer-comments?body-format=storage&limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/inline-comments?body-format=storage&limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/properties?key=content-appearance-published`).catch(() => []),
   ]);
   if (++done % 25 === 0) console.log(`  ${done}/${pages.length}`);
   // Confluence 기본은 고정 폭(넓은 블록은 돌출 렌더링). 명시적으로 full-width일 때만 전체 폭.
@@ -321,7 +325,7 @@ for (const f of folders.values()) {
     [f.id, space.id, f.title ?? '(폴더)', f.position ?? null, uid(f.authorId), uid(f.ownerId), ts(f.createdAt)]);
 }
 for (const [i, p] of pages.entries()) {
-  const subtype = p.subtype === 'live' ? 'live' : 'page';
+  const subtype = p._blog ? 'blogpost' : p.subtype === 'live' ? 'live' : 'page';
   await query(
     `INSERT INTO content (id, space_id, type, title, position, status, author_id, owner_id, current_version, full_width, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
