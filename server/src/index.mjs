@@ -20,6 +20,7 @@ import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
 import { bodyDoc } from './markdown-doc.mjs';
+import { registerGiraCards } from './gira-cards.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -892,6 +893,8 @@ app.put('/api/content/:id/restrictions', async (req, reply) => {
   }
   return { ok: true };
 });
+
+registerGiraCards(app);
 
 // ---------- 개발참여: Gira의 GIRA 개발 프로젝트로 프록시 ----------
 // 서비스 키(GIRA_SERVICE_KEY)로 Gira에 이슈를 만들고, 실제 작성자 이름을 설명에 남긴다.

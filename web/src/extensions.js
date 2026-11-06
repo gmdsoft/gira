@@ -1,6 +1,7 @@
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
+import { hydrateIssueCard } from './issue-card.js';
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
@@ -533,10 +534,25 @@ const Anchor = Node.create({
 const JiraIssue = Node.create({
   name: 'jiraIssue', ...inlineAtom,
   addAttributes: () => ({ key: { default: '' } }),
+  parseHTML: () => [{ tag: 'a.jira-issue[data-issue-key]', getAttrs: (el) => ({ key: el.dataset.issueKey }) }],
   renderHTML: ({ node }) => ['a', {
     class: 'jira-issue', target: '_blank', rel: 'noreferrer',
-    href: `https://gmdsoft.atlassian.net/browse/${node.attrs.key}`,
+    'data-issue-key': node.attrs.key,
+    href: `/api/gira/issues/${encodeURIComponent(node.attrs.key)}/open`,
   }, node.attrs.key],
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement('a');
+      dom.className = 'jira-issue';
+      dom.target = '_blank';
+      dom.rel = 'noreferrer';
+      dom.dataset.issueKey = node.attrs.key;
+      dom.textContent = node.attrs.key;
+      dom.href = `/api/gira/issues/${encodeURIComponent(node.attrs.key)}/open`;
+      const cancel = hydrateIssueCard(dom);
+      return { dom, destroy: cancel };
+    };
+  },
 });
 
 const PageLink = Node.create({

@@ -839,3 +839,6 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .doc .code-block > select { margin: 8px 14px 0; padding: 3px 6px; color: inherit; background: var(--code-bg); border: 1px solid var(--syntax-comment); border-radius: 4px; font: inherit; font-size: 12px; }
 .doc .code-block > select:disabled { opacity: 1; }
 .doc .code-block > pre { margin-top: 4px; }
+.jira-issue { display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; vertical-align: baseline; }
+.jira-issue-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 32em; }
+.jira-issue .status { flex-shrink: 0; }
