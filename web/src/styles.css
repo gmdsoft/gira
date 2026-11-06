@@ -884,10 +884,13 @@ span.cf-macro-slot { display: inline; margin: 0; }
   .search-input { flex-basis: 100%; min-width: 0; }
   .search-form select { min-width: 0; max-width: 75%; }
 }
-.doc a.link-card { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; margin: 12px 0; border: 1px solid #dfe1e6; border-radius: 6px; color: #172b4d; text-decoration: none; background: #fafbfc; }
-.doc a.link-card:hover { border-color: #0052cc; background: #f0f5ff; }
+.doc a.link-card { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 16px; margin: 12px 0; border: 1px solid var(--border); border-radius: 6px; color: var(--ink); text-decoration: none; background: var(--bg-subtle); }
+.doc a.link-card:hover { border-color: var(--accent); background: var(--sel); }
 .link-card strong { flex: 1; min-width: 100px; overflow-wrap: anywhere; }
-.link-card-kind { color: #5e6c84; font-size: 12px; }
-.link-card-status { background: #dfe1e6; border-radius: 3px; padding: 2px 8px; font-size: 12px; }
-.link-choice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 24px; background: #f0f5ff; }
-.link-choice > span { overflow-wrap: anywhere; }
+.link-card-kind { color: var(--muted); font-size: 12px; }
+.link-card-status { background: var(--hover); border-radius: 3px; padding: 2px 8px; font-size: 12px; }
+/* 붙여넣은 내부 링크 옆에 뜨는 작은 선택 상자 */
+.link-choice { position: fixed; z-index: 60; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(9,30,66,.2); }
+.link-choice .btn { font-size: 12.5px; padding: 4px 10px; }
+.link-choice-err { color: #c9372c; font-size: 12px; }
