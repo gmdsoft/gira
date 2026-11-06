@@ -6,6 +6,7 @@ import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
 import { useEditPresence, EditingWarning } from './edit-presence.jsx';
+import { TableMenus } from './table-ui.jsx';
 
 async function send(path, method, body) {
   const res = await fetch(path, {
@@ -295,6 +296,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
             }
           }} />
         <EditorContent editor={editor} className="doc" />
+        {editor && <TableMenus editor={editor} />}
       </div>
     </div>
   );
@@ -427,19 +429,6 @@ function Toolbar({ editor, onImage }) {
       <B title="실행 취소" onClick={() => chain().undo().run()}>↶</B>
       <B title="다시 실행" onClick={() => chain().redo().run()}>↷</B>
       <span className="tb-hint muted">입력 중 <code>/</code> 로 블록 삽입</span>
-      {editor.isActive('table') && (
-        <span className="tb-table-ops">
-          <span className="tb-sep" />
-          <B title="아래에 행 추가" onClick={() => chain().addRowAfter().run()}>+행</B>
-          <B title="행 삭제" onClick={() => chain().deleteRow().run()}>−행</B>
-          <B title="오른쪽에 열 추가" onClick={() => chain().addColumnAfter().run()}>+열</B>
-          <B title="열 삭제" onClick={() => chain().deleteColumn().run()}>−열</B>
-          <B title="헤더 행 토글" onClick={() => chain().toggleHeaderRow().run()}>헤더</B>
-          <B title="선택한 셀 병합" onClick={() => chain().mergeCells().run()}>셀 병합</B>
-          <B title="셀 분할" onClick={() => chain().splitCell().run()}>셀 분할</B>
-          <B title="표 삭제" onClick={() => chain().deleteTable().run()}>표 삭제</B>
-        </span>
-      )}
     </div>
   );
 }
