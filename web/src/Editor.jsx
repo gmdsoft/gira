@@ -484,7 +484,7 @@ function Toolbar({ editor, onImage }) {
       <B title="이미지·파일 업로드" onClick={onImage}><IconImage /></B>
       <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}><IconLayout /></B>
       <span className="tb-table-wrap">
-        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}><IconTable /><span className="tb-text">표</span></B>
+        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}><IconTable /></B>
         {grid && (
           <span className="tb-pop tb-grid" onMouseDown={(e) => e.preventDefault()}>
             {Array.from({ length: 6 }, (_, r) => (
@@ -501,8 +501,8 @@ function Toolbar({ editor, onImage }) {
           </span>
         )}
       </span>
-      <B title="정보 패널" onClick={() => insertPanel('info')}><IconPanel /><span className="tb-text">패널</span></B>
-      <B title="펼치기" onClick={insertExpand}><IconExpand /><span className="tb-text">펼치기</span></B>
+      <B title="정보 패널" onClick={() => insertPanel('info')}><IconPanel /></B>
+      <B title="펼치기" onClick={insertExpand}><IconExpand /></B>
       <B title="구분선" onClick={() => chain().setHorizontalRule().run()}><IconDivider /></B>
       <B title="링크 (Ctrl+K)" active={editor.isActive('link')} onClick={() => {
         const prev = editor.getAttributes('link').href ?? '';
