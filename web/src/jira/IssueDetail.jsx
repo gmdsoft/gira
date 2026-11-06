@@ -243,21 +243,26 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
 
   const commentBlock = (c) => (
     <div className="comment" key={'c' + c.id}>
-      <div className="chead"><Avatar name={c.author_name} /> <b>{c.author_name ?? '?'}</b> · {relTime(c.created_at)}
-        {editingComment?.id !== c.id &&
-          <button className="plain dim" style={{ marginLeft: 6 }} title="댓글 편집"
-            onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
-      </div>
-      {editingComment?.id === c.id
-        ? <div className="cform">
-            <textarea autoFocus value={editingComment.text}
-              onChange={(e) => setEditingComment({ ...editingComment, text: e.target.value })} />
-            <div className="actions">
-              <button className="primary mini" onClick={saveComment}>저장</button>
-              <button className="mini" onClick={() => setEditingComment(null)}>취소</button>
+      <Avatar name={c.author_name} />
+      <div className="comment-main">
+        <div className="comment-head">
+          <b>{c.author_name ?? '?'}</b>
+          {editingComment?.id !== c.id &&
+            <button type="button" className="comment-edit" title="댓글 편집"
+              onClick={() => setEditingComment({ id: c.id, text: adfPlain(c.body_adf) })}>✎</button>}
+        </div>
+        <div className="comment-time">{relTime(c.created_at)}</div>
+        {editingComment?.id === c.id
+          ? <div className="cform">
+              <textarea autoFocus value={editingComment.text}
+                onChange={(e) => setEditingComment({ ...editingComment, text: e.target.value })} />
+              <div className="actions">
+                <button className="primary mini" onClick={saveComment}>저장</button>
+                <button className="mini" onClick={() => setEditingComment(null)}>취소</button>
+              </div>
             </div>
-          </div>
-        : <AdfView doc={c.body_adf} attachments={d.attachments} />}
+          : <div className="comment-body"><AdfView doc={c.body_adf} attachments={d.attachments} /></div>}
+      </div>
     </div>
   );
 
@@ -432,7 +437,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
             {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
             {actTab !== 'history' && actTab !== 'worklog' && (
               <div className="cform">
-                <textarea placeholder="댓글 입력 (플레인 텍스트)" value={comment} onChange={(e) => setComment(e.target.value)} />
+                <textarea placeholder="댓글 추가..." value={comment} onChange={(e) => setComment(e.target.value)} />
                 <div className="actions"><button className="primary" onClick={addComment}>댓글 달기</button></div>
               </div>)}
           </section>
