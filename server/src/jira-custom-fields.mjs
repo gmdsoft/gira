@@ -19,8 +19,13 @@ export function searchValues(value) {
 export function displayValue(value) {
   if (value == null) return '';
   if (Array.isArray(value)) return value.map(displayValue).join(', ');
+  if (typeof value === 'string' && /^\s*\{"(start|end)"/.test(value)) {
+    // 제품 발견(JPD) 기간 필드는 JSON 문자열로 온다: {"start":"2026-08-01","end":"2026-08-31"} (GIRA-72)
+    try { return displayValue(JSON.parse(value)); } catch { return value; }
+  }
   if (typeof value !== 'object') return String(value);
   if (value.displayName) return value.displayName;
+  if (value.start != null || value.end != null) return [value.start, value.end].filter((v) => v != null).join(' ~ ');
   if (value.type === 'doc') return (value.content ?? []).map(displayValue).join('\n');
   if (value.content) return value.content.map(displayValue).join('');
   return displayValue(value.value ?? value.name ?? value.text ?? (value.start != null || value.end != null ? [value.start, value.end].filter(v => v != null) : value.accountId));
