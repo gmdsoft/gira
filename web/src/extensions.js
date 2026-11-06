@@ -12,7 +12,7 @@ import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
 import TableCellExt from '@tiptap/extension-table-cell';
 import TableHeaderExt from '@tiptap/extension-table-header';
-import { updateColumnsOnResize } from 'prosemirror-tables';
+import { updateColumnsOnResize, TableMap } from 'prosemirror-tables';
 
 // ---------- 마크 ----------
 
@@ -88,6 +88,30 @@ function tableRenderWidth(node) {
   return width || null;
 }
 
+// 번호가 매겨진 행: 표 왼쪽 바깥에 붙는 번호 칸 폭(px). 문서 모델에는 칸이 없고 표시만 한다(Confluence 'numberingColumn')
+const NUMBER_COL = 42;
+const firstRowIsHeader = (node) => {
+  const row = node.firstChild;
+  if (!row || !row.childCount) return false;
+  for (let i = 0; i < row.childCount; i += 1) if (row.child(i).type.name !== 'tableHeader') return false;
+  return true;
+};
+// 표 요소 클래스(보기 renderHTML과 편집 TableView 공통): 번호 행·헤더 행·정렬·고정 열 너비
+function tableClassList(node) {
+  const c = [];
+  if (node.attrs.numberedRows) c.push('numbered');
+  if (firstRowIsHeader(node)) c.push('header-row');
+  if (node.attrs.layout === 'center') c.push('t-center');
+  if (node.attrs.displayMode === 'fixed') c.push('t-fixed');
+  return c;
+}
+function applyTableClasses(node, table, wrap) {
+  const want = tableClassList(node);
+  for (const k of ['numbered', 'header-row', 't-center', 't-fixed']) table.classList.toggle(k, want.includes(k));
+  wrap.classList.toggle('has-numbers', !!node.attrs.numberedRows);
+  if (node.attrs.layout) table.setAttribute('data-layout', node.attrs.layout); else table.removeAttribute('data-layout');
+}
+
 // 돌출(.table-wrap breakout)을 유지하면서 열 리사이즈를 지원하는 커스텀 TableView.
 // prosemirror-tables columnResizing이 (node, defaultCellMinWidth, view)로 생성한다.
 class CfTableView {
@@ -110,7 +134,8 @@ class CfTableView {
     return true;
   }
   applyBreakout() {
-    const w = tableRenderWidth(this.node) ?? 0;
+    applyTableClasses(this.node, this.table, this.dom);
+    const w = (tableRenderWidth(this.node) ?? 0) + (this.node.attrs.numberedRows ? NUMBER_COL : 0);
     if (w > COLUMN_WIDTH) {
       this.dom.classList.add('breakout');
       this.dom.style.setProperty('--bw', `${Math.round(w)}px`);
@@ -132,9 +157,13 @@ const Table = TableExt.extend({
       tableWidth: { default: null, renderHTML: () => ({}) },
       layout: { default: null, renderHTML: (attrs) => (attrs.layout ? { 'data-layout': attrs.layout } : {}) },
       colwidths: { default: null, renderHTML: () => ({}) },
+      // 번호가 매겨진 행(표 옵션), 고정된 열 너비(창이 좁아져도 열 px 유지 → 가로 스크롤)
+      numberedRows: { default: false, renderHTML: () => ({}) },
+      displayMode: { default: null, renderHTML: (a) => (a.displayMode ? { 'data-display-mode': a.displayMode } : {}) },
     };
   },
   renderHTML({ node, HTMLAttributes }) {
+    const fixed = node.attrs.displayMode === 'fixed';
     // Confluence와 동일한 동작: 공간이 있으면 지정 폭으로, 좁으면 스크롤 없이
     // 열 비율을 유지한 채 축소. px 열 너비는 합계 대비 %로 환산해야 축소가 된다
     // (table-layout: fixed에서 px 열의 합계는 표 폭의 하한이 되기 때문).
@@ -144,7 +173,7 @@ const Table = TableExt.extend({
     const tableWidth = cellPx ? cellPx.reduce((a, w) => a + (w || 0), 0) : node.attrs.tableWidth;
     let cols = colwidths?.some((w) => w) ? colwidths : null;
     let width = tableWidth;
-    if (cols && !cols.some((w) => w?.endsWith?.('%'))) {
+    if (cols && !fixed && !cols.some((w) => w?.endsWith?.('%'))) {
       const px = cols.map((w) => (w ? parseFloat(w) : null));
       const sum = px.reduce((a, v) => a + (v ?? 0), 0);
       const nulls = px.filter((v) => v == null).length;
@@ -158,21 +187,28 @@ const Table = TableExt.extend({
         if (!width || total > width) width = Math.round(total);
       }
     }
+    if (fixed && cols && !cols.some((w) => w?.endsWith?.('%'))) {
+      const total = cols.reduce((a, w) => a + (w ? parseFloat(w) : 0), 0);
+      if (!width || total > width) width = Math.round(total);
+    }
     const style = [
-      width ? `width: ${width}px; max-width: 100%;` : '',
+      width ? `width: ${width}px;${fixed ? '' : ' max-width: 100%;'}` : '',
       cols ? 'table-layout: fixed;' : '',
     ].join(' ').trim();
-    const table = ['table', mergeAttributes(HTMLAttributes, style ? { style } : {})];
+    const cls = tableClassList(node);
+    const table = ['table', mergeAttributes(HTMLAttributes, style ? { style } : {}, cls.length ? { class: cls.join(' ') } : {})];
     if (cols) {
       table.push(['colgroup', ...cols.map((w) => (w ? ['col', { style: `width: ${w};` }] : ['col', {}]))]);
     }
     table.push(['tbody', 0]);
     // 셀 안 이미지 등으로 최소 폭이 더 클 때만 가로 스크롤이 생긴다
-    const wrap = { class: 'table-wrap' };
-    if (width > COLUMN_WIDTH) { wrap.class += ' breakout'; wrap.style = `--bw: ${Math.round(width)}px`; }
+    const wrap = { class: `table-wrap${node.attrs.numberedRows ? ' has-numbers' : ''}` };
+    const bw = (width || 0) + (node.attrs.numberedRows ? NUMBER_COL : 0);
+    if (bw > COLUMN_WIDTH) { wrap.class += ' breakout'; wrap.style = `--bw: ${Math.round(bw)}px`; }
     return ['div', wrap, table];
   },
-}).configure({ resizable: true, View: CfTableView, cellMinWidth: 48, lastColumnResizable: true });
+// 열 너비 조절은 아래 TableColumnResize(편집기 전용)가 맡는다 — 기본 columnResizing은 끈다
+}).configure({ resizable: false, View: CfTableView, cellMinWidth: 48, lastColumnResizable: true });
 // 행 높이(세로) 조절용 속성. <tr> height는 실질적으로 최소 높이로 동작한다.
 const TableRow = TableRowExt.extend({
   addAttributes() {
@@ -188,8 +224,24 @@ const TableRow = TableRowExt.extend({
     };
   },
 });
-const TableHeader = TableHeaderExt;
-const TableCell = TableCellExt;
+// 셀 배경색(Confluence data-highlight-colour)·세로 정렬. 흰색(#ffffff)은 기본과 같으므로 칠하지 않는다(다크 테마에서 흰 칸 방지)
+const cellAttrs = {
+  background: {
+    default: null,
+    parseHTML: (el) => el.getAttribute('data-highlight-colour') || null,
+    renderHTML: (a) => {
+      const bg = a.background && a.background.toLowerCase() !== '#ffffff' ? a.background : null;
+      return bg ? { 'data-highlight-colour': bg, style: `background-color: ${bg}` } : {};
+    },
+  },
+  valign: {
+    default: null,
+    parseHTML: (el) => el.getAttribute('data-valign') || null,
+    renderHTML: (a) => (a.valign && a.valign !== 'top' ? { 'data-valign': a.valign, style: `vertical-align: ${a.valign}` } : {}),
+  },
+};
+const TableHeader = TableHeaderExt.extend({ addAttributes() { return { ...this.parent?.(), ...cellAttrs }; } });
+const TableCell = TableCellExt.extend({ addAttributes() { return { ...this.parent?.(), ...cellAttrs }; } });
 
 // ---------- 작업 항목 ----------
 
@@ -830,6 +882,226 @@ export const BlockHandle = Extension.create({
 
 // 표 행 높이(세로) 조절: 행의 아래 경계에 마우스를 대면 가로 핸들이 뜨고, 드래그로 rowHeight를 바꾼다.
 // prosemirror-tables에 행 리사이즈는 없어 직접 구현한다 (열은 columnResizing이 담당).
+// ---------- 표 열 너비 조절 (GIRA-33, 편집기 전용) ----------
+// Confluence처럼: 열 경계를 끌면 맞닿은 두 열만 너비를 주고받고 표 전체 폭은 그대로, 마지막 경계는 마지막 열 너비.
+// 표 전체 폭은 표 오른쪽 가장자리 핸들(table-ui.jsx)로. 이 플러그인이 표 node view(CfTableView, 돌출 표시)도 제공한다.
+const COL_MIN = 48;
+function tableColWidthsFromDom(view, tablePos, tableNode) {
+  const map = TableMap.get(tableNode);
+  const start = tablePos + 1;
+  const out = [];
+  for (let c = 0; c < map.width; c += 1) {
+    let w = null;
+    for (let r = 0; r < map.height && w == null; r += 1) {
+      const pos = map.map[r * map.width + c];
+      const cr = map.findCell(pos);
+      if (cr.right - cr.left !== 1) continue;
+      const dom = view.nodeDOM(start + pos);
+      if (dom && dom.getBoundingClientRect) w = dom.getBoundingClientRect().width;
+    }
+    out.push(w);
+  }
+  const known = out.filter((x) => x);
+  const fill = known.length ? known.reduce((a, b) => a + b, 0) / known.length : COLUMN_WIDTH / map.width;
+  return out.map((x) => Math.max(COL_MIN, Math.round(x ?? fill)));
+}
+export function commitColWidths(view, tablePos, widths) {
+  const table = view.state.doc.nodeAt(tablePos);
+  if (!table) return;
+  const map = TableMap.get(table);
+  const start = tablePos + 1;
+  const tr = view.state.tr;
+  const seen = new Set();
+  for (const pos of map.map) {
+    if (seen.has(pos)) continue;
+    seen.add(pos);
+    const cell = table.nodeAt(pos);
+    const cr = map.findCell(pos);
+    tr.setNodeMarkup(start + pos, null, { ...cell.attrs, colwidth: widths.slice(cr.left, cr.right).map((w) => Math.round(w)) });
+  }
+  view.dispatch(tr);
+}
+// 끄는 동안의 미리보기: colgroup과 표 폭만 바꾼다(문서는 놓을 때 한 번 바꾼다)
+export function previewColWidths(tableEl, widths) {
+  const cols = tableEl.querySelectorAll(':scope > colgroup > col');
+  widths.forEach((w, i) => { if (cols[i]) cols[i].style.width = `${Math.round(w)}px`; });
+  tableEl.style.width = `${Math.round(widths.reduce((a, b) => a + b, 0))}px`;
+  tableEl.style.minWidth = '';
+}
+export const TableColumnResize = Extension.create({
+  name: 'tableColumnResize',
+  addProseMirrorPlugins() {
+    let handle = null;
+    let hover = null; // { tablePos, boundary }
+    let drag = null;
+    const EDGE = 5;
+    const hide = () => { if (handle && !drag) { handle.style.display = 'none'; hover = null; } };
+    return [new Plugin({
+      key: new PluginKey('tableColumnResize'),
+      // 새로 들어온 표(삽입·붙여넣기)에 열 너비가 하나도 없으면 Confluence처럼 본문 폭을 열 수로 똑같이 나눠 둔다
+      // (너비가 없으면 내용에 따라 열이 들쭉날쭉해진다). 이관된 기존 표는 그 표 전체가 바뀐 범위 안에 있을 때만 해당.
+      appendTransaction(trs, _old, state) {
+        if (!trs.some((t) => t.docChanged) || trs.some((t) => t.getMeta('tableColumnResize'))) return null;
+        const ranges = [];
+        trs.forEach((t, ti) => t.steps.forEach((step, si) => {
+          step.getMap().forEach((_a, _b, from, to) => {
+            let f = from; let e = to;
+            for (let j = si + 1; j < t.steps.length; j += 1) { f = t.steps[j].getMap().map(f, -1); e = t.steps[j].getMap().map(e, 1); }
+            for (let k = ti + 1; k < trs.length; k += 1) { f = trs[k].mapping.map(f, -1); e = trs[k].mapping.map(e, 1); }
+            if (e > f) ranges.push([f, e]);
+          });
+        }));
+        if (!ranges.length) return null;
+        let tr = null;
+        for (const [from, to] of ranges) {
+          state.doc.nodesBetween(from, Math.min(to, state.doc.content.size), (node, pos) => {
+            if (node.type.name !== 'table') return true;
+            if (pos < from || pos + node.nodeSize > to) return true; // 표 일부만 바뀜(기존 표 안 입력 등)
+            let any = false;
+            node.forEach((row) => row.forEach((c) => { if (c.attrs.colwidth?.some((w) => w)) any = true; }));
+            if (any) return false;
+            const cols = TableMap.get(node).width || 1;
+            const w = Math.floor(COLUMN_WIDTH / cols);
+            tr = tr ?? state.tr.setMeta('tableColumnResize', true).setMeta('addToHistory', false);
+            node.forEach((row, rowOff) => row.forEach((cell, cellOff) => {
+              tr.setNodeMarkup(pos + 1 + rowOff + 1 + cellOff, null, { ...cell.attrs, colwidth: Array(cell.attrs.colspan || 1).fill(w) });
+            }));
+            return false;
+          });
+        }
+        return tr;
+      },
+      props: {
+        nodeViews: { table: (node) => new CfTableView(node, COL_MIN) },
+        handleDOMEvents: {
+          mousemove(view, e) {
+            if (drag || !view.editable) return false;
+            const cell = e.target.closest?.('td, th');
+            if (!cell || !view.dom.contains(cell)) { hide(); return false; }
+            const rect = cell.getBoundingClientRect();
+            const nearRight = Math.abs(e.clientX - rect.right) <= EDGE;
+            const nearLeft = e.clientX - rect.left <= EDGE;
+            if (!nearRight && !nearLeft) { hide(); return false; }
+            let pos;
+            try { pos = view.posAtDOM(cell, 0); } catch { hide(); return false; }
+            const $p = view.state.doc.resolve(pos);
+            let tableDepth = -1;
+            for (let d = $p.depth; d > 0; d -= 1) if ($p.node(d).type.name === 'table') { tableDepth = d; break; }
+            if (tableDepth < 0) { hide(); return false; }
+            const table = $p.node(tableDepth);
+            const tablePos = $p.before(tableDepth);
+            const cellPos = $p.before(tableDepth + 2);
+            const map = TableMap.get(table);
+            const cr = map.findCell(cellPos - tablePos - 1);
+            const boundary = nearRight ? cr.right : cr.left;
+            if (boundary === 0) { hide(); return false; }
+            const tableEl = cell.closest('table');
+            const tr = tableEl.getBoundingClientRect();
+            const x = nearRight ? rect.right : rect.left;
+            hover = { tablePos, boundary, width: map.width };
+            handle.style.display = 'block';
+            handle.style.left = `${x - 3}px`;
+            handle.style.top = `${tr.top}px`;
+            handle.style.height = `${tr.height}px`;
+            return false;
+          },
+          // 핸들 위로 포인터가 올라가도(편집기 밖으로 나간 것) 숨기지 않는다
+          mouseleave(_v, e) { if (e.relatedTarget !== handle) hide(); return false; },
+        },
+      },
+      view(view) {
+        handle = document.createElement('div');
+        handle.className = 'col-resize-handle';
+        handle.style.display = 'none';
+        handle.title = '열 너비 조절';
+        document.body.appendChild(handle);
+        const onDown = (e) => {
+          if (!hover || e.button !== 0) return;
+          e.preventDefault();
+          const table = view.state.doc.nodeAt(hover.tablePos);
+          const wrap = view.nodeDOM(hover.tablePos);
+          const tableEl = wrap?.querySelector?.('table');
+          if (!table || !tableEl) return;
+          const start = tableColWidthsFromDom(view, hover.tablePos, table);
+          drag = { ...hover, x: e.clientX, start, widths: start.slice(), tableEl };
+          handle.classList.add('dragging');
+          document.body.classList.add('col-resizing');
+          const move = (ev) => {
+            const d = ev.clientX - drag.x;
+            const w = drag.start.slice();
+            const b = drag.boundary;
+            if (b < drag.width) {
+              // 맞닿은 두 열만 주고받는다 (표 전체 폭 유지)
+              const pair = w[b - 1] + w[b];
+              const left = Math.min(Math.max(COL_MIN, w[b - 1] + d), pair - COL_MIN);
+              w[b - 1] = left; w[b] = pair - left;
+            } else {
+              w[b - 1] = Math.max(COL_MIN, w[b - 1] + d); // 마지막 경계: 마지막 열만
+            }
+            drag.widths = w;
+            previewColWidths(drag.tableEl, w);
+            const tr = drag.tableEl.getBoundingClientRect();
+            let x = tr.left; for (let i = 0; i < b; i += 1) x += w[i];
+            handle.style.left = `${x - 3}px`;
+          };
+          const up = () => {
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            handle.classList.remove('dragging');
+            document.body.classList.remove('col-resizing');
+            const done = drag; drag = null; hide();
+            if (done.widths.some((w, i) => Math.round(w) !== Math.round(done.start[i]))) commitColWidths(view, done.tablePos, done.widths);
+          };
+          window.addEventListener('mousemove', move);
+          window.addEventListener('mouseup', up);
+        };
+        handle.addEventListener('mousedown', onDown);
+        handle.addEventListener('mouseleave', (e) => { if (!drag && !view.dom.contains(e.relatedTarget)) hide(); });
+        return { destroy() { handle.removeEventListener('mousedown', onDown); handle.remove(); } };
+      },
+    })];
+  },
+});
+
+// 표 단축키 (Confluence): Ctrl+Alt+화살표 행·열 추가, Ctrl+Alt+Shift+[ ] - = 행·열 이동, Ctrl+⌫ 선택한 행·열 삭제,
+// Shift+F10 셀 옵션 메뉴 (메뉴·이동은 table-ui.jsx가 이벤트로 받음)
+export const TableShortcuts = Extension.create({
+  name: 'tableShortcuts',
+  addKeyboardShortcuts() {
+    const inTable = () => this.editor.isActive('table');
+    // 행·열 이동·삽입(열 폭 유지)은 table-ui.jsx가 처리한다 — 여기서는 신호만
+    const cmd = (name) => {
+      if (!inTable()) return false;
+      window.dispatchEvent(new CustomEvent('gonf-table-cmd', { detail: name }));
+      return true;
+    };
+    return {
+      'Mod-Alt-ArrowRight': () => cmd('colAfter'),
+      'Mod-Alt-ArrowLeft': () => cmd('colBefore'),
+      'Mod-Alt-ArrowDown': () => inTable() && this.editor.commands.addRowAfter(),
+      'Mod-Alt-ArrowUp': () => inTable() && this.editor.commands.addRowBefore(),
+      // 행·열 이동 (Confluence: Ctrl+Alt+Shift+[ ] 행, - = 열)
+      'Mod-Alt-Shift-[': () => cmd('rowUp'),
+      'Mod-Alt-Shift-]': () => cmd('rowDown'),
+      'Mod-Alt-Shift--': () => cmd('colLeft'),
+      'Mod-Alt-Shift-=': () => cmd('colRight'),
+      // 행/열 전체를 고른 상태에서 Ctrl+Backspace = 그 행/열 삭제
+      'Mod-Backspace': () => {
+        const sel = this.editor.state.selection;
+        if (!inTable() || !sel.isRowSelection) return false;
+        if (sel.isRowSelection()) return this.editor.commands.deleteRow();
+        if (sel.isColSelection()) return this.editor.commands.deleteColumn();
+        return false;
+      },
+      'Shift-F10': () => {
+        if (!inTable()) return false;
+        window.dispatchEvent(new CustomEvent('gonf-cell-menu'));
+        return true;
+      },
+    };
+  },
+});
+
 export const RowResize = Extension.create({
   name: 'rowResize',
   addProseMirrorPlugins() {
@@ -941,5 +1213,5 @@ export const extensions = [StarterKit.configure({ history: false, codeBlock: fal
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
   StarterKit.configure({ codeBlock: false }), HighlightedCodeBlock, ...custom,
-  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize,
+  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize, TableShortcuts, TableColumnResize,
 ];

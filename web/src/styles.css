@@ -923,3 +923,85 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .comment-body img { max-width: 100%; max-height: 480px; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; }
 .comment-form.composer .actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 6px; }
 .comment-form.composer textarea { width: 100%; }
+
+/* ---------- 표 편집 UI (GIRA-31) ---------- */
+/* 셀 배경색·세로 정렬: 배경을 칠한 셀은 다크 테마에서도 글자를 어둡게 (연한 배경 위 가독성) */
+:root[data-theme="dark"] .doc td[data-highlight-colour], :root[data-theme="dark"] .doc th[data-highlight-colour] { color: #172b4d; }
+/* 표 정렬: 가운데(layout=center) */
+.doc table.t-center { margin-left: auto; margin-right: auto; }
+/* 고정된 열 너비: 창이 좁아져도 열 px 유지 → 가로 스크롤 */
+.doc table.t-fixed { max-width: none !important; }
+/* 번호가 매겨진 행: 표 왼쪽 바깥 번호 칸 (문서 모델에는 칸이 없음) */
+.doc .table-wrap.has-numbers { padding-left: 42px; }
+.doc table.numbered { counter-reset: tblrow; }
+.doc table.numbered > tbody > tr > :first-child { position: relative; }
+.doc table.numbered > tbody > tr { counter-increment: tblrow; }
+.doc table.numbered.header-row > tbody > tr:first-child { counter-increment: none; }
+.doc table.numbered > tbody > tr > :first-child::before {
+  content: counter(tblrow); position: absolute; left: -43px; top: -1px; bottom: -1px; width: 42px;
+  display: flex; align-items: flex-start; justify-content: center; padding-top: 7px; box-sizing: border-box;
+  border: 1px solid var(--border); background: var(--bg-subtle); color: var(--muted); font-size: 12px; font-weight: 400;
+}
+.doc table.numbered.header-row > tbody > tr:first-child > :first-child::before { content: ''; }
+
+.tbl-ui { position: static; }
+.tbl-bar { position: fixed; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 2px; padding: 4px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 4px 14px rgba(9,30,66,.18); white-space: nowrap; }
+.tbl-bar button { border: 0; background: none; color: var(--text); font: inherit; font-size: 13px; padding: 5px 9px; border-radius: 5px; cursor: pointer; }
+.tbl-bar button:hover, .tbl-bar button.on { background: var(--hover); }
+.tbl-bar-sep { width: 1px; height: 20px; background: var(--border); margin: 0 3px; }
+.tbl-bar-item { position: relative; display: inline-flex; }
+.tbl-menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 61; min-width: 200px; padding: 4px 0; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(9,30,66,.22); display: flex; flex-direction: column; }
+.tbl-menu.tbl-menu-up { top: auto; bottom: calc(100% + 4px); }
+.tbl-menu.tbl-menu-right { left: auto; right: 0; }
+.tbl-mi { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--text); font: inherit; font-size: 13.5px;
+  padding: 7px 12px; text-align: left; cursor: pointer; white-space: nowrap; }
+.tbl-mi:hover:not(:disabled) { background: var(--hover); }
+.tbl-mi:disabled { opacity: .45; cursor: default; }
+.tbl-mi.danger:hover { color: #ae2e24; }
+.tbl-mi-label { flex: 1; display: inline-flex; align-items: center; gap: 8px; }
+.tbl-mi kbd { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-family: inherit; }
+.tbl-check { width: 16px; height: 16px; border: 1px solid var(--border); border-radius: 3px; display: inline-grid; place-items: center; font-size: 11px; flex: none; }
+.tbl-check.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tbl-sub { color: var(--muted); }
+.tbl-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.tbl-mi-wrap { position: relative; }
+.tbl-submenu { position: absolute; left: calc(100% + 2px); top: -4px; z-index: 62; }
+.tbl-submenu.tbl-menu { top: -4px; min-width: 140px; }
+.tbl-bg-dot { width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border); display: inline-block; background: var(--panel); }
+.tbl-palette { display: grid; grid-template-columns: repeat(10, 22px); gap: 4px; padding: 8px; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(9,30,66,.22); }
+.tbl-swatch { width: 22px; height: 22px; border-radius: 4px; border: 1px solid rgba(9,30,66,.18); cursor: pointer; padding: 0; background: #fff; }
+.tbl-swatch.none { background: linear-gradient(135deg, #fff 45%, #de350b 46%, #de350b 54%, #fff 55%); }
+.tbl-swatch.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tbl-cellbtn-wrap { position: fixed; z-index: 39; }
+.tbl-cellbtn { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--panel); color: var(--muted); font-size: 11px; cursor: pointer; padding: 0; box-shadow: 0 1px 3px rgba(9,30,66,.15); }
+.tbl-cellbtn:hover, .tbl-cellbtn.on { color: var(--accent); border-color: var(--accent); }
+.tbl-cellmenu { left: 0; }
+
+/* ---------- 표 행·열 핸들, 삽입 점 (GIRA-32) ---------- */
+.tbl-rowh, .tbl-colh { position: fixed; z-index: 38; padding: 0; border: 1px solid var(--border); background: var(--bg-subtle); border-radius: 3px; cursor: pointer; }
+.tbl-rowh { width: 10px; }
+.tbl-colh { height: 10px; }
+.tbl-rowh:hover, .tbl-colh:hover, .tbl-rowh.on, .tbl-colh.on { background: var(--accent); border-color: var(--accent); }
+.tbl-ins { position: fixed; z-index: 39; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: transparent;
+  color: transparent; font-size: 13px; font-weight: 700; line-height: 16px; cursor: pointer; }
+.tbl-ins::before { content: ''; position: absolute; left: 6px; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: var(--border); }
+.tbl-ins:hover { background: var(--accent); color: #fff; }
+.tbl-ins:hover::before { display: none; }
+/* 마우스를 올리면 그 경계를 따라 파란 안내선 */
+.tbl-ins:hover::after { content: ''; position: absolute; background: var(--accent); pointer-events: none; }
+.tbl-ins-col:hover::after { left: 7px; top: 16px; width: 2px; height: var(--len); }
+.tbl-ins-row:hover::after { top: 7px; left: 16px; height: 2px; width: var(--len); }
+.tbl-linemenu { position: fixed; }
+
+/* ---------- 표 폭·열 너비 조절 (GIRA-33) ---------- */
+.col-resize-handle { position: fixed; z-index: 37; width: 6px; cursor: col-resize; }
+.col-resize-handle::after { content: ''; position: absolute; left: 2px; top: 0; bottom: 0; width: 2px; background: var(--accent); opacity: .7; }
+.col-resize-handle.dragging::after { opacity: 1; }
+body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-select: none; }
+.tbl-width-h { position: fixed; z-index: 38; width: 8px; padding: 0; border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg-subtle); cursor: col-resize; }
+.tbl-width-h:hover { background: var(--accent); border-color: var(--accent); }
