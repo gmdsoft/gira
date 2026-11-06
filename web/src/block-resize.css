@@ -1,4 +1,4 @@
-.doc [data-block-width] { box-sizing: border-box; width: min(var(--block-width), calc(100vw - 64px)) !important; max-width: none !important; margin-left: calc((100% - min(var(--block-width), calc(100vw - 64px))) / 2) !important; transform: none !important; }
+.doc [data-block-width] { box-sizing: border-box; width: min(var(--block-width), calc(100vw - 380px)) !important; max-width: none !important; margin-left: calc((100% - min(var(--block-width), calc(100vw - 380px))) / 2) !important; transform: none !important; }
 .doc .layout-column[data-column-width] { flex: var(--column-width) 1 0px !important; }
 .block-resize-overlay { position: fixed; inset: 0; pointer-events: none; z-index: 110; }
 .block-width-handle { position: absolute; width: 12px; padding: 0; border: 0; background: transparent; cursor: ew-resize; pointer-events: auto; }
