@@ -88,9 +88,9 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         parseHTML: (element) => element.getAttribute('data-wrap') === 'true',
       },
       lineNumbers: {
-        default: false,
+        default: true,
         rendered: false,
-        parseHTML: (element) => element.getAttribute('data-line-numbers') === 'true',
+        parseHTML: (element) => element.getAttribute('data-line-numbers') !== 'false',
       },
     };
   },
@@ -106,7 +106,7 @@ export const HighlightedCodeBlock = CodeBlock.extend({
     const preAttrs = {};
     if (node.attrs.collapsed) preAttrs['data-collapsed'] = 'true';
     if (node.attrs.wrap) preAttrs['data-wrap'] = 'true';
-    if (node.attrs.lineNumbers) preAttrs['data-line-numbers'] = 'true';
+    preAttrs['data-line-numbers'] = String(node.attrs.lineNumbers);
     if (node.attrs.wrap) preAttrs.class = 'code-wrap';
     return ['pre', preAttrs,
       ['code', node.attrs.language ? { class: `language-${node.attrs.language}` } : {}, ...parts]];

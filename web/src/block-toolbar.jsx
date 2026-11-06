@@ -1,12 +1,11 @@
 // 블록별 플로팅 도구 모음 — 패널·코드 블록·레이아웃·펼치기·링크.
 // 선택(커서)이 해당 블록 안에 있으면 블록 바로 아래(자리가 없으면 위)에 뜨고,
 // 편집 영역 바깥을 누르면 사라진다. 링크 대화상자(Ctrl+K)와 단축키 도움말(Ctrl+/)도 여기서 맡는다.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NodeSelection, TextSelection } from '@tiptap/pm/state';
-import { DOMSerializer } from '@tiptap/pm/model';
+import { Fragment, DOMSerializer } from '@tiptap/pm/model';
 import { codeLanguages } from './code-block.js';
 import { internalLink } from './internal-links.js';
-import { api } from './api.js';
 import './editor-blocks.css';
 
 const BLOCK_TYPES = new Set(['panel', 'codeBlock', 'layout', 'expand']);
@@ -48,17 +47,22 @@ function currentLink(editor) {
   }
   const linkType = state.schema.marks.link;
   if (!linkType) return null;
-  const { from, to, $from } = sel;
-  if (sel.empty && !$from.marks().some((m) => m.type === linkType)) return null;
-  if (!sel.empty && (!state.doc.rangeHasMark(from, to, linkType)
-    || !$from.marks().some((m) => m.type === linkType))) return null;
-  let start = from;
-  let end = to;
-  while (start > 0 && state.doc.rangeHasMark(start - 1, start, linkType)) start -= 1;
-  while (end < state.doc.content.size && state.doc.rangeHasMark(end, end + 1, linkType)) end += 1;
-  if (end <= start) return null;
-  const href = state.doc.nodeAt(start)?.marks.find((m) => m.type === linkType)?.attrs.href ?? '';
-  return { href, text: state.doc.textBetween(start, end), card: false, from: start, to: end };
+  const { $from } = sel;
+  const mark = $from.marks().find((m) => m.type === linkType)
+    || $from.nodeAfter?.marks.find((m) => m.type === linkType);
+  if (!mark) return null;
+  const ranges = [];
+  $from.parent.forEach((child, offset) => {
+    if (!child.marks.some((m) => m.eq(mark))) return;
+    const pos = $from.start() + offset;
+    const last = ranges[ranges.length - 1];
+    if (last && last.to === pos) last.to += child.nodeSize;
+    else ranges.push({ from: pos, to: pos + child.nodeSize });
+  });
+  const range = ranges.find((r) => r.from <= sel.from && r.to >= sel.to);
+  if (!range) return null;
+  const { from: start, to: end } = range;
+  return { href: mark.attrs.href, text: state.doc.textBetween(start, end), card: false, from: start, to: end };
 }
 
 async function copyText(text) {
@@ -131,7 +135,7 @@ function setLayoutColumns(editor, block, count) {
     old.slice(count).forEach((col) => col.forEach((child) => content.push(child)));
     cols[count - 1] = schema.nodes.layoutColumn.create(null, content.length ? content : [schema.nodes.paragraph.create()]);
   }
-  const kind = count === 1 ? 'single' : `${count}_equal`;
+  const kind = count === 1 ? 'single' : `${['', 'single', 'two', 'three', 'four', 'five'][count]}_equal`;
   const next = section.type.create({ ...section.attrs, kind }, cols);
   const sectionPos = block.pos + 1;
   const tr = editor.state.tr.replaceWith(sectionPos, sectionPos + section.nodeSize, next);
@@ -150,7 +154,7 @@ function setLayoutKind(editor, block, kind) {
 
 function layoutKindFor(count, preset) {
   if (count === 1) return 'single';
-  return `${count}_${preset}`;
+  return `${['', 'single', 'two', 'three', 'four', 'five'][count]}_${preset}`;
 }
 
 function layoutPreset(kind) {
@@ -197,6 +201,10 @@ function inlineToCard(editor, link, card) {
 }
 
 function formatUrl(editor, link) {
+  if (link.card) {
+    formatInline(editor, { ...link, text: link.href });
+    return;
+  }
   const mark = editor.schema.marks.link.create({ href: link.href });
   replaceRangeWith(editor, link.from, link.to, editor.schema.text(link.href, [mark]));
 }
@@ -208,31 +216,12 @@ function formatInline(editor, link) {
   replaceRangeWith(editor, link.pos, link.pos + link.node.nodeSize, para);
 }
 
-async function formatCard(editor, link) {
+function formatCard(editor, link) {
   if (link.card) return;
-  let kind = 'url';
-  let title = link.text || link.href;
-  let status = '';
   const inner = internalLink(link.href, window.location.href);
-  if (inner) {
-    try {
-      if (inner.kind === 'page') {
-        const data = await api(`/api/content/${inner.id}`);
-        title = data.title || title;
-        status = data.status || '';
-        kind = 'page';
-      } else {
-        const data = await api(`/api/gira/issues/${inner.id}`);
-        title = `${inner.id} · ${data.summary || ''}`;
-        status = data.status || '';
-        kind = 'issue';
-      }
-    } catch {
-      kind = inner.kind === 'issue' ? 'issue' : 'page';
-    }
-  }
-  if (editor.isDestroyed) return;
-  const card = editor.schema.nodes.linkCard.create({ href: link.href, kind, title, status });
+  const card = editor.schema.nodes.linkCard.create({
+    href: link.href, kind: inner?.kind || 'url', title: link.text || link.href, status: '',
+  });
   inlineToCard(editor, link, card);
 }
 
@@ -312,32 +301,27 @@ function makeLinkDraft(editor) {
 function moveBlock(editor, dir) {
   const { state } = editor;
   const { $from, empty } = state.selection;
-  if (!empty) return false;
-  const depth = $from.depth;
+  const selected = state.selection instanceof NodeSelection;
+  if (!empty && !selected) return false;
+  const block = currentBlock(editor);
+  const depth = block ? state.doc.resolve(block.pos).depth + 1 : selected ? $from.depth + 1 : $from.depth;
   if (depth < 1) return false;
-  const node = $from.node(depth);
+  const node = block?.node || (selected ? state.selection.node : $from.node(depth));
   if (!node.isBlock) return false;
-  const parent = $from.node(depth - 1);
-  const index = $from.index(depth - 1);
+  const $pos = state.doc.resolve(block?.pos ?? state.selection.from);
+  const parent = $pos.node(depth - 1);
+  const index = $pos.index(depth - 1);
   if (dir < 0 && index === 0) return false;
   if (dir > 0 && index >= parent.childCount - 1) return false;
-  const pos = $from.before(depth);
-  const tr = state.tr;
-  let start;
-  if (dir < 0) {
-    const prev = parent.child(index - 1);
-    const prevPos = pos - prev.nodeSize;
-    tr.delete(pos, pos + node.nodeSize);
-    tr.insert(prevPos, node);
-    start = prevPos;
-  } else {
-    const next = parent.child(index + 1);
-    tr.delete(pos, pos + node.nodeSize);
-    const insertPos = pos + next.nodeSize;
-    tr.insert(insertPos, node);
-    start = insertPos;
-  }
-  tr.setSelection(TextSelection.near(tr.doc.resolve(start + 1))).scrollIntoView();
+  const pos = block?.pos ?? (selected ? state.selection.from : $from.before(depth));
+  const neighbor = parent.child(index + dir);
+  const start = dir < 0 ? pos - neighbor.nodeSize : pos;
+  const content = Fragment.fromArray(dir < 0 ? [node, neighbor] : [neighbor, node]);
+  if (!parent.canReplace(Math.min(index, index + dir), Math.max(index, index + dir) + 1, content)) return false;
+  const tr = state.tr.replaceWith(start, start + node.nodeSize + neighbor.nodeSize, content);
+  const movedPos = dir < 0 ? start : start + neighbor.nodeSize;
+  tr.setSelection(selected ? NodeSelection.create(tr.doc, movedPos)
+    : TextSelection.near(tr.doc.resolve(movedPos + 1))).scrollIntoView();
   editor.view.dispatch(tr);
   editor.view.focus();
   return true;
@@ -569,11 +553,12 @@ function ShortcutHelp({ onClose }) {
 
 export default function BlockTools({ editor }) {
   const [bar, setBar] = useState(null);
+  const dismissed = useRef(false);
   const [linkDraft, setLinkDraft] = useState(null);
   const [help, setHelp] = useState(false);
 
   const update = useCallback(() => {
-    if (!editor || editor.isDestroyed) return;
+    if (!editor || editor.isDestroyed || dismissed.current) return;
     const link = currentLink(editor);
     if (link) {
       let rect;
@@ -596,24 +581,42 @@ export default function BlockTools({ editor }) {
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return undefined;
-    const onSelection = () => update();
+    const onSelection = () => { dismissed.current = false; update(); };
     editor.on('selectionUpdate', onSelection);
     editor.on('update', update);
-    editor.on('focus', update);
+    editor.on('focus', onSelection);
     const onScroll = () => update();
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onScroll);
     const onDown = (e) => {
       if (e.target.closest?.('.block-toolbar, .link-dialog-backdrop, .shortcut-help-backdrop')) return;
-      if (editor.view.dom.contains(e.target)) return;
+      if (editor.view.dom.contains(e.target)) {
+        dismissed.current = false;
+        return;
+      }
+      dismissed.current = true;
       setBar(null);
     };
     document.addEventListener('mousedown', onDown, true);
+    const onClick = (e) => {
+      const anchor = e.target.closest?.('a');
+      if (!anchor || !editor.view.dom.contains(anchor)) return;
+      e.preventDefault();
+      const pos = editor.view.posAtDOM(anchor, 0);
+      const $pos = editor.state.doc.resolve(pos);
+      const cardPos = editor.state.doc.nodeAt(pos)?.type.name === 'linkCard' ? pos
+        : $pos.nodeAfter?.type.name === 'linkCard' ? $pos.pos : null;
+      if (cardPos != null) editor.view.dispatch(editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, cardPos)));
+      dismissed.current = false;
+      update();
+    };
+    editor.view.dom.addEventListener('click', onClick);
     update();
     return () => {
+      editor.view.dom.removeEventListener('click', onClick);
       editor.off('selectionUpdate', onSelection);
       editor.off('update', update);
-      editor.off('focus', update);
+      editor.off('focus', onSelection);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onScroll);
       document.removeEventListener('mousedown', onDown, true);
@@ -652,6 +655,8 @@ export default function BlockTools({ editor }) {
         return;
       }
       if (e.key === 'Escape') {
+        dismissed.current = true;
+        setBar(null);
         setLinkDraft(null);
         setHelp(false);
       }

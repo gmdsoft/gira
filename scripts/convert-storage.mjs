@@ -165,7 +165,7 @@ export function convertStorage(xhtml) {
         return { type: 'codeBlock', attrs: {
           language: params.language ?? null,
           wrap: truthy(params.wrap),
-          lineNumbers: truthy(params.linenumbers),
+          lineNumbers: params.linenumbers == null ? true : truthy(params.linenumbers),
           collapsed: truthy(params.collapse),
         }, ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
       }
