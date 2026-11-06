@@ -21,7 +21,13 @@ export async function syncRemoteLinks(issues, { get, query }) {
   await Promise.all(Array.from({ length: Math.min(6, issues.length) }, async () => {
     while (next < issues.length) {
       const issue = issues[next++];
-      const links = await get(`/rest/api/3/issue/${encodeURIComponent(issue.id)}/remotelink`);
+      let links;
+      try { links = await get(`/rest/api/3/issue/${encodeURIComponent(issue.id)}/remotelink`); }
+      catch (e) {
+        // 원본에서 지워졌거나 볼 수 없는 이슈(404/403)는 건너뛴다 — 한 건 때문에 전체가 멈추지 않게
+        if (e.status === 404 || e.status === 403) continue;
+        throw e;
+      }
       if (!Array.isArray(links)) throw new Error('원격 링크 응답이 배열이 아닙니다');
       for (const link of links) await upsertRemoteLink(query, issue.id, link);
       // 성공한 조회에 한해서 원본에서 제거된 링크를 반영하고 로컬 링크는 보존한다.
