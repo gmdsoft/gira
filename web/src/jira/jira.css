@@ -444,8 +444,10 @@ h1.inline-edit { margin: 0 -6px 8px; }
 .adf { max-width: 780px; }
 .adf p { margin: 6px 0; }
 .adf ul, .adf ol { margin: 6px 0; padding-left: 24px; }
-.adf pre { background: var(--inset); border: 1px solid var(--line); border-radius: 4px; padding: 10px; overflow-x: auto; font-size: 12px; }
-.adf code { background: var(--inset); border-radius: 3px; padding: 1px 4px; font-size: 12px; }
+/* 코드 글꼴: Courier New (Gonfluence와 같게) */
+.adf pre, .adf code { font-family: "Courier New", Courier, "Liberation Mono", "Nimbus Mono PS", monospace; }
+.adf pre { background: var(--inset); border: 1px solid var(--line); border-radius: 4px; padding: 10px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+.adf code { background: var(--inset); border-radius: 3px; padding: 1px 4px; font-size: 13px; }
 .adf pre code { background: none; padding: 0; }
 .adf blockquote { border-left: 3px solid var(--line); margin: 6px 0; padding: 2px 12px; color: var(--dim); }
 .adf table { border-collapse: collapse; margin: 8px 0; }
