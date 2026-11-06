@@ -4,6 +4,7 @@ import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from '.
 import { TypeIcon } from './icons.jsx';
 import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
 import AdfView from './adf.jsx';
+import CommentComposer from './CommentComposer.jsx';
 import DescEditor from './DescEditor.jsx';
 import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
 
@@ -166,7 +167,6 @@ const HISTORY_ACTION = {
 export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew, onHome }) {
   const [d, setD] = useState(null);
   const [descEditing, setDescEditing] = useState(false);
-  const [comment, setComment] = useState('');
   const [editingComment, setEditingComment] = useState(null); // {id, text}
   const [actTab, setActTab] = useState('comments'); // all | comments | history | worklog
   const fileRef = useRef(null);
@@ -178,7 +178,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     onTitle?.(`[${data.issue_key}] ${data.summary} - Gira`);
     onSeen?.(data.issue_key, data.summary);
   };
-  useEffect(() => { setDescEditing(false); setComment(''); setEditingComment(null); load(); }, [issueKey]);
+  useEffect(() => { setDescEditing(false); setEditingComment(null); load(); }, [issueKey]);
 
   if (!d) return <div className="placeholder">불러오는 중…</div>;
 
@@ -186,11 +186,9 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     await api('/api/issue/' + encodeURIComponent(issueKey), { method: 'PATCH', json });
     if (reload) { load(); onChanged?.(); }
   };
-  const addComment = async () => {
-    const text = comment.trim();
-    if (!text) return;
-    await api(`/api/issue/${encodeURIComponent(issueKey)}/comments`, { method: 'POST', json: { text } });
-    setComment(''); load();
+  const addComment = async (text, attachmentIds) => {
+    await api(`/api/issue/${encodeURIComponent(issueKey)}/comments`, { method: 'POST', json: { text, attachmentIds } });
+    load();
   };
   const upload = async () => {
     const f = fileRef.current?.files[0];
@@ -206,9 +204,8 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     setDescEditing(false);
     await patch({ descriptionAdf });
   };
-  const saveComment = async () => {
-    if (!editingComment?.text.trim()) return;
-    await api('/api/comments/' + editingComment.id, { method: 'PATCH', json: { text: editingComment.text } });
+  const saveComment = async (text, attachmentIds) => {
+    await api('/api/comments/' + editingComment.id, { method: 'PATCH', json: { text, attachmentIds } });
     setEditingComment(null); load();
   };
 
@@ -253,14 +250,12 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
         </div>
         <div className="comment-time">{relTime(c.created_at)}</div>
         {editingComment?.id === c.id
-          ? <div className="cform">
-              <textarea autoFocus value={editingComment.text}
-                onChange={(e) => setEditingComment({ ...editingComment, text: e.target.value })} />
-              <div className="actions">
-                <button className="primary mini" onClick={saveComment}>저장</button>
-                <button className="mini" onClick={() => setEditingComment(null)}>취소</button>
-              </div>
-            </div>
+          ? <>
+              <CommentComposer key={'e' + c.id} issueKey={issueKey} initialText={editingComment.text} autoFocus mini
+                submitLabel="저장" onSubmit={saveComment} onCancel={() => setEditingComment(null)} />
+              {(c.body_adf?.content ?? []).some((n) => n.type === 'mediaSingle' || n.type === 'mediaGroup') &&
+                <div className="dim composer-keep">기존 이미지·첨부는 그대로 유지됩니다.</div>}
+            </>
           : <div className="comment-body"><AdfView doc={c.body_adf} attachments={d.attachments} /></div>}
       </div>
     </div>
@@ -436,10 +431,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
             {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
             {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
             {actTab !== 'history' && actTab !== 'worklog' && (
-              <div className="cform">
-                <textarea placeholder="댓글 추가..." value={comment} onChange={(e) => setComment(e.target.value)} />
-                <div className="actions"><button className="primary" onClick={addComment}>댓글 달기</button></div>
-              </div>)}
+              <CommentComposer key={'new-' + issueKey} issueKey={issueKey} onSubmit={addComment} />)}
           </section>
         </div>
 
