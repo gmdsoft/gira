@@ -6,6 +6,8 @@
 //
 // 사용법: node scripts/jira-import-project.mjs --project SIMSIM [--wipe] [--since <ISO 시각>]
 
+import { jiraGet } from './lib/jira-source-get.mjs';
+import { syncRemoteLinks } from './lib/jira-remote-links.mjs';
 import { fillMediaIds } from './lib/jira-media.mjs';
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -36,21 +38,7 @@ function sinceClause() {
 const SITE = (process.env.ATLASSIAN_SITE ?? '').replace(/\/$/, '');
 const AUTH = 'Basic ' + Buffer.from(`${process.env.ATLASSIAN_EMAIL}:${process.env.ATLASSIAN_API_TOKEN}`).toString('base64');
 
-async function get(pathOrUrl, attempt = 0) {
-  const url = pathOrUrl.startsWith('http') ? pathOrUrl : SITE + pathOrUrl;
-  const res = await fetch(url, { headers: { Authorization: AUTH, Accept: 'application/json' } });
-  if ((res.status === 429 || res.status >= 500) && attempt < 5) {
-    const wait = Number(res.headers.get('retry-after')) * 1000 || 1000 * 2 ** attempt;
-    await new Promise((r) => setTimeout(r, wait));
-    return get(pathOrUrl, attempt + 1);
-  }
-  if (!res.ok) {
-    const err = new Error(`${res.status} ${res.statusText} — GET ${url}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
-}
+const get = jiraGet(SITE, AUTH);
 
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
@@ -341,6 +329,8 @@ for (;;) {
       linkCount++;
     }
   }
+
+  await syncRemoteLinks(issues, { get, query });
 
   const pendingMedia = await query(`SELECT a.id FROM jira_attachments a
     WHERE a.issue_id = ANY($1::bigint[]) AND (a.media_id IS NULL OR a.media_id = '')`, [issues.map((i) => i.id)]);
