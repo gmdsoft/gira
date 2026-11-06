@@ -65,9 +65,12 @@ function CustomField({ field: f, canEdit, onSave, attachments }) {
     <button disabled={busy} onClick={() => save()}>저장</button><button disabled={busy} onClick={() => save(true)}>비우기</button><button disabled={busy} onClick={() => setEditing(false)}>취소</button>
     {error && <div role="alert">{error}</div>}
   </div>;
-  return <div>
+  // 다른 필드처럼 값을 누르면 편집 (값 옆에 '편집' 글자를 붙이지 않는다)
+  const editable = canEdit && f.editable;
+  return <div className={editable ? 'inline-edit' : undefined} title={editable ? '클릭하여 편집' : undefined}
+    role={editable ? 'button' : undefined} aria-label={editable ? `${f.name} 편집` : undefined} tabIndex={editable ? 0 : undefined}
+    onClick={editable ? begin : undefined} onKeyDown={editable ? (e) => { if (e.key === 'Enter') begin(); } : undefined}>
     {f.type === 'textarea' && f.value?.type === 'doc' ? <AdfView doc={f.value} attachments={attachments} /> : <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.display}</span>}
-    {canEdit && f.editable && <button type="button" className="add-link" onClick={begin} aria-label={`${f.name} 편집`}>편집</button>}
   </div>;
 }
 
