@@ -12,7 +12,8 @@ git worktree이며, 이미 `feature/<이슈키>` 브랜치가 체크아웃되어
    리팩터링·정리는 하지 않는다.
 2. 변경 후 검증한다: 서버 파일은 `node --check <파일>`, 웹은 해당 빌드 명령
    (`npm --workspace web run build` / `build:jira` / `build:admin`)이 통과해야 한다.
-3. 명세서 갱신이 요구되면(`spec_update`) `docs/alpha-spec.md`의 해당 부분을 함께 고친다.
+3. 명세서 갱신이 요구되면(`spec_update`) `docs/alpha-spec.md`(Gonfluence 원본의 사본)의 해당 부분을 함께 고친다.
+   Gonfluence 원본은 직접 고치지 않는다 — 머지 후 사람이 `node scripts/spec-sync.mjs --push`로 게시한다.
 4. 기능 단위로 커밋한다. 커밋 메시지는 한국어, 첫 줄에 이슈 키를 넣는다 (예: `GIRA-12: ...`).
    샌드박스 때문에 커밋이 안 되면(index.lock 등) 억지로 우회하지 말고 변경을 남겨 둔 채 마친다 —
    디스패처가 대신 커밋한다.

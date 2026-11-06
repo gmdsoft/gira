@@ -20,6 +20,8 @@ cd "$ROOT" || exit 1
 TOKEN_LINE="$(grep -E '^CLAUDE_CODE_OAUTH_TOKEN=' .env 2>/dev/null | tail -1)"
 [ -n "$TOKEN_LINE" ] && export CLAUDE_CODE_OAUTH_TOKEN="${TOKEN_LINE#CLAUDE_CODE_OAUTH_TOKEN=}"
 echo "=== $(TZ=Asia/Seoul date '+%F %T KST') 일일 이슈 처리 시작 ===" >>"$LOG"
+# 개발 명세서 최신본(Gonfluence 원본) → server/data/alpha-spec.md 캐시 — 챗봇·처리 에이전트가 읽는다
+node scripts/spec-sync.mjs --cache >>"$LOG" 2>&1 || echo "명세서 캐시 갱신 실패 — 이전 사본 사용" >>"$LOG"
 PROMPT="[일일 GIRA 이슈 처리 — cron 자동 실행, 사람이 지켜보지 않음]
 server/src/dev-agent/daily-run.md 를 읽고 그 절차대로 GIRA 개발 프로젝트의 새 이슈를 확인·처리해줘.
 머지와 서버 재시작은 하지 않는다. 질문할 사람이 없으니 판단이 서지 않는 이슈는 댓글로 묻고 건너뛴다.

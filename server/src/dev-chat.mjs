@@ -4,7 +4,7 @@
 // 대화는 dev_chat_* 테이블에 API 응답 블록 그대로 append-only로 저장한다 (thinking 블록 보존 규칙).
 // 필요한 환경변수: ANTHROPIC_API_KEY (없으면 503), 선택: DEV_CHAT_MODEL (기본 claude-opus-5-5)
 import Anthropic from '@anthropic-ai/sdk';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,9 +13,13 @@ import { query, DATA_DIR } from './db.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const GUIDELINES = readFileSync(path.join(here, 'dev-agent', 'guidelines.md'), 'utf8');
 // 승인 판단 기준인 개발 명세서 — 지침 뒤에 붙여 함께 캐시한다 (없으면 판단이 서지 않는 것으로 보고 승인 필요)
-const SPEC_PATH = process.env.DEV_SPEC_PATH ?? path.join(here, '..', '..', 'docs', 'alpha-spec.md');
+// 개발 명세서: 원본은 Gonfluence(GIRA › 개발문서). 일일 처리가 받아 두는 캐시(DATA_DIR/alpha-spec.md)를 먼저,
+// 없으면 저장소 사본(docs/alpha-spec.md)을 읽는다 — scripts/spec-sync.mjs
+const SPEC_CACHE = path.join(process.env.DATA_DIR ?? path.join(here, '..', 'data'), 'alpha-spec.md');
+const SPEC_REPO = path.join(here, '..', '..', 'docs', 'alpha-spec.md');
 function specText() {
-  try { return readFileSync(SPEC_PATH, 'utf8'); }
+  const file = process.env.DEV_SPEC_PATH ?? (existsSync(SPEC_CACHE) ? SPEC_CACHE : SPEC_REPO);
+  try { return readFileSync(file, 'utf8'); }
   catch { return '(개발 명세서를 불러오지 못했다 — 새 기능·정책 변경은 모두 승인 필요로 둔다)'; }
 }
 // 요금 최적화 기본값: 대화형 접수 업무라 Sonnet 5.5 + effort low (품질이 부족하면 환경변수로 올린다)

@@ -152,7 +152,7 @@ function prepareWorktree(key) {
 }
 
 function buildPrompt(it, extras, note) {
-  const spec = it.labels.includes('spec-update') ? '예 — docs/alpha-spec.md 해당 부분도 고칠 것' : '아니오';
+  const spec = it.labels.includes('spec-update') ? '예 — docs/alpha-spec.md 해당 부분도 고칠 것 (Gonfluence 원본 게시는 머지 후 사람이)' : '아니오';
   const files = extras.files.length
     ? `\n### 첨부 파일 (읽기 전용 경로 — 스크린샷·로그는 열어서 확인할 것)\n${extras.files.map((f) => `- ${f.name} (${f.type ?? '?'}): ${f.path}`).join('\n')}\n`
     : '';

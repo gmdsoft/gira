@@ -2,7 +2,9 @@
 // 필요한 작업은 GIRA 개발 프로젝트에 이슈(에픽~작업)로 등록한다(등록까지만). 대화는 서버에 저장되어 이어진다.
 import React, { useEffect, useRef, useState } from 'react';
 
-export const SPEC_URL = 'https://claude.ai/artifact/RhWSzPu8SU2nTfhEJqHLDY';
+// 개발 명세서: Gonfluence GIRA 스페이스 › 개발문서 (원본). 저장소 docs/alpha-spec.md는 scripts/spec-sync.mjs로 만든 사본
+export const SPEC_PAGE_ID = '1000000000009';
+export const SPEC_URL = `${location.protocol}//${location.hostname}:3001/s/GIRA/p/${SPEC_PAGE_ID}`;
 export const REPO_URL = 'https://github.com/gmdsoft/gira';
 const SESSION_KEY = 'devchat.session';
 
