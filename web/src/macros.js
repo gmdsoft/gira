@@ -1,3 +1,4 @@
+import { chartQuery, renderChart } from './jira-chart.js';
 import { hydrateMermaid } from './mermaid-view.js';
 import { hydrateIssueCard } from './issue-card.js';
 import { hydrateLinkCard } from './link-card.js';
@@ -78,6 +79,17 @@ function fileCard(info, { open = false } = {}) {
 }
 
 const HANDLERS = {
+  async jirachart(el, params) {
+    const box = document.createElement('div');
+    box.className = 'macro-jirachart';
+    box.style.overflowX = 'auto';
+    box.textContent = 'Jira 차트 불러오는 중…';
+    swap(el, box);
+    try {
+      const data = await api(`/api/gira/stats?${chartQuery(params)}`);
+      box.innerHTML = renderChart(data, params);
+    } catch (error) { box.textContent = `Jira 차트를 표시할 수 없습니다: ${error.message}`; }
+  },
   // 목차: 같은 본문의 제목들로 생성 (링크는 스크롤 이동)
   toc(el, params, ctx) {
     const doc = el.closest('.doc');

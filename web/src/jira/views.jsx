@@ -22,6 +22,8 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
     }
     // 아바타 빠른 필터: 기본/JQL 모드와 무관하게 '이 프로젝트에서 이 사람이 담당' 으로 AND 적용
     if (filters.who) u.set('who', filters.who);
+    if (filters.scope === 'all') u.delete('project');
+    u.delete('scope');
     for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;

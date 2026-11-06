@@ -489,7 +489,7 @@ const JiraTable = Node.create({
 export const HYDRATED_MACROS = new Set([
   'toc', 'children', 'pagetree', 'view-file', 'viewdoc', 'viewpdf', 'viewppt', 'viewxls',
   'widget', 'profile', 'contributors', 'recently-updated', 'contentbylabel',
-  'include', 'excerpt-include', 'drawio',
+  'include', 'excerpt-include', 'drawio', 'jirachart',
 ]);
 
 function macroSlot(tag, name, params) {
