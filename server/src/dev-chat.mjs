@@ -143,9 +143,13 @@ function cleanEnv(raw) {
 }
 
 // 이슈 설명 끝에 붙이는 '환경 정보' 블록
-function envText(env) {
-  if (!env) return '';
+function envText(env, ctx = {}) {
+  const email = typeof ctx.authorEmail === 'string' && /^[^\s@]+@[^\s@]+$/.test(ctx.authorEmail) ? ctx.authorEmail.slice(0, 200) : '';
+  const author = [ctx.author, email && `<${email}>`].filter(Boolean).join(' ');
+  if (!env && !author) return '';
+  env = env ?? {};
   const rows = [
+    ['작성자', author],
     ['화면 URL', env.url || '(알 수 없음 — 챗봇을 직접 열었음)'],
     ['앱', [env.app, env.build && `빌드 ${env.build}`].filter(Boolean).join(' · ')],
     ['브라우저', env.userAgent], ['OS', env.platform], ['언어', env.language], ['화면', env.screen],
@@ -196,7 +200,7 @@ async function toolCreate({ items }, ctx, textToAdf) {
     if (it.needs_approval) labels.push('needs-approval');
     if (it.spec_update) labels.push('spec-update');
     const body = [it.description?.trim() || it.summary,
-      `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`, envText(ctx.env)]
+      `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`, envText(ctx.env, ctx)]
       .filter(Boolean).join('\n\n');
     const { rows } = await query(
       `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
@@ -319,10 +323,12 @@ export function registerDevChat(app, { textToAdf }) {
       if (!rows.length || Number(rows[0].user_id) !== req.access.userId
           || (req.body?.author && rows[0].author !== req.body.author)) sessionId = null;
     }
-    const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+    const { rows: me } = await query(`SELECT display_name, email FROM users WHERE id = $1`, [req.access.userId]);
     const ctx = {
       userId: req.access.userId,
       author: req.body?.author || me[0]?.display_name || null,
+      // 작성자 메일: Gonfluence 프록시는 로그인 사용자의 메일을 함께 보낸다 (서비스 키 계정의 메일이 아니라)
+      authorEmail: (req.body?.author ? req.body?.authorEmail : me[0]?.email) || null,
       source: req.body?.source === 'Gonfluence' ? 'Gonfluence' : 'Gira',
       proxied: !!req.body?.author,
       env: cleanEnv(req.body?.env),
