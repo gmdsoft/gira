@@ -4,7 +4,7 @@
 //
 // 대상: 상태 '해야 할 일'류(new) + 레이블 agent:codex | agent:opencode + needs-approval 없음
 //       + 아직 맡기지 않은 것(agent-running/agent-done/agent-failed 없음)
-// 처리: 이슈 전용 git worktree(../gira-work/<KEY>, 새 브랜치 feature/<key>)에서 실행 →
+// 처리: 이슈 전용 git worktree(../gira-work/<KEY>, 새 브랜치 feature/<key>)에서 실행 — opencode는 별도 복제(<KEY>-oc) →
 //       성공 시 브랜치 푸시 + GitHub PR 생성(GITHUB_TOKEN, 없으면 비교 링크) → 결과·PR 링크를 댓글로,
 //       상태 '검토' / 실패 시 원래 상태 + agent-failed. 머지·서버 반영은 사람이 PR 검토 후 한다.
 // 승인: needs-approval 레이블을 관리자가 이슈 상세에서 지우면 다음 실행에서 대상이 된다.
@@ -141,6 +141,24 @@ const setLabels = (id, add = [], remove = []) => query(
 
 function git(...a) { return execFileSync('git', a, { cwd: ROOT, encoding: 'utf8' }).trim(); }
 
+// opencode는 git worktree에서 쓰면 안 된다: worktree는 본 저장소와 .git을 공유해서, opencode가 프로젝트 위치를
+// 본 저장소(메인 작업 폴더)로 잡고 그쪽 파일을 고친다(2026-11-06 GIRA-20 사고, --standalone이어도 같음).
+// 그래서 opencode는 따로 복제한 저장소(../gira-work/<KEY>-oc)에서 돌리고, 커밋·푸시도 거기서 한다.
+function prepareClone(key) {
+  const dir = path.join(WORK_DIR, `${key}-oc`);
+  const branch = `feature/${key.toLowerCase()}`;
+  const at = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8' }).trim();
+  if (!existsSync(dir)) {
+    execFileSync('git', ['clone', '-q', ROOT, dir]);
+    // 이 복제의 origin = 본 저장소 → 본 저장소의 로컬 브랜치(푸시 전 커밋 포함)에서 이어서 시작할 수 있다
+    let from = 'origin/master';
+    try { at('rev-parse', '--verify', '-q', `origin/${branch}`); from = `origin/${branch}`; } catch { /* 새 브랜치 */ }
+    at('checkout', '-q', '-b', branch, from);
+    at('remote', 'set-url', 'origin', git('remote', 'get-url', 'origin')); // 푸시는 GitHub로 바로
+  }
+  return { dir, branch, repo: dir };
+}
+
 function prepareWorktree(key) {
   const dir = path.join(WORK_DIR, key);
   const branch = `feature/${key.toLowerCase()}`;
@@ -149,7 +167,7 @@ function prepareWorktree(key) {
     if (exists) git('worktree', 'add', dir, branch);
     else git('worktree', 'add', '-b', branch, dir, 'master');
   }
-  return { dir, branch };
+  return { dir, branch, repo: ROOT };
 }
 
 function buildPrompt(it, extras, note) {
@@ -212,9 +230,9 @@ function runAgent(executor, dir, prompt, images = []) {
 
 // GitHub: origin(git@github.com:owner/repo.git 또는 https)에 브랜치를 푸시하고 PR을 연다.
 // PR 생성은 GITHUB_TOKEN(.env, repo 권한)이 있으면 REST API로, 없으면 비교 링크만 남긴다.
-async function openPullRequest(it, branch, report) {
+async function openPullRequest(it, branch, report, repoDir = ROOT) {
   try {
-    git('push', '-u', 'origin', branch);
+    execFileSync('git', ['push', '-q', '-u', 'origin', branch], { cwd: repoDir, encoding: 'utf8' });
   } catch (e) {
     return { note: `브랜치 푸시 실패: ${String(e.message).split('\n')[0]}` };
   }
@@ -258,7 +276,7 @@ async function processOne(it, { executor: forced, note } = {}) {
   const review = await statusId('검토');
   await setLabels(it.id, ['agent-running']);
   if (inProgress) await query(`UPDATE jira_issues SET status_id = $2 WHERE id = $1`, [it.id, inProgress]);
-  const { dir, branch } = prepareWorktree(it.issue_key);
+  const { dir, branch, repo } = executor === 'opencode' ? prepareClone(it.issue_key) : prepareWorktree(it.issue_key);
   await comment(it.id, it.reporter_id, `처리 시작 — ${executor === 'codex' ? 'Codex' : 'OpenCode'} 헤드리스, 브랜치 ${branch}`);
   console.log(`▶ ${it.issue_key} (${executor}) ${it.summary}`);
 
@@ -282,11 +300,14 @@ async function processOne(it, { executor: forced, note } = {}) {
     }
   } catch (e) { console.log(`  커밋 실패: ${String(e.message).split('\n')[0]}`); }
   let commits = 0;
-  try { commits = Number(git('rev-list', '--count', `master..${branch}`)); } catch { /* 무시 */ }
+  try {
+    commits = Number(execFileSync('git', ['rev-list', '--count', `${repo === ROOT ? 'master' : 'origin/master'}..${branch}`],
+      { cwd: repo, encoding: 'utf8' }).trim());
+  } catch { /* 무시 */ }
   const ok = r.code === 0 && commits > 0;
   // 성공 시: 브랜치를 GitHub에 푸시하고 PR을 만든다 (머지는 사람이 검토 후)
   let pr = null;
-  if (ok) pr = await openPullRequest(it, branch, r.last);
+  if (ok) pr = await openPullRequest(it, branch, r.last, repo);
   await comment(it.id, it.reporter_id, [
     `${ok ? '처리 완료 — PR 검토 대기' : '처리 실패 — 확인 필요'} (${executor}, 종료 코드 ${r.code}, 커밋 ${commits}개, 브랜치 ${branch})`,
     pr?.url ? `PR: ${pr.url}` : (pr?.note ?? ''),
