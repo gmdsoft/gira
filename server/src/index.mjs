@@ -350,7 +350,7 @@ app.get('/api/content/:id', async (req, reply) => {
   return {
     children: childRows.filter((r) => childOk.has(String(r.id))),
     data: database,
-    canEdit: c.type !== 'database' && acc.edit, role: acc.role,
+    canEdit: !['database', 'embed'].includes(c.type) && acc.edit, role: acc.role, // 이관된 데이터베이스·임베드는 읽기 전용
     id: c.id, spaceKey: c.space_key, spaceName: c.space_name, parentId: c.parent_id,
     type: c.type, title: c.title, status: c.status, fullWidth: c.full_width, authorName: c.author_name,
     createdAt: c.created_at, updatedAt: c.updated_at, version: ver[0] ?? null,
@@ -413,8 +413,8 @@ app.get('/api/att/:contentId/:filename', async (req, reply) => {
 
 async function rejectDatabaseEdit(id, reply) {
   const { rows } = await query('SELECT type FROM content WHERE id=$1', [id]);
-  if (rows[0]?.type !== 'database') return false;
-  reply.code(409).send({ error: '읽기 전용 — 원본에서 이관된 데이터베이스입니다.' });
+  if (!['database', 'embed'].includes(rows[0]?.type)) return false;
+  reply.code(409).send({ error: rows[0].type === 'embed' ? '읽기 전용 — 원본에서 이관된 임베드입니다.' : '읽기 전용 — 원본에서 이관된 데이터베이스입니다.' });
   return true;
 }
 

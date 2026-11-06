@@ -6,6 +6,7 @@
 //   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
 import { fetchDatabase } from './lib/confluence-database.mjs';
+import { embedDoc } from './lib/confluence-embed.mjs';
 import { importTemplates } from './lib/import-templates.mjs';
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
@@ -93,7 +94,7 @@ if (args.pages) {
     try { return await get(`/wiki/api/v2/pages/${id}?body-format=storage`); }
     catch (e) { if (e.status !== 404 && e.status !== 400) throw e;
       const c = await get(`/wiki/rest/api/content/${id}?expand=space,version,ancestors`);
-      if (c.type !== 'database') throw e;
+      if (c.type !== 'database' && c.type !== 'embed') throw e;
       return { ...c, spaceId: c.space?.id, parentId: c.ancestors?.at(-1)?.id }; }
   }))
     .filter((p) => { const ok = String(p.spaceId) === String(space.id); if (!ok) console.log(`  ⚠ ${p.id} "${p.title}"는 ${args.space} 스페이스가 아니라 건너뜀`); return ok; });
@@ -129,6 +130,20 @@ if (!args.pages) {
   // Canvas changes need not increment the content version. Refresh each snapshot on incremental runs too.
   databases = listed;
 }
+// 임베드(스마트 링크): 본문 대신 원본 주소(embedUrl)만 있다 — HTML 블록 문서로 저장 (GIRA-59)
+let embeds = pages.filter(p => p.type === 'embed');
+pages = pages.filter(p => p.type !== 'embed');
+if (!args.pages) {
+  embeds = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=embed and space="${space.key}"`)}&expand=version,ancestors&limit=100`).catch((e) => { console.log(`  임베드 목록 조회 실패(${e.status ?? e.message}) — 건너뜀`); return []; });
+}
+for (const p of pages) if (p.parentType === 'embed' && !embeds.some(d => String(d.id) === String(p.parentId))) embeds.push({ id: p.parentId });
+for (const d of embeds) {
+  const e = await get(`/wiki/api/v2/embeds/${d.id}`);
+  Object.assign(d, { type: 'embed', title: e.title, embedUrl: e.embedUrl ?? null, parentId: e.parentId ?? null, parentType: e.parentType ?? null,
+    authorId: e.authorId, ownerId: e.ownerId, createdAt: e.createdAt, version: e.version, position: e.position, spaceId: space.id });
+}
+console.log(`  임베드 ${embeds.length}건`);
+
 // Targeted page imports also retain a database parent instead of orphaning the page.
 for (const p of pages) if (p.parentType === 'database' && !databases.some(d => String(d.id) === String(p.parentId))) {
   databases.push({ id: p.parentId });
@@ -161,7 +176,7 @@ console.log(`  데이터베이스 ${databases.length}건`);
 // 폴더: 페이지 부모 체인에 등장하는 폴더를 재귀적으로 수집
 const folders = new Map();
 {
-  const queue = [...new Set([...pages, ...databases].filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
+  const queue = [...new Set([...pages, ...databases, ...embeds].filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
   while (queue.length) {
     const id = queue.shift();
     if (!id || folders.has(id)) continue;
@@ -221,7 +236,7 @@ const accountIds = new Set(mentionIds);
 for (const { data } of databaseData.values()) for (const row of data.rows) for (const field of data.fields) {
   if (field.type === 'u') for (const value of row.cells[field.id] ?? []) if (value.a) accountIds.add(value.a);
 }
-for (const p of [...pages, ...databases]) {
+for (const p of [...pages, ...databases, ...embeds]) {
   if (p.authorId) accountIds.add(p.authorId);
   if (p.ownerId) accountIds.add(p.ownerId);
   if (p.version?.authorId) accountIds.add(p.version.authorId);
@@ -326,7 +341,18 @@ for (const d of databases) {
     ON CONFLICT (content_id,version) DO UPDATE SET data=EXCLUDED.data,source_ybin=EXCLUDED.source_ybin,fetched_at=now()`,
     [d.id, version, JSON.stringify(snap.data), snap.binary]);
 }
-const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id), ...databases.map(d => d.id)]);
+for (const d of embeds) {
+  const version = d.version?.number ?? 1;
+  await query(`INSERT INTO content (id, space_id, type, title, position, status, author_id, owner_id, current_version, created_at, updated_at)
+    VALUES ($1,$2,'embed',$3,$4,'current',$5,$6,$7,$8,$9)
+    ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, position=EXCLUDED.position, current_version=EXCLUDED.current_version, updated_at=EXCLUDED.updated_at
+    WHERE content.type='embed'`, [d.id, space.id, d.title ?? '(임베드)', d.position ?? null, uid(d.authorId), uid(d.ownerId), version, ts(d.createdAt), ts(d.version?.createdAt)]);
+  await query(`INSERT INTO content_versions (content_id, version, doc, source_xhtml, message, minor_edit, author_id, created_at)
+    VALUES ($1,$2,$3,NULL,$4,false,$5,$6)
+    ON CONFLICT (content_id, version) DO UPDATE SET doc = EXCLUDED.doc`,
+    [d.id, version, JSON.stringify(embedDoc(d.embedUrl)), d.embedUrl ? `원본 임베드: ${d.embedUrl}` : null, uid(d.version?.authorId ?? d.authorId), ts(d.version?.createdAt)]);
+}
+const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id), ...databases.map(d => d.id), ...embeds.map(d => d.id)]);
 // 증분 동기화에서는 부모가 이번 수집에 없을 수 있으므로 DB에 있는지도 본다
 const inDb = async (id) => (await query(`SELECT 1 FROM content WHERE id = $1`, [id])).rows.length > 0;
 const linkable = async (id) => !!id && (knownIds.has(id) || await inDb(id));
@@ -335,7 +361,7 @@ for (const f of folders.values()) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [f.id, f.parentId]);
   }
 }
-for (const p of [...pages, ...databases]) {
+for (const p of [...pages, ...databases, ...embeds]) {
   if (await linkable(p.parentId)) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [p.id, p.parentId]);
   }

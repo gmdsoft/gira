@@ -176,8 +176,10 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
         <div className="page-title-row">
           <h1>{page.type === 'live' && <span className="live-badge">LIVE</span>}{page.title}</h1>
           <div className="page-actions">
-            <button className="btn btn-primary"
-              onClick={() => navigate(`/s/${page.spaceKey}/p/${page.id}/edit`)}>편집</button>
+            {page.type === 'embed'
+              ? <span className="muted" title="원본 Confluence의 스마트 링크 임베드 — 주소만 이관됨">읽기 전용 임베드</span>
+              : <button className="btn btn-primary"
+                  onClick={() => navigate(`/s/${page.spaceKey}/p/${page.id}/edit`)}>편집</button>}
             <PageMenu page={page} navigate={navigate} reloadSpace={reloadSpace}
               onPresent={() => setPresent(true)} onMove={() => setMoveOpen(true)}
               onRestrict={() => setRestrictOpen(true)} setStatus={setStatus} />
