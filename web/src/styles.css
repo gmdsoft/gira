@@ -923,3 +923,24 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .comment-body img { max-width: 100%; max-height: 480px; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; }
 .comment-form.composer .actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 6px; }
 .comment-form.composer textarea { width: 100%; }
+
+/* 서식 툴바는 한 줄로 유지하고 보조 도구를 메뉴에 접는다. */
+.toolbar { flex-wrap: nowrap; min-width: 0; }
+.toolbar > * { flex-shrink: 0; }
+.toolbar > .tb-select { min-width: 0; max-width: 210px; flex-shrink: 1; }
+.tb-menu { position: relative; }
+.tb-menu > summary { list-style: none; cursor: pointer; white-space: nowrap; }
+.tb-menu > summary::-webkit-details-marker { display: none; }
+.tb-menu-items { display: flex; flex-direction: column; align-items: stretch; min-width: 180px; max-height: 65vh; overflow: auto; }
+.tb-menu-items .tb { text-align: left; white-space: nowrap; }
+.tb-menu-items .tb-hint { white-space: normal; }
+.tb-palette { flex-direction: column; width: 296px; gap: 8px; }
+.tb-palette strong { font-size: 12px; }
+.tb-color-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
+.tb-color-grid .tb-swatch-none { grid-column: 1 / -1; width: auto; }
+@media (max-width: 700px) {
+  .toolbar { padding-inline: 6px; gap: 0; }
+  .toolbar > .tb-select { max-width: 105px; }
+  .tb-menu > summary { max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+  .tb-palette { position: fixed; top: auto; left: max(8px, calc(50vw - 156px)); }
+}

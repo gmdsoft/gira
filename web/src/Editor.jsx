@@ -300,15 +300,50 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
   );
 }
 
-// Confluence 표준 텍스트 색상 팔레트 느낌의 무난한 8색 (editor-spec.md)
-const TEXT_COLORS = ['#172b4d', '#0747a6', '#008da6', '#006644', '#ff8b00', '#de350b', '#5243aa', '#97a0af'];
+const TEXT_COLORS = [
+  '#292a2e', '#164b9f', '#206a83', '#216e4e', '#4c6b1f', '#7f5f01', '#9e4c00', '#ae2e24', '#943d73', '#803fa5',
+  '#7d818a', '#357de8', '#2898bd', '#22a06b', '#6a9a23', '#b38600', '#e56910', '#c9372c', '#cd519d', '#af59e1',
+  '#ffffff', '#cce0ff', '#c6edfb', '#baf3db', '#d3f1a7', '#f8e6a0', '#ffe2bd', '#ffd5d2', '#fdd0ec', '#eed7fc',
+];
+const HIGHLIGHT_COLORS = ['#dcdfe4', ...TEXT_COLORS.slice(21)];
+
+function FormatMenu({ label, children }) {
+  return <details className="tb-menu"><summary className="tb" title={label}>{label} ∨</summary>
+    <div className="tb-pop tb-menu-items" onClick={e => {
+      if (e.target.closest('button')) e.currentTarget.parentElement.open = false;
+    }}>{children}</div>
+  </details>;
+}
+
+function ToolbarOverflow({ compact, children }) {
+  return compact ? <FormatMenu label="도구 더 보기">{children}</FormatMenu> : <>{children}</>;
+}
 
 function Toolbar({ editor, onImage }) {
   const [palette, setPalette] = useState(false);
+  const [compact, setCompact] = useState(true);
+  const toolbarRef = useRef(null);
+  useEffect(() => {
+    const el = toolbarRef.current;
+    const observer = new ResizeObserver(([entry]) => setCompact(entry.contentRect.width < 1400));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    const close = e => {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      if (e.type === 'pointerdown' && toolbarRef.current?.contains(e.target)) return;
+      setPalette(false);
+      toolbarRef.current?.querySelectorAll('details[open]').forEach(el => { el.open = false; });
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close); };
+  }, []);
   const [grid, setGrid] = useState(null); // {r, c} 호버 상태 (null=닫힘)
   const B = ({ onClick, active, children, title }) => (
     <button className={`tb ${active ? 'tb-active' : ''}`} title={title}
-      onMouseDown={(e) => { e.preventDefault(); onClick(); }}>{children}</button>
+      onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{children}</button>
   );
   const chain = () => editor.chain().focus();
   const insertTable = (rows = 3, cols = 3) => chain().insertContent({
@@ -338,44 +373,71 @@ function Toolbar({ editor, onImage }) {
   }).run();
 
   return (
-    <div className="toolbar">
+    <div className="toolbar" ref={toolbarRef}>
       <select className="tb-select"
-        value={editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : 'p'}
+        aria-label="텍스트 스타일"
+        value={editor.isActive('blockquote') ? 'quote' : editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : editor.isActive('smallText') ? 'small' : 'p'}
         onChange={(e) => {
           const v = e.target.value;
-          if (v === 'p') chain().setParagraph().run();
-          else chain().setHeading({ level: Number(v[1]) }).run();
+          const c = chain().unsetMark('smallText');
+          if (v === 'quote') c.toggleBlockquote().run();
+          else {
+            if (editor.isActive('blockquote')) c.lift('blockquote');
+            if (v === 'p' || v === 'small') { c.setParagraph(); if (v === 'small') c.setMark('smallText'); }
+            else c.setHeading({ level: Number(v[1]) });
+            c.run();
+          }
         }}>
-        <option value="p">일반 텍스트</option>
-        <option value="h1">제목 1</option>
-        <option value="h2">제목 2</option>
-        <option value="h3">제목 3</option>
-        <option value="h4">제목 4</option>
-        <option value="h5">제목 5</option>
-        <option value="h6">제목 6</option>
+        <option value="p">일반 텍스트 (Ctrl+Alt+0)</option>
+        <option value="small">작은 텍스트</option>
+        <option value="quote">인용</option>
+        <option value="h1">머릿글 1 (Ctrl+Alt+1)</option>
+        <option value="h2">머릿글 2 (Ctrl+Alt+2)</option>
+        <option value="h3">머릿글 3 (Ctrl+Alt+3)</option>
+        <option value="h4">머릿글 4 (Ctrl+Alt+4)</option>
+        <option value="h5">머릿글 5 (Ctrl+Alt+5)</option>
+        <option value="h6">머릿글 6 (Ctrl+Alt+6)</option>
       </select>
       <span className="tb-sep" />
       <B title="굵게 (Ctrl+B)" active={editor.isActive('bold')} onClick={() => chain().toggleBold().run()}><b>B</b></B>
       <B title="기울임 (Ctrl+I)" active={editor.isActive('italic')} onClick={() => chain().toggleItalic().run()}><i>I</i></B>
       <B title="밑줄 (Ctrl+U)" active={editor.isActive('underline')} onClick={() => chain().toggleMark('underline').run()}><u>U</u></B>
-      <B title="취소선 (Ctrl+Shift+S)" active={editor.isActive('strike')} onClick={() => chain().toggleStrike().run()}><s>S</s></B>
-      <B title="코드 (Ctrl+Shift+M)" active={editor.isActive('code')} onClick={() => chain().toggleCode().run()}>{'<>'}</B>
+      <FormatMenu label="형식 더 보기">
+      <B title="취소선 (Ctrl+Shift+S)" active={editor.isActive('strike')} onClick={() => chain().toggleStrike().run()}><s>취소선</s></B>
+      <B title="코드 (Ctrl+Shift+M)" active={editor.isActive('code')} onClick={() => chain().toggleCode().run()}>코드</B>
+        <B title="아래 첨자" active={editor.isActive('subscript')} onClick={() => chain().toggleMark('subscript').run()}>아래 첨자</B>
+        <B title="위 첨자" active={editor.isActive('superscript')} onClick={() => chain().toggleMark('superscript').run()}>위 첨자</B>
+        <B title="서식 지우기 (Ctrl+\\)" onClick={() => chain().unsetAllMarks().clearNodes().run()}>서식 지우기</B>
+      </FormatMenu>
+      <FormatMenu label="목록">
+        <B active={editor.isActive('bulletList')} onClick={() => chain().toggleBulletList().run()}>글머리 목록</B>
+        <B active={editor.isActive('orderedList')} onClick={() => chain().toggleOrderedList().run()}>번호 목록</B>
+        <B active={editor.isActive('taskList')} onClick={() => chain().toggleList('taskList', 'taskItem').run()}>작업 목록</B>
+        <B title="들여쓰기 (Tab)" onClick={() => chain().sinkListItem(editor.isActive('taskItem') ? 'taskItem' : 'listItem').run()}>들여쓰기 (Tab)</B>
+        <B title="내어쓰기 (Shift+Tab)" onClick={() => chain().liftListItem(editor.isActive('taskItem') ? 'taskItem' : 'listItem').run()}>내어쓰기 (Shift+Tab)</B>
+      </FormatMenu>
       <span className="tb-color-wrap">
         <B title="텍스트 색상" active={!!editor.getAttributes('textColor').color}
           onClick={() => setPalette((v) => !v)}>
           <span className="tb-color-a" style={{ borderBottomColor: editor.getAttributes('textColor').color ?? '#172b4d' }}>A</span>
         </B>
         {palette && (
-          <span className="tb-pop tb-palette" onMouseDown={(e) => e.preventDefault()}>
+          <span className="tb-pop tb-palette" role="dialog" aria-label="글자색 및 강조색" onMouseDown={(e) => e.preventDefault()}>
+            <strong>텍스트 색상</strong><span className="tb-color-grid">
             <button className="tb-swatch tb-swatch-none" title="기본"
               onClick={() => { chain().unsetMark('textColor').run(); setPalette(false); }}>∅</button>
             {TEXT_COLORS.map((c) => (
               <button key={c} className="tb-swatch" style={{ background: c }} title={c}
                 onClick={() => { chain().setMark('textColor', { color: c }).run(); setPalette(false); }} />
             ))}
+            </span><strong>강조 색상</strong><span className="tb-color-grid">
+            {HIGHLIGHT_COLORS.map(c => <button key={c} className="tb-swatch" style={{ background: c }} title={`강조 ${c}`}
+              onClick={() => { chain().setMark('highlight', { color: c }).run(); setPalette(false); }} />)}
+            </span><button className="tb" onClick={() => { chain().unsetMark('highlight').run(); setPalette(false); }}>강조 제거</button>
           </span>
         )}
       </span>
+      <ToolbarOverflow compact={compact}>
       <span className="tb-sep" />
       <B title="왼쪽 정렬" active={!editor.getAttributes('paragraph').textAlign && !editor.getAttributes('heading').textAlign}
         onClick={() => chain().setTextAlign(null).run()}>⇤</B>
@@ -384,14 +446,8 @@ function Toolbar({ editor, onImage }) {
       <B title="오른쪽 정렬" active={editor.isActive({ textAlign: 'right' })}
         onClick={() => chain().setTextAlign('right').run()}>⇥</B>
       <span className="tb-sep" />
-      <B title="글머리 목록 (Ctrl+Shift+8)" active={editor.isActive('bulletList')} onClick={() => chain().toggleBulletList().run()}>•≡</B>
-      <B title="번호 목록 (Ctrl+Shift+7)" active={editor.isActive('orderedList')} onClick={() => chain().toggleOrderedList().run()}>1≡</B>
-      <B title="인용 (Ctrl+Shift+9)" active={editor.isActive('blockquote')} onClick={() => chain().toggleBlockquote().run()}>❝</B>
       <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}>{ '{ }' }</B>
       <span className="tb-sep" />
-      <B title="작업 항목 ([] 입력)" onClick={() => chain().insertContent({
-        type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] }],
-      }).run()}>☑</B>
       <B title="멘션 (@ 입력)" onClick={() => chain().insertContent('@').run()}>@</B>
       <B title="이미지·파일 업로드" onClick={onImage}>🖼</B>
       <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}>⫴</B>
@@ -440,6 +496,7 @@ function Toolbar({ editor, onImage }) {
           <B title="표 삭제" onClick={() => chain().deleteTable().run()}>표 삭제</B>
         </span>
       )}
+      </ToolbarOverflow>
     </div>
   );
 }

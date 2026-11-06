@@ -18,11 +18,12 @@ import { updateColumnsOnResize } from 'prosemirror-tables';
 
 const Underline = Mark.create({
   name: 'underline',
+  parseHTML: () => [{ tag: 'u' }],
   renderHTML: () => ['u', 0],
 });
 
-const Subscript = Mark.create({ name: 'subscript', renderHTML: () => ['sub', 0] });
-const Superscript = Mark.create({ name: 'superscript', renderHTML: () => ['sup', 0] });
+const Subscript = Mark.create({ name: 'subscript', excludes: 'superscript', parseHTML: () => [{ tag: 'sub' }], renderHTML: () => ['sub', 0] });
+const Superscript = Mark.create({ name: 'superscript', excludes: 'subscript', parseHTML: () => [{ tag: 'sup' }], renderHTML: () => ['sup', 0] });
 
 const LinkMark = Mark.create({
   name: 'link',
@@ -36,7 +37,20 @@ const LinkMark = Mark.create({
 const TextColor = Mark.create({
   name: 'textColor',
   addAttributes: () => ({ color: { default: null } }),
-  renderHTML: ({ node, HTMLAttributes }) => ['span', { style: `color: ${HTMLAttributes.color}` }, 0],
+  parseHTML: () => [{ style: 'color', getAttrs: color => ({ color }) }],
+  renderHTML: ({ HTMLAttributes }) => ['span', { style: `color: ${HTMLAttributes.color}` }, 0],
+});
+
+const SmallText = Mark.create({
+  name: 'smallText',
+  parseHTML: () => [{ tag: 'small' }],
+  renderHTML: () => ['small', 0],
+});
+const Highlight = Mark.create({
+  name: 'highlight',
+  addAttributes: () => ({ color: { default: null, parseHTML: el => el.style.backgroundColor || null } }),
+  parseHTML: () => [{ tag: 'mark' }, { style: 'background-color', getAttrs: color => ({ color }) }],
+  renderHTML: ({ HTMLAttributes }) => ['mark', { style: `background-color: ${HTMLAttributes.color}; color: inherit` }, 0],
 });
 
 const CommentMark = Mark.create({
@@ -195,13 +209,16 @@ const TableCell = TableCellExt;
 
 const TaskList = Node.create({
   name: 'taskList',
-  group: 'block',
+  group: 'block list',
   content: 'taskItem+',
   renderHTML: () => ['ul', { class: 'task-list' }, 0],
 });
 const TaskItem = Node.create({
   name: 'taskItem',
   content: 'block*',
+  addKeyboardShortcuts() {
+    return { Enter: () => this.editor.commands.splitListItem('taskItem') };
+  },
   addAttributes: () => ({ checked: { default: false } }),
   renderHTML: ({ node }) => ['li', { class: 'task-item', 'data-checked': String(node.attrs.checked) },
     ['span', { class: 'task-check' }, node.attrs.checked ? '☑' : '☐'],
@@ -665,8 +682,10 @@ export const ConfluenceShortcuts = Extension.create({
     const ed = () => this.editor;
     return {
       'Mod-Shift-m': () => ed().commands.toggleCode(),
-      'Mod-\\': () => ed().chain().focus().unsetAllMarks().run(),
-      'Mod-Alt-0': () => ed().commands.setParagraph(),
+      'Mod-\\': () => ed().chain().focus().unsetAllMarks().clearNodes().run(),
+      Tab: () => ed().commands.sinkListItem(ed().isActive('taskItem') ? 'taskItem' : 'listItem'),
+      'Shift-Tab': () => ed().commands.liftListItem(ed().isActive('taskItem') ? 'taskItem' : 'listItem'),
+      'Mod-Alt-0': () => ed().chain().unsetMark('smallText').setParagraph().run(),
       'Mod-Shift-9': () => ed().commands.toggleBlockquote(),
       'Mod-Shift-,': () => ed().commands.toggleMark('subscript'),
       'Mod-Shift-.': () => ed().commands.toggleMark('superscript'),
@@ -926,7 +945,7 @@ export const RowResize = Extension.create({
 });
 
 const custom = [
-  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark, TextAlign,
+  Underline, Subscript, Superscript, LinkMark, TextColor, SmallText, Highlight, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
   Panel, Expand, Layout, LayoutSection, LayoutColumn,

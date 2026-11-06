@@ -80,10 +80,16 @@ export function convertStorage(xhtml) {
         case 'sup': withMark({ type: 'superscript' }); break;
         case 'a': withMark({ type: 'link', attrs: { href: dec(n.attribs.href ?? '') } }); break;
         case 'br': out.push({ type: 'hardBreak' }); break;
+        case 'small': withMark({ type: 'smallText' }); break;
+        case 'mark':
         case 'span': {
-          const color = /color:\s*([^;]+)/.exec(n.attribs.style ?? '')?.[1];
-          if (color) withMark({ type: 'textColor', attrs: { color: color.trim() } });
-          else out.push(...inline(n.children, marks));
+          const style = n.attribs.style ?? '';
+          const next = [...marks];
+          const color = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style)?.[1];
+          const background = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(style)?.[1];
+          if (color) next.push({ type: 'textColor', attrs: { color: color.trim() } });
+          if (background || n.name === 'mark') next.push({ type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
+          out.push(...inline(n.children, next));
           break;
         }
         case 'time':
