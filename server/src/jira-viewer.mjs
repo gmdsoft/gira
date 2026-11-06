@@ -57,6 +57,8 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 const LOCAL_ID_FLOOR = 1000000000000;
 await query(`SELECT setval('jira_issue_id_seq',
   GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_issues), (SELECT last_value FROM jira_issue_id_seq)))`);
+await query(`SELECT setval('jira_issue_link_id_seq',
+  GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_issue_links), (SELECT last_value FROM jira_issue_link_id_seq)))`);
 await query(`SELECT setval('jira_comment_id_seq',
   GREATEST(${LOCAL_ID_FLOOR}, (SELECT COALESCE(MAX(id), 1) FROM jira_comments), (SELECT last_value FROM jira_comment_id_seq)))`);
 await query(`SELECT setval('jira_attachment_id_seq',
@@ -389,13 +391,13 @@ app.get('/api/issue/:key', async (req, reply) => {
   issue.project_role = proj.role;
   delete issue.fields_raw;
 
-  const [comments, attachments, links, subtasks, history] = await Promise.all([
+  const [comments, attachments, links, subtasks, history, weblinks] = await Promise.all([
     query(`SELECT c.id, c.body_adf, c.created_at, u.display_name AS author_name
              FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
             WHERE c.issue_id = $1 ORDER BY c.created_at`, [issue.id]),
     query(`SELECT id, filename, media_type, file_size, created_at FROM jira_attachments
             WHERE issue_id = $1 ORDER BY created_at`, [issue.id]),
-    query(`SELECT l.link_type, l.inward_issue, l.outward_issue,
+    query(`SELECT l.id, l.link_type, l.inward_issue, l.outward_issue,
                   ii.issue_key AS inward_key, ii.summary AS inward_summary,
                   oi.issue_key AS outward_key, oi.summary AS outward_summary
              FROM jira_issue_links l
@@ -413,9 +415,12 @@ app.get('/api/issue/:key', async (req, reply) => {
     query(`SELECT h.id, h.created_at, h.items, u.display_name AS author_name
              FROM jira_changelog h LEFT JOIN users u ON u.id = h.author_id
             WHERE h.issue_id = $1 ORDER BY h.created_at`, [issue.id]),
+    query(`SELECT w.id, w.url, w.title, w.created_at, u.display_name AS author_name
+             FROM jira_web_links w LEFT JOIN users u ON u.id = w.author_id
+            WHERE w.issue_id = $1 ORDER BY w.id`, [issue.id]),
   ]);
   return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
-           subtasks: subtasks.rows, history: history.rows };
+           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows };
 });
 
 // ---------- 이슈 생성/수정 ----------
@@ -596,6 +601,110 @@ app.patch('/api/comments/:id', async (req, reply) => {
     `UPDATE jira_comments SET body_adf = $2, updated_at = now() WHERE id = $1`,
     [req.params.id, JSON.stringify(body)]);
   if (!rowCount) return reply.code(404).send({ error: 'not found' });
+  return { ok: true };
+});
+
+// ---------- 업무 항목 연결 (GIRA-26) ----------
+// 연결: outward_issue(이 이슈)가 inward_issue(상대)를 '종류'로 가리킨다. 표시 문구(차단함/차단됨 등)는 화면이 정한다.
+// 연결 종류 목록: 이관 데이터에서 많이 쓰는 순 + 기본 종류
+app.get('/api/link-types', async () => {
+  // Jira 앱이 내부적으로 쓰는 종류(멘션, Jira Product Discovery 'Polaris', WBS Gantt)는 사람이 고를 종류가 아니므로 뺀다
+  const { rows } = await query(
+    `SELECT link_type AS name, count(*)::int AS n FROM jira_issue_links
+      WHERE link_type NOT IN ('Mention') AND link_type NOT LIKE 'Polaris%' AND link_type NOT LIKE '%(WBSGantt)%'
+      GROUP BY 1 ORDER BY 2 DESC LIMIT 12`);
+  const names = rows.map((r) => r.name);
+  for (const base of ['관련 이슈', 'Blocks', '중복 이슈', 'Cloners']) if (!names.includes(base)) names.push(base);
+  return names;
+});
+
+// 연결 대상 찾기: 접근 가능한 모든 프로젝트에서 키 또는 요약으로 (최대 10건)
+app.get('/api/issue-search', async (req) => {
+  const q = String(req.query.q ?? '').trim();
+  if (!q) return [];
+  const roles = await projectRoles(req.access);
+  const ids = [...roles.keys()];
+  if (!ids.length) return [];
+  const { rows } = await query(
+    `SELECT i.issue_key, i.summary, t.name AS type_name, s.name AS status_name, s.category AS status_category
+       FROM jira_issues i
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN jira_statuses s ON s.id = i.status_id
+      WHERE i.project_id = ANY($1::bigint[]) AND (i.issue_key = upper($2) OR i.summary ILIKE $3)
+      ORDER BY (i.issue_key = upper($2)) DESC, i.updated_at DESC NULLS LAST LIMIT 10`,
+    [ids, q, `%${q}%`]);
+  return rows;
+});
+
+const logLink = (issueId, userId, toString, fromString = null) => query(
+  `INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
+  [issueId, userId, JSON.stringify([{ field: 'Link', fromString, toString }])]);
+
+app.post('/api/issue/:key/links', async (req, reply) => {
+  const issue = await issueByKey(req.params.key);
+  if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
+  const other = await issueByKey(String(req.body?.otherKey ?? '').trim().toUpperCase());
+  if (!other) return reply.code(400).send({ error: '연결할 이슈를 찾을 수 없습니다' });
+  if (other.id === issue.id) return reply.code(400).send({ error: '자기 자신과는 연결할 수 없습니다' });
+  if (!await requireProjectId(req, reply, other.project_id)) return; // 상대 이슈를 볼 수 있어야 한다
+  const linkType = String(req.body?.linkType ?? '').trim().slice(0, 100);
+  if (!linkType) return reply.code(400).send({ error: '연결 종류를 고르세요' });
+  // direction: 'outward' = 이 이슈 → 상대 (예: 이 이슈가 상대를 차단함), 'inward' = 상대 → 이 이슈
+  const [out, inn] = req.body?.direction === 'inward' ? [other.id, issue.id] : [issue.id, other.id];
+  const { rows: dup } = await query(
+    `SELECT 1 FROM jira_issue_links WHERE link_type = $1 AND outward_issue = $2 AND inward_issue = $3`, [linkType, out, inn]);
+  if (dup.length) return reply.code(409).send({ error: '이미 같은 연결이 있습니다' });
+  const { rows } = await query(
+    `INSERT INTO jira_issue_links (id, link_type, inward_issue, outward_issue)
+     VALUES (nextval('jira_issue_link_id_seq'), $1, $2, $3) RETURNING id`, [linkType, inn, out]);
+  await logLink(issue.id, req.access.userId, `${linkType} ${other.issue_key}`);
+  await logLink(other.id, req.access.userId, `${linkType} ${issue.issue_key}`);
+  await query(`UPDATE jira_issues SET updated_at = now() WHERE id = ANY($1::bigint[])`, [[issue.id, other.id]]);
+  return { id: rows[0].id };
+});
+
+app.delete('/api/links/:id', async (req, reply) => {
+  const { rows } = await query(
+    `SELECT l.id, l.link_type, l.inward_issue, l.outward_issue, ii.project_id AS ip, oi.project_id AS op,
+            ii.issue_key AS ik, oi.issue_key AS ok
+       FROM jira_issue_links l LEFT JOIN jira_issues ii ON ii.id = l.inward_issue
+       LEFT JOIN jira_issues oi ON oi.id = l.outward_issue WHERE l.id = $1`, [req.params.id]);
+  const l = rows[0];
+  if (!l) return reply.code(404).send({ error: 'not found' });
+  // 어느 한쪽 프로젝트의 편집 권한이 있으면 지울 수 있다
+  const roles = await projectRoles(req.access);
+  const canEdit = (pid) => pid != null && ['editor', 'admin'].includes(roles.get(Number(pid)) ?? roles.get(String(pid)));
+  if (!canEdit(l.ip) && !canEdit(l.op)) return reply.code(403).send({ error: '이 연결을 지울 권한이 없습니다' });
+  await query(`DELETE FROM jira_issue_links WHERE id = $1`, [l.id]);
+  if (l.outward_issue && l.ik) await logLink(l.outward_issue, req.access.userId, null, `${l.link_type} ${l.ik}`);
+  if (l.inward_issue && l.ok) await logLink(l.inward_issue, req.access.userId, null, `${l.link_type} ${l.ok}`);
+  return { ok: true };
+});
+
+// ---------- 웹 링크 (GIRA-28) ----------
+app.post('/api/issue/:key/weblinks', async (req, reply) => {
+  const issue = await issueByKey(req.params.key);
+  if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
+  let url;
+  try { url = new URL(String(req.body?.url ?? '').trim()); } catch { return reply.code(400).send({ error: '올바른 주소(URL)를 넣으세요' }); }
+  if (!['http:', 'https:'].includes(url.protocol)) return reply.code(400).send({ error: 'http·https 주소만 넣을 수 있습니다' });
+  const title = String(req.body?.title ?? '').trim().slice(0, 300) || null;
+  const { rows } = await query(
+    `INSERT INTO jira_web_links (issue_id, url, title, author_id) VALUES ($1, $2, $3, $4) RETURNING id`,
+    [issue.id, url.href, title, req.access.userId]);
+  await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
+    [issue.id, req.access.userId, JSON.stringify([{ field: 'RemoteIssueLink', fromString: null, toString: title ?? url.href }])]);
+  return { id: rows[0].id };
+});
+
+app.delete('/api/weblinks/:id', async (req, reply) => {
+  const { rows } = await query(
+    `SELECT w.id, w.issue_id, i.project_id FROM jira_web_links w JOIN jira_issues i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
+  if (!rows.length) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, rows[0].project_id, 'editor')) return;
+  await query(`DELETE FROM jira_web_links WHERE id = $1`, [rows[0].id]);
   return { ok: true };
 });
 

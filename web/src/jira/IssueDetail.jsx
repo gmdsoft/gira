@@ -5,6 +5,7 @@ import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from '.
 import { TypeIcon } from './icons.jsx';
 import { IconChevronDown, IconChevronRight, IconPlus, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
 import AdfView from './adf.jsx';
+import { AddMenu, SubtaskInline, LinkInline, WebLinkInline, linkPhrase } from './IssueAdd.jsx';
 import CommentComposer from '../comment-composer.jsx';
 import DescEditor from './DescEditor.jsx';
 import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
@@ -181,6 +182,24 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
   const [actTab, setActTab] = useState('comments'); // all | comments | history | worklog
   const fileRef = useRef(null);
   const descEditorRef = useRef(null);
+  const [adding, setAdding] = useState(null); // '+' 메뉴로 연 입력 줄: 'subtask' | 'link' | 'weblink'
+  const secRef = { subtask: useRef(null), link: useRef(null), weblink: useRef(null), attach: useRef(null) };
+  const openAdd = (kind) => {
+    if (kind === 'attach') { fileRef.current?.click(); return; }
+    setAdding(kind);
+    setTimeout(() => secRef[kind]?.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 30);
+  };
+  // 단축키 (Jira와 같게): ⇧C 하위 작업 만들기, ⇧K 업무 항목 연결 — 입력 중이 아닐 때만
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.code === 'KeyC' && d && !d.subtask) { e.preventDefault(); openAdd('subtask'); }
+      else if (e.code === 'KeyK' && d) { e.preventDefault(); openAdd('link'); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const load = async () => {
     const data = await api('/api/issue/' + encodeURIComponent(issueKey));
@@ -188,7 +207,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     onTitle?.(`[${data.issue_key}] ${data.summary} - Gira`);
     onSeen?.(data.issue_key, data.summary);
   };
-  useEffect(() => { setDescEditing(false); setEditingComment(null); load(); }, [issueKey]);
+  useEffect(() => { setDescEditing(false); setEditingComment(null); setAdding(null); load(); }, [issueKey]);
 
   useEffect(() => { if (mobile) { setDescEditing(false); setEditingComment(null); } }, [mobile]);
 
@@ -208,13 +227,18 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     await api(`/api/issue/${encodeURIComponent(issueKey)}/comments`, { method: 'POST', json: { text, attachmentIds: uploaded.map((u) => u.id) } });
     load();
   };
-  const upload = async () => {
-    const f = fileRef.current?.files[0];
-    if (!f) return alert('파일을 선택하세요');
-    const fd = new FormData(); fd.append('file', f);
-    await api(`/api/issue/${encodeURIComponent(issueKey)}/attachments`, { method: 'POST', body: fd });
-    fileRef.current.value = ''; load();
+  // 첨부 파일 추가 ('+' 메뉴·첨부 칸의 '+'): 여러 개 골라 올리고 첨부 칸으로 이동
+  const uploadPicked = async (files) => {
+    for (const f of [...(files ?? [])]) {
+      const fd = new FormData(); fd.append('file', f, f.name);
+      await api(`/api/issue/${encodeURIComponent(issueKey)}/attachments`, { method: 'POST', body: fd });
+    }
+    if (fileRef.current) fileRef.current.value = '';
+    await load();
+    setTimeout(() => secRef.attach.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 30);
   };
+  const removeLink = async (l) => { await api(`/api/links/${l.id}`, { method: 'DELETE' }); load(); onChanged?.(); };
+  const removeWebLink = async (w) => { await api(`/api/weblinks/${w.id}`, { method: 'DELETE' }); load(); };
 
   const saveDesc = async () => {
     const ed = descEditorRef.current;
@@ -315,17 +339,25 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
   };
 
   const linkRow = (l, i) => {
-    const mine = l.inward_key === issueKey;
+    const mine = l.inward_key === issueKey; // 이 이슈가 inward 쪽 = 상대가 이 이슈를 가리킴
     const otherKey = mine ? l.outward_key : l.inward_key;
     const otherSum = mine ? l.outward_summary : l.inward_summary;
     return (
-      <li key={i}><span className="dim">{l.link_type}</span>{' '}
+      <li key={l.id ?? i}><span className="dim">{linkPhrase(l.link_type, !mine)}</span>{' '}
         {otherKey
           ? <><span className="ilink" onClick={() => onOpen(otherKey)}>{otherKey}</span> {otherSum ?? ''}</>
           : <span className="dim">(이관 범위 밖 이슈)</span>}
+        {canEdit && l.id && <button type="button" className="row-x" title="연결 삭제" onClick={() => confirm('이 연결을 지울까요?') && removeLink(l)}>✕</button>}
       </li>
     );
   };
+  const canEdit = d.project_role && d.project_role !== 'viewer' && !mobile;
+  const isEpic = d.type_name?.includes('에픽');
+  const childTypes = (meta.types ?? []).filter((t) => (isEpic ? !t.subtask && !t.name.includes('에픽') : t.subtask))
+    .sort((a, b) => (a.name === (isEpic ? '스토리' : '하위 작업') ? -1 : b.name === (isEpic ? '스토리' : '하위 작업') ? 1 : 0));
+  const secHead = (title, onPlus) => (
+    <div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>{title}</h3>
+      {onPlus && canEdit && <button type="button" className="sec-plus" title="추가" onClick={onPlus}><IconPlus size={15} /></button>}</div>);
 
   return (
     <div className="issue-view">
@@ -343,7 +375,11 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
           inputStyle={{ fontSize: 26, fontWeight: 600, margin: '4px 0 10px', maxWidth: 860 }}
           onSave={(v) => patch({ summary: v })} />
         <div className="issue-actions">
-          <button className="iconbtn" title="하위 작업 만들기" onClick={() => onNew?.()}><IconPlus size={17} /></button>
+          {!mobile && <AddMenu onPick={openAdd} items={[
+            [...(d.subtask ? [] : [{ key: 'subtask', icon: '☑', label: d.type_name?.includes('에픽') ? '하위 업무 항목 만들기' : '하위 작업 만들기', shortcut: '⇧C' }]),
+             { key: 'link', icon: '🔗', label: '업무 항목 연결', shortcut: '⇧K' }],
+            [{ key: 'attach', icon: '📎', label: '첨부 파일 추가' }, { key: 'weblink', icon: '🌐', label: '웹 링크 추가' }],
+          ]} />}
         </div>
       </div>
       <div className="issue-meta-row">
@@ -405,17 +441,17 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
             </div>
           </section>
 
-          <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>첨부 파일 ({d.attachments.length})</h3></div>
+          <input type="file" multiple ref={fileRef} hidden onChange={(e) => uploadPicked(e.target.files)} />
+          <section className="issue-section" ref={secRef.attach}>{secHead(`첨부 파일 (${d.attachments.length})`, () => openAdd('attach'))}
             <ul className="att-list">{d.attachments.map((a) => (
               <li key={a.id}><a href={`/api/attachment/${a.id}`} target="_blank" rel="noreferrer">{a.filename}</a>
                 <span className="dim">{fileSize(a.file_size)} · {dt(a.created_at)}</span></li>))}
             </ul>
-            <div className="cform"><input type="file" ref={fileRef} /> <button onClick={upload}>업로드</button></div>
           </section>
 
-          {d.subtasks.length > 0 && (
-            <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>하위 작업 ({d.subtasks.length})</h3></div>
-              <div className="subpanel">
+          {(!d.subtask || d.subtasks.length > 0) && (
+            <section className="issue-section" ref={secRef.subtask}>{secHead(`${isEpic ? '하위 업무 항목' : '하위 작업'}${d.subtasks.length ? ` (${d.subtasks.length})` : ''}`, d.subtask ? null : () => openAdd('subtask'))}
+              {d.subtasks.length > 0 && <div className="subpanel">
                 <div className="phead"><div className="pbar"><div style={{ width: `${pct}%` }} /></div><span className="dim">{pct}% 완료</span></div>
                 <table>
                   <thead><tr><th>업무</th><th>타입</th><th>우선 순위</th><th>담당자</th><th>상태</th></tr></thead>
@@ -434,10 +470,24 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                     </tr>))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
+              {adding === 'subtask' && <SubtaskInline issue={d} types={childTypes} onCreated={() => { load(); onChanged?.(); }} onCancel={() => setAdding(null)} />}
             </section>)}
 
-          {d.links.length > 0 && <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>연결된 업무 항목 ({d.links.length})</h3></div><ul className="link-list">{d.links.map(linkRow)}</ul></section>}
+          {(d.links.length > 0 || adding === 'link') && (
+            <section className="issue-section" ref={secRef.link}>{secHead(`연결된 업무 항목${d.links.length ? ` (${d.links.length})` : ''}`, () => openAdd('link'))}
+              <ul className="link-list">{d.links.map(linkRow)}</ul>
+              {adding === 'link' && <LinkInline issueKey={issueKey} onDone={() => { setAdding(null); load(); onChanged?.(); }} onCancel={() => setAdding(null)} />}
+            </section>)}
+          {((d.weblinks ?? []).length > 0 || adding === 'weblink') && (
+            <section className="issue-section" ref={secRef.weblink}>{secHead(`웹 링크${d.weblinks?.length ? ` (${d.weblinks.length})` : ''}`, () => openAdd('weblink'))}
+              <ul className="link-list">{(d.weblinks ?? []).map((w) => (
+                <li key={w.id}>🌐 <a href={w.url} target="_blank" rel="noreferrer noopener">{w.title || w.url}</a>
+                  {w.title && <span className="dim"> {(() => { try { return new URL(w.url).hostname; } catch { return ''; } })()}</span>}
+                  {canEdit && <button type="button" className="row-x" title="웹 링크 삭제" onClick={() => confirm('이 웹 링크를 지울까요?') && removeWebLink(w)}>✕</button>}
+                </li>))}</ul>
+              {adding === 'weblink' && <WebLinkInline issueKey={issueKey} onDone={() => { setAdding(null); load(); }} onCancel={() => setAdding(null)} />}
+            </section>)}
 
           <section className="issue-section"><div className="section-head"><span className="collapse"><IconChevronDown size={16} /></span><h3>활동</h3></div>
             <div className="acttabs">
