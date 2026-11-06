@@ -7,6 +7,7 @@ import { NotifyRulesBody } from './notify-ui.jsx';
 import { AiGuideBody } from './ai-ui.jsx';
 import { RequestsTab } from './Admin.jsx';
 import { ProfileBody } from './profile-ui.jsx';
+import { SpaceAvatar, validateSpaceIcon, uploadSpaceIcon, deleteSpaceIcon } from './space-icon.jsx';
 
 export const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 export const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
@@ -374,13 +375,14 @@ export function SpacePackageBody({ spaceKey, spaceRole, canCreate, onImported })
 }
 
 // 설정 허브: 톱니 메뉴의 '설정…'에서 열리는 팝업 — 좌측 탭 + 우측 내용
-export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, onMeChanged }) {
+export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, onMeChanged, onSpaceIconChanged }) {
   const tabs = [
     ['profile', '프로필', true],
     ['keys', '내 API 키', true],
     ['pkg', '패키지 (내보내기/가져오기)', true],
     ['migrate', '원본 Confluence에서 가져오기', true],
     ['notify', '스페이스 알림', !!spaceKey && spaceRole === 'admin'],
+    ['icon', '스페이스 이미지', !!spaceKey && spaceRole === 'admin'],
     ['inbox', '접근 요청 승인함', !!me.is_admin],
     ['aiguide', 'AI 도움말 지침', !!me.is_admin],
   ].filter((t) => t[2]);
@@ -402,10 +404,11 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, on
           <button className="hub-close" onClick={() => onClose()}>닫기</button>
         </aside>
         <section className="hub-main">
-          <h2>{TITLE[tab]}{(tab === 'pkg' || tab === 'notify') && spaceKey ? ` — ${spaceKey}` : ''}</h2>
+          <h2>{TITLE[tab]}{(tab === 'pkg' || tab === 'notify' || tab === 'icon') && spaceKey ? ` — ${spaceKey}` : ''}</h2>
           {tab === 'aiguide' && <AiGuideBody />}
           {tab === 'profile' && <ProfileBody me={me} onChanged={onMeChanged} />}
           {tab === 'notify' && <NotifyRulesBody key={spaceKey} resourceKey={spaceKey} resourceLabel="스페이스" />}
+          {tab === 'icon' && <SpaceIconBody key={spaceKey} spaceKey={spaceKey} onChanged={onSpaceIconChanged} />}
           {tab === 'keys' && <ApiKeysBody />}
           {tab === 'pkg' && <SpacePackageBody spaceKey={spaceKey} spaceRole={spaceRole}
             canCreate={!!me.can_create}
@@ -418,6 +421,58 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, on
   );
 }
 
+// 스페이스 이미지 설정 — 설정 › 스페이스 이미지 (스페이스 관리자만). 올리면 즉시 반영, 지우면 기존 표시로 돌아간다.
+export function SpaceIconBody({ spaceKey, onChanged }) {
+  const [sp, setSp] = useState(null);
+  const [err, setErr] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api(`/api/spaces/${spaceKey}`)
+    .then((s) => { setSp(s); setErr(null); })
+    .catch((e) => setErr(e.message));
+  useEffect(() => { load(); }, [spaceKey]);
+
+  const pick = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 같은 파일을 다시 고를 수 있게
+    if (!file) return;
+    const problem = validateSpaceIcon(file);
+    if (problem) { setErr(problem); return; }
+    setBusy(true); setErr(null);
+    try {
+      await uploadSpaceIcon(spaceKey, file);
+      await load();
+      onChanged?.();
+    } catch (e2) { setErr(e2.message); } finally { setBusy(false); }
+  };
+
+  const clear = async () => {
+    if (!confirm('스페이스 이미지를 지울까요? 지우면 기존 색상 상자와 첫 글자로 표시됩니다.')) return;
+    setBusy(true); setErr(null);
+    try {
+      await deleteSpaceIcon(spaceKey);
+      await load();
+      onChanged?.();
+    } catch (e2) { setErr(e2.message); } finally { setBusy(false); }
+  };
+
+  if (!sp) return <p className="muted">{err ?? '불러오는 중…'}</p>;
+  return (
+    <div className="hub-pane">
+      <p className="muted">스페이스 목록·사이드바에 표시되는 대표 아이콘입니다. PNG·JPG·WebP, 1MB 이하 파일을
+        정사각형으로 보여 줍니다. 올리지 않으면 기존처럼 이름 첫 글자와 색상으로 표시합니다.</p>
+      <div className="space-icon-edit">
+        <SpaceAvatar space={sp} className="space-icon-large" />
+        <div className="space-icon-edit-body">
+          <input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={pick} />
+          {sp.icon_key && <button type="button" className="btn btn-xs" disabled={busy} onClick={clear}>이미지 지우기</button>}
+        </div>
+      </div>
+      {err && <p className="form-error">{err}</p>}
+      {busy && <p className="muted">저장 중…</p>}
+    </div>
+  );
+}
+
 // 스페이스 만들기: 일반(생성 권한 필요, 이름·키·설명·접근 범위) / 개인(1개, 비공개)
 // 생성자는 그 스페이스의 관리자가 된다. 접근 범위를 비워 두면 비공개(생성자와 사이트 관리자만).
 export function CreateSpaceDialog({ me, onClose, onCreated }) {
@@ -426,7 +481,30 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
   const [key, setKey] = useState('');
   const [description, setDescription] = useState('');
   const [rows, setRows] = useState([]); // 접근 범위 {type, id, role, name}
+  const [iconFile, setIconFile] = useState(null);
+  const [iconPreview, setIconPreview] = useState(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!iconFile) { setIconPreview(null); return undefined; }
+    const url = URL.createObjectURL(iconFile);
+    setIconPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [iconFile]);
+
+  const pickIcon = (e) => {
+    const file = e.target.files?.[0] ?? null;
+    if (file) {
+      const problem = validateSpaceIcon(file);
+      if (problem) {
+        alert(problem);
+        e.target.value = '';
+        setIconFile(null);
+        return;
+      }
+    }
+    setIconFile(file);
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -436,6 +514,13 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
         ? { type: 'personal', name, description }
         : { name, key, description, rows: rows.map((r) => ({ principalType: r.type, principalId: r.id, role: r.role })) };
       const sp = await api('/api/spaces', { method: 'POST', json: body });
+      if (iconFile) {
+        try {
+          await uploadSpaceIcon(sp.key, iconFile);
+        } catch (iconErr) {
+          alert(`스페이스는 만들었지만 이미지를 등록하지 못했습니다.\n설정 › 스페이스 이미지에서 다시 올릴 수 있습니다.\n(${iconErr.message})`);
+        }
+      }
       onCreated(sp);
     } catch (err) { alert(err.message); } finally { setBusy(false); }
   };
@@ -466,6 +551,19 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
             <textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={10000}
               placeholder="이 스페이스에서 다루는 내용 (선택)" />
           </label>
+          <div className="space-icon-field">
+            <span className="space-icon-label">스페이스 이미지 <span className="muted">(선택)</span></span>
+            <div className="space-icon-pick">
+              {iconPreview && <img className="space-icon-preview" src={iconPreview} alt="" />}
+              <div className="space-icon-pick-body">
+                <input key={iconFile ? 'picked' : 'empty'} type="file" accept="image/png,image/jpeg,image/webp"
+                  disabled={busy} onChange={pickIcon} />
+                <span className="muted">PNG·JPG·WebP, 1MB 이하 · 정사각형으로 표시됩니다.
+                  올리지 않으면 이름 첫 글자로 표시합니다.</span>
+                {iconFile && <button type="button" className="btn btn-xs" onClick={() => setIconFile(null)}>선택 해제</button>}
+              </div>
+            </div>
+          </div>
           {type === 'global' ? (
             <div className="space-scope">
               <div className="space-scope-title">접근 범위</div>

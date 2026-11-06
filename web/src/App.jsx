@@ -1,7 +1,7 @@
 import { useMobile, isMobile } from './mobile.js';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from './api.js';
-import GonfShell, { spaceColor } from './GonfShell.jsx';
+import GonfShell, { spaceColor, SpaceAvatar } from './GonfShell.jsx';
 import PageView from './PageView.jsx';
 import MoveDialog from './MoveDialog.jsx';
 import Editor from './Editor.jsx';
@@ -350,7 +350,7 @@ function Home({ navigate, me }) {
               {spaces.map((s) => (
                 <li key={s.id}>
                   <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)} title={s.description || undefined}>
-                    <span className="space-ic" style={{ background: spaceColor(s.key) }}>{s.name.trim()[0]}</span>
+                    <SpaceAvatar space={s} className="space-ic" />
                     <span className="space-nm"><strong>{s.name}</strong><span className="muted">{s.key} · {s.type}</span></span>
                   </a>
                 </li>))}
