@@ -1071,3 +1071,16 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .doc .mermaid-image { margin: 12px 0; text-align: center; }
 .doc .mermaid-image img { max-width: 100%; height: auto; }
 .doc .mermaid-image figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+.doc .mermaid-view { margin: 12px 0; min-width: 0; max-width: 100%; }
+.doc .mermaid-output { overflow-x: auto; padding: 8px; text-align: center; }
+.doc .mermaid-output svg { max-width: none !important; height: auto; }
+.doc .mermaid-output img { max-width: 100%; height: auto; }
+.doc .mermaid-view[data-size="small"] .mermaid-output svg { width: 480px; }
+.doc .mermaid-view[data-size="medium"] .mermaid-output svg { width: 720px; }
+.doc .mermaid-view[data-size="large"] .mermaid-output svg { width: 960px; }
+.doc .mermaid-view details { margin-top: 8px; }
+.doc .mermaid-view summary { cursor: pointer; color: var(--muted); }
+.doc .mermaid-view button { margin-top: 6px; }
+.doc .mermaid-status, .doc .mermaid-caption { color: var(--muted); font-size: 13px; }
+.mermaid-scratch { position: absolute; left: -100000px; top: 0; width: 1000px; visibility: hidden; }

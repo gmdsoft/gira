@@ -1,3 +1,4 @@
+import { mountMermaid } from './mermaid-view.js';
 import { TaskItem } from './task-item.js';
 import { datePresentation } from './date-presentation.js';
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
@@ -436,13 +437,28 @@ const LayoutColumn = Node.create({
 //  image: 원본 Confluence가 미리 그린 PNG(data URI) — 코드가 없으면 이 그림을 그대로 보여 준다
 const Mermaid = Node.create({
   name: 'mermaid', group: 'block', content: 'text*', marks: '', code: true,
+  addNodeView() {
+    return ({ node, editor }) => {
+      if (editor.isEditable) {
+        const dom = document.createElement('pre'); dom.className = 'mermaid-src';
+        const contentDOM = document.createElement('code'); dom.append(contentDOM);
+        return { dom, contentDOM };
+      }
+      const dom = document.createElement('div');
+      // 부모가 DOM에 붙은 뒤 펼치기 조상을 찾는다.
+      let cleanup;
+      const timer = setTimeout(() => { cleanup = mountMermaid(dom, node.textContent, node.attrs); }, 0);
+      return { dom, stopEvent: () => true, ignoreMutation: () => true,
+        destroy() { clearTimeout(timer); cleanup?.(); } };
+    };
+  },
   addAttributes: () => ({
     image: { default: null, rendered: false },
     size: { default: null, rendered: false },
     caption: { default: null, rendered: false },
   }),
   renderHTML: ({ node }) => {
-    const attrs = { class: 'mermaid-src', ...(node.attrs.size ? { 'data-size': node.attrs.size } : {}) };
+    const attrs = { class: 'mermaid-src', ...(node.attrs.image ? { 'data-mermaid-image': node.attrs.image } : {}), ...(node.attrs.caption ? { 'data-mermaid-caption': node.attrs.caption } : {}), ...(node.attrs.size ? { 'data-size': node.attrs.size } : {}) };
     // 코드 없이 그림만 있는 원본(B형): 그림을 보여 준다 (원문 base64를 글자로 보여 주지 않는다)
     if (!node.textContent && node.attrs.image) {
       return ['figure', { class: 'mermaid-image' }, ['img', { src: node.attrs.image, alt: node.attrs.caption || 'Mermaid 다이어그램' }],
