@@ -184,6 +184,8 @@ export function convertStorage(xhtml) {
           wrap: truthy(params.wrap),
           lineNumbers: params.linenumbers == null ? true : truthy(params.linenumbers),
           collapsed: truthy(params.collapse),
+          title: params.title?.trim() || null,
+          firstLine: Number(params.firstline) > 1 ? Math.floor(Number(params.firstline)) : 1,
         }, ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
       }
       case 'info': case 'note': case 'tip': case 'success': case 'warning': case 'error': case 'panel':

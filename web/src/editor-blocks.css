@@ -200,3 +200,9 @@
 .doc .code-block .code-gutter > span { display: block; }
 .doc .code-block .code-body[hidden],
 .doc .code-block .code-gutter[hidden] { display: none; }
+
+/* 코드 블록 제목·시작 줄 입력 (도구 모음) */
+.block-toolbar .bt-input { height: 26px; padding: 0 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--text); font: inherit; font-size: 12.5px; }
+/* 코드 블록 제목 줄 (보기: 눌러 접기·펼치기, 편집: 표시만) */
+.doc .code-block-head.has-title { font-weight: 600; font-size: 13.5px; color: var(--text); padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.doc .code-block-head:disabled { cursor: default; background: none; }
