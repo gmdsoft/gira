@@ -4,6 +4,7 @@
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
+import { HighlightedCodeBlock } from './code-block.js';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
 import TableCellExt from '@tiptap/extension-table-cell';
@@ -849,10 +850,10 @@ const custom = [
 ];
 
 // 읽기 전용 렌더링·render-check 용 (undo 히스토리 불필요)
-export const extensions = [StarterKit.configure({ history: false }), ...custom];
+export const extensions = [StarterKit.configure({ history: false, codeBlock: false }), HighlightedCodeBlock, ...custom];
 
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
-  StarterKit, ...custom,
+  StarterKit.configure({ codeBlock: false }), HighlightedCodeBlock, ...custom,
   ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize,
 ];

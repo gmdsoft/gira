@@ -826,3 +826,16 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .home-in-shell { margin-top: 24px; }
 .home-in-shell .home-title { font-size: 24px; margin: 0; }
 .home-in-shell .home-hello { margin: 4px 0 8px; }
+
+/* 보기·편집·직렬화 HTML에 같은 구문 색상을 사용한다. */
+.doc { --syntax-comment: #596773; --syntax-keyword: #8538a8; --syntax-string: #21652c; --syntax-number: #095f9b; --syntax-attr: #914b13; }
+:root[data-theme="dark"] .doc { --syntax-comment: #a6b0bb; --syntax-keyword: #d5a6ff; --syntax-string: #a0d99b; --syntax-number: #89caff; --syntax-attr: #f2bd83; }
+.doc .hljs-comment { color: var(--syntax-comment); }
+.doc .hljs-keyword, .doc .hljs-literal { color: var(--syntax-keyword); }
+.doc .hljs-string { color: var(--syntax-string); }
+.doc .hljs-number { color: var(--syntax-number); }
+.doc .hljs-attr, .doc .hljs-variable { color: var(--syntax-attr); }
+.doc .code-block { margin: 1em 0; background: var(--code-bg); border-radius: 6px; }
+.doc .code-block > select { margin: 8px 14px 0; padding: 3px 6px; color: inherit; background: var(--code-bg); border: 1px solid var(--syntax-comment); border-radius: 4px; font: inherit; font-size: 12px; }
+.doc .code-block > select:disabled { opacity: 1; }
+.doc .code-block > pre { margin-top: 4px; }
