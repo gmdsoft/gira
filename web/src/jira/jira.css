@@ -185,6 +185,8 @@ a:hover { text-decoration: underline; }
 .srecent { display: flex; flex-direction: column; }
 .srecent-item { padding-left: 8px; }
 .snav-bottom { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line-soft); border-bottom: 0; }
+/* 연달아 오는 묶음(Gonfluence → 개발용 메뉴)은 위쪽 메뉴처럼 촘촘하게 */
+.snav-bottom + .snav-bottom { margin-top: 0; padding-top: 8px; }
 a.sitem { color: var(--text); text-decoration: none; }
 a.sitem:hover { text-decoration: none; }
 .sext { color: var(--subtle); font-size: 12px; }
