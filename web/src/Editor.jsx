@@ -8,6 +8,7 @@ import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
 import { useEditPresence, EditingWarning } from './edit-presence.jsx';
 import { TableMenus } from './table-ui.jsx';
+import BlockTools from './block-toolbar.jsx';
 
 async function send(path, method, body) {
   const res = await fetch(path, {
@@ -299,6 +300,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         <EditorContent editor={editor} className="doc" />
         {editor && <TableMenus editor={editor} />}
       </div>
+      {editor && <BlockTools editor={editor} />}
     </div>
   );
 }
@@ -501,13 +503,8 @@ function Toolbar({ editor, onImage }) {
       <B title="정보 패널" onClick={() => insertPanel('info')}>ℹ 패널</B>
       <B title="펼치기" onClick={insertExpand}>▸ 펼치기</B>
       <B title="구분선" onClick={() => chain().setHorizontalRule().run()}>—</B>
-      <B title="링크 (Ctrl+K)" active={editor.isActive('link')} onClick={() => {
-        const prev = editor.getAttributes('link').href ?? '';
-        const url = window.prompt('링크 URL', prev);
-        if (url === null) return;
-        if (!url) chain().extendMarkRange('link').unsetMark('link').run();
-        else chain().extendMarkRange('link').setMark('link', { href: url }).run();
-      }}>🔗</B>
+      <B title="링크 (Ctrl+K)" active={editor.isActive('link')}
+        onClick={() => window.dispatchEvent(new CustomEvent('gonf:link-dialog'))}>🔗</B>
       <span className="tb-sep" />
       <B title="실행 취소" onClick={() => chain().undo().run()}>↶</B>
       <B title="다시 실행" onClick={() => chain().redo().run()}>↷</B>

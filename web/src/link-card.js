@@ -8,6 +8,7 @@ export function hydrateLinkCard(el) {
   const controller = new AbortController();
   const href = el.getAttribute('href') || '';
   const kind = el.dataset.kind;
+  if (kind === 'url') return () => {}; // 외부 웹 링크 카드는 서버에서 다시 조회하지 않는다
   const key = kind === 'issue' ? issueKeyOf(href) : null;
   const id = kind !== 'issue' ? pageIdOf(href) : null;
   const url = key ? `/api/gira/issues/${encodeURIComponent(key)}` : id ? `/api/content/${encodeURIComponent(id)}` : null;

@@ -81,6 +81,17 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         rendered: false,
         parseHTML: (element) => element.getAttribute('data-collapsed') === 'true',
       },
+      // 긴 줄을 접어서 보여줄지, 줄 번호를 붙일지 (플로팅 도구 모음에서 바꾼다)
+      wrap: {
+        default: false,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute('data-wrap') === 'true',
+      },
+      lineNumbers: {
+        default: true,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute('data-line-numbers') !== 'false',
+      },
     };
   },
   renderHTML({ node }) {
@@ -92,7 +103,12 @@ export const HighlightedCodeBlock = CodeBlock.extend({
       offset = token.to;
     }
     if (offset < text.length) parts.push(text.slice(offset));
-    return ['pre', node.attrs.collapsed ? { 'data-collapsed': 'true' } : {},
+    const preAttrs = {};
+    if (node.attrs.collapsed) preAttrs['data-collapsed'] = 'true';
+    if (node.attrs.wrap) preAttrs['data-wrap'] = 'true';
+    preAttrs['data-line-numbers'] = String(node.attrs.lineNumbers);
+    if (node.attrs.wrap) preAttrs.class = 'code-wrap';
+    return ['pre', preAttrs,
       ['code', node.attrs.language ? { class: `language-${node.attrs.language}` } : {}, ...parts]];
   },
   addProseMirrorPlugins() {
@@ -111,30 +127,9 @@ export const HighlightedCodeBlock = CodeBlock.extend({
     })];
   },
   addNodeView() {
-    return ({ node, editor, getPos }) => {
+    return ({ node, editor }) => {
       const dom = document.createElement('div');
       dom.className = 'code-block';
-      const setAttr = (name, value) => {
-        const pos = getPos();
-        if (typeof pos === 'number') editor.view.dispatch(editor.state.tr.setNodeAttribute(pos, name, value));
-      };
-
-      // 편집: 언어 선택 + '보기에서 접어 두기'
-      const bar = document.createElement('div');
-      bar.className = 'code-block-bar';
-      bar.contentEditable = 'false';
-      const select = document.createElement('select');
-      select.setAttribute('aria-label', '코드 블록 언어');
-      select.add(new Option('자동 감지', ''));
-      for (const [value, label] of codeLanguages) select.add(new Option(label, value));
-      select.addEventListener('change', () => setAttr('language', select.value || null));
-      const foldLabel = document.createElement('label');
-      foldLabel.className = 'code-block-fold-opt';
-      const fold = document.createElement('input');
-      fold.type = 'checkbox';
-      fold.addEventListener('change', () => setAttr('collapsed', fold.checked));
-      foldLabel.append(fold, ' 보기에서 접어 두기');
-      bar.append(select, foldLabel);
 
       // 보기: 머리줄을 눌러 접기·펼치기 (저장하지 않는 화면 상태)
       const head = document.createElement('button');
@@ -142,8 +137,15 @@ export const HighlightedCodeBlock = CodeBlock.extend({
       head.className = 'code-block-head';
       head.contentEditable = 'false';
       let open = !node.attrs.collapsed;
+      const body = document.createElement('div');
+      body.className = 'code-body';
+      const gutter = document.createElement('div');
+      gutter.className = 'code-gutter';
+      gutter.contentEditable = 'false';
+      gutter.hidden = true;
       const pre = document.createElement('pre');
       const code = pre.appendChild(document.createElement('code'));
+      body.append(gutter, pre);
       const labelOf = (n) => {
         const lang = n.attrs.language || '';
         const name = codeLanguages.find(([v]) => v === lang)?.[1] || lang || '코드';
@@ -151,27 +153,38 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         return `${name} · ${lines}줄`;
       };
       const paint = (n) => {
-        const editing = editor.isEditable;
-        bar.hidden = !editing;
-        head.hidden = editing;
-        const shown = editing || open;
+        head.hidden = editor.isEditable;
+        const shown = editor.isEditable || open;
         pre.hidden = !shown;
+        gutter.hidden = !shown || !n.attrs.lineNumbers;
+        body.hidden = !shown;
         dom.classList.toggle('is-collapsed', !shown);
+        dom.classList.toggle('has-line-numbers', !!n.attrs.lineNumbers);
+        pre.classList.toggle('code-wrap', !!n.attrs.wrap);
         head.textContent = `${shown ? '▾' : '▸'} ${labelOf(n)}`;
         head.setAttribute('aria-expanded', String(shown));
+      };
+      // 줄 번호 거터 — 코드 내용이 바뀌면 줄 수만큼 다시 만든다
+      const paintGutter = (n) => {
+        if (!n.attrs.lineNumbers) { gutter.replaceChildren(); return; }
+        const count = Math.max(1, n.textContent ? n.textContent.split('\n').length : 1);
+        if (gutter.childElementCount === count) return;
+        gutter.replaceChildren(...Array.from({ length: count }, (_, i) => {
+          const line = document.createElement('span');
+          line.textContent = String(i + 1);
+          return line;
+        }));
       };
       head.addEventListener('click', () => { open = !open; paint(node); });
 
       const sync = (n) => {
         const language = n.attrs.language || '';
-        if (![...select.options].some((o) => o.value === language)) select.add(new Option(language, language));
-        select.value = language;
-        fold.checked = !!n.attrs.collapsed;
         code.className = language ? `language-${language}` : '';
+        paintGutter(n);
         paint(n);
       };
       sync(node);
-      dom.append(bar, head, pre);
+      dom.append(head, body);
       return {
         dom, contentDOM: code,
         update(n) {
@@ -179,7 +192,7 @@ export const HighlightedCodeBlock = CodeBlock.extend({
           if (n.attrs.collapsed !== node.attrs.collapsed) open = !n.attrs.collapsed;
           node = n; sync(n); return true;
         },
-        stopEvent: (event) => bar.contains(event.target) || head.contains(event.target),
+        stopEvent: (event) => head.contains(event.target),
         ignoreMutation: (mutation) => mutation.type !== 'selection' && !code.contains(mutation.target),
       };
     };
