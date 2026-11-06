@@ -1,3 +1,5 @@
+import { TaskItem } from './task-item.js';
+import { datePresentation } from './date-presentation.js';
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
@@ -265,28 +267,9 @@ const TaskList = Node.create({
   name: 'taskList',
   group: 'block list',
   content: 'taskItem+',
+  parseHTML: () => [{ tag: 'ul.task-list', priority: 1100 }],
   renderHTML: () => ['ul', { class: 'task-list' }, 0],
 });
-const TaskItem = Node.create({
-  name: 'taskItem',
-  content: 'block*',
-  addKeyboardShortcuts() {
-    return { Enter: () => this.editor.commands.splitListItem('taskItem') };
-  },
-  addAttributes: () => ({ checked: { default: false } }),
-  renderHTML: ({ node }) => ['li', { class: 'task-item', 'data-checked': String(node.attrs.checked) },
-    ['span', { class: 'task-check' }, node.attrs.checked ? '☑' : '☐'],
-    ['div', { class: 'task-body' }, 0]],
-  // Confluence처럼 "[]"+공백 입력 → 작업 항목 (editor-spec.md)
-  addInputRules() {
-    return [wrappingInputRule({
-      find: /^\s*\[([ xX]?)\]\s$/,
-      type: this.type,
-      getAttributes: (m) => ({ checked: /x/i.test(m[1] ?? '') }),
-    })];
-  },
-});
-
 // ---------- 블록 ----------
 
 const Panel = Node.create({
@@ -585,8 +568,8 @@ const DateNode = Node.create({
   name: 'date', ...inlineAtom,
   addNodeView: () => inlineElementView('date'),
   addAttributes: () => ({ date: { default: '' } }),
-  parseHTML: () => [{ tag: 'span.date-lozenge', getAttrs: (el) => ({ date: el.textContent || '' }) }],
-  renderHTML: ({ node }) => ['span', { class: 'date-lozenge' }, node.attrs.date],
+  parseHTML: () => [{ tag: 'span.date-lozenge', getAttrs: (el) => ({ date: el.dataset.date || el.textContent || '' }) }],
+  renderHTML: ({ node }) => ['span', datePresentation(node.attrs.date), node.attrs.date],
 });
 
 const Status = Node.create({
