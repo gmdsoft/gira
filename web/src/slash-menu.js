@@ -9,6 +9,9 @@ export function makeSlashItems({ openImageDialog }) {
     { label: '제목 1', kw: 'h1 heading', run: (e, r) => del(e, r).setHeading({ level: 1 }).run() },
     { label: '제목 2', kw: 'h2 heading', run: (e, r) => del(e, r).setHeading({ level: 2 }).run() },
     { label: '제목 3', kw: 'h3 heading', run: (e, r) => del(e, r).setHeading({ level: 3 }).run() },
+    { label: '목차', kw: 'toc table of contents', run: (e, r) => del(e, r).insertContent({
+      type: 'cfMacro', attrs: { name: 'toc', params: {} },
+    }).run() },
     { label: '글머리 목록', kw: 'ul bullet list', run: (e, r) => del(e, r).toggleBulletList().run() },
     { label: '번호 목록', kw: 'ol ordered list', run: (e, r) => del(e, r).toggleOrderedList().run() },
     { label: '작업 항목', kw: 'task todo checkbox', run: (e, r) => del(e, r).insertContent({
