@@ -104,13 +104,17 @@
 .doc .code-block .code-body { display: flex; align-items: stretch; }
 .doc .code-block .code-body > pre { flex: 1; min-width: 0; margin: 0; }
 .doc .code-block .code-gutter {
+  /* Confluence: 줄 번호 칸은 같은 반투명 회색이 한 겹 더 깔려 조금 진하다, 번호는 오른쪽 정렬 */
   flex: none;
-  padding: 12px 8px 12px 12px;
+  min-width: 34px;
+  box-sizing: border-box;
+  padding: 8px 8px 8px 6px;
   text-align: right;
-  color: var(--syntax-comment);
-  font-family: "Courier New", Courier, "Liberation Mono", "Nimbus Mono PS", monospace;
+  background: var(--code-block-bg);
+  color: var(--code-gutter);
+  font-family: var(--code-font);
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 24px;
   user-select: none;
   overflow: hidden;
 }
