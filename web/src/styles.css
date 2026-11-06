@@ -486,6 +486,15 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .macro-include > .doc { padding: 10px 14px; }
 .macro-details { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0.8em 0; }
 .macro-excerpt { margin: 0.4em 0; }
+/* GIRA-53: 검색 매크로 */
+.macro-search { display: flex; gap: 6px; margin: 0.6em 0; max-width: 420px; position: relative; flex-wrap: wrap; }
+.macro-search input { flex: 1; min-width: 160px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; }
+.macro-search button { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); cursor: pointer; }
+.macro-livesearch.large { max-width: 640px; }
+.macro-livesearch.large input { padding: 10px 12px; font-size: 1.05em; }
+.macro-livesearch-results { flex-basis: 100%; list-style: none; margin: 0; padding: 4px 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.macro-livesearch-results li { padding: 4px 10px; }
+.macro-livesearch-excerpt { font-size: 12px; }
 /* GIRA-48: 내보내기 앱 표시(쪽 나눔 등)는 보기에서 숨기고, 편집기에서는 점선 한 줄로만 */
 .cf-macro-hidden { display: none; }
 .ProseMirror[contenteditable="true"] div.cf-macro-hidden { display: block; height: 0; border-top: 1px dashed var(--border); margin: 10px 0; position: relative; }

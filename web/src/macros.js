@@ -228,7 +228,70 @@ const HANDLERS = {
     if (params.diagramWidth) img.style.maxWidth = `${params.diagramWidth}px`;
     swap(el, img);
   },
+  // 페이지 트리 검색 (개인 스페이스 기본 홈 'Navigate space'): 입력 + 검색 → 이 스페이스 범위 검색 화면 (GIRA-53)
+  pagetreesearch(el, params, ctx) {
+    const space = macroSpaceKey(params) ?? ctx.page.spaceKey;
+    const form = document.createElement('form');
+    form.className = 'macro-search macro-search-tree';
+    form.innerHTML = '<input type="search" aria-label="스페이스 검색"><button type="submit">검색</button>';
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = form.querySelector('input').value.trim();
+      if (q) ctx.navigate(`/search?q=${encodeURIComponent(q)}${space ? `&space=${encodeURIComponent(space)}` : ''}`);
+    });
+    swap(el, form);
+  },
+  // 실시간 검색: 입력하면 결과(제목·발췌)를 아래에 펼친다. spaceKey가 있으면 그 스페이스만 (GIRA-53)
+  livesearch(el, params, ctx) {
+    const space = macroSpaceKey(params);
+    const box = document.createElement('div');
+    box.className = `macro-search macro-livesearch${params.size === 'large' ? ' large' : ''}`;
+    box.innerHTML = '<input type="search" aria-label="실시간 검색"><ul class="macro-livesearch-results" hidden></ul>';
+    const input = box.querySelector('input');
+    const list = box.querySelector('ul');
+    input.placeholder = typeof params.placeholder === 'string' && params.placeholder ? params.placeholder : '검색';
+    const withExcerpt = /excerpt/.test(String(params.additional ?? ''));
+    let timer = null, seq = 0;
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const q = input.value.trim();
+        const my = ++seq;
+        if (!q) { list.hidden = true; list.replaceChildren(); return; }
+        let res;
+        try { res = await api(`/api/search?q=${encodeURIComponent(q)}${space ? `&space=${encodeURIComponent(space)}` : ''}`); } catch { return; }
+        if (my !== seq) return; // 늦게 온 이전 응답 무시
+        const items = (res.hits ?? []).slice(0, 10).map((h) => {
+          const li = document.createElement('li');
+          li.append(navLink(ctx, h.spaceKey, h.id, h.title));
+          if (withExcerpt && h.excerpts?.[0]) {
+            const p = document.createElement('div');
+            p.className = 'muted macro-livesearch-excerpt';
+            p.innerHTML = highlightOnly(h.excerpts[0]);
+            li.append(p);
+          }
+          return li;
+        });
+        if (!items.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = '결과가 없습니다'; items.push(li); }
+        list.replaceChildren(...items);
+        list.hidden = false;
+      }, 250);
+    });
+    swap(el, box);
+  },
 };
+
+// 매크로 파라미터의 스페이스 키 (ri:space 참조 또는 문자열)
+function macroSpaceKey(params) {
+  const v = params.spaceKey ?? params.spaces;
+  if (v && typeof v === 'object') return v['ri:space-key'] || null;
+  return typeof v === 'string' && v.trim() && !/^@/.test(v.trim()) ? v.trim() : null;
+}
+// 검색 발췌 강조: <em>만 살리고 나머지는 글자로
+function highlightOnly(html) {
+  const esc = String(html).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return esc.replace(/&lt;em&gt;/g, '<em>').replace(/&lt;\/em&gt;/g, '</em>');
+}
 
 async function includePage(el, params, ctx, excerptOnly) {
   const ref = params[''] ?? params.page ?? {};
