@@ -75,6 +75,12 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         parseHTML: (element) => (element.querySelector('code')?.getAttribute('class') || '')
           .split(/\s+/).find((name) => name.startsWith('language-'))?.slice(9) || null,
       },
+      // 보기 화면에서 처음에 접힌 채로 보일지 (편집기에서 정한다)
+      collapsed: {
+        default: false,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute('data-collapsed') === 'true',
+      },
     };
   },
   renderHTML({ node }) {
@@ -86,7 +92,8 @@ export const HighlightedCodeBlock = CodeBlock.extend({
       offset = token.to;
     }
     if (offset < text.length) parts.push(text.slice(offset));
-    return ['pre', {}, ['code', node.attrs.language ? { class: `language-${node.attrs.language}` } : {}, ...parts]];
+    return ['pre', node.attrs.collapsed ? { 'data-collapsed': 'true' } : {},
+      ['code', node.attrs.language ? { class: `language-${node.attrs.language}` } : {}, ...parts]];
   },
   addProseMirrorPlugins() {
     return [...(this.parent?.() || []), new Plugin({
@@ -107,32 +114,72 @@ export const HighlightedCodeBlock = CodeBlock.extend({
     return ({ node, editor, getPos }) => {
       const dom = document.createElement('div');
       dom.className = 'code-block';
+      const setAttr = (name, value) => {
+        const pos = getPos();
+        if (typeof pos === 'number') editor.view.dispatch(editor.state.tr.setNodeAttribute(pos, name, value));
+      };
+
+      // 편집: 언어 선택 + '보기에서 접어 두기'
+      const bar = document.createElement('div');
+      bar.className = 'code-block-bar';
+      bar.contentEditable = 'false';
       const select = document.createElement('select');
-      select.contentEditable = 'false';
       select.setAttribute('aria-label', '코드 블록 언어');
       select.add(new Option('자동 감지', ''));
       for (const [value, label] of codeLanguages) select.add(new Option(label, value));
+      select.addEventListener('change', () => setAttr('language', select.value || null));
+      const foldLabel = document.createElement('label');
+      foldLabel.className = 'code-block-fold-opt';
+      const fold = document.createElement('input');
+      fold.type = 'checkbox';
+      fold.addEventListener('change', () => setAttr('collapsed', fold.checked));
+      foldLabel.append(fold, ' 보기에서 접어 두기');
+      bar.append(select, foldLabel);
+
+      // 보기: 머리줄을 눌러 접기·펼치기 (저장하지 않는 화면 상태)
+      const head = document.createElement('button');
+      head.type = 'button';
+      head.className = 'code-block-head';
+      head.contentEditable = 'false';
+      let open = !node.attrs.collapsed;
       const pre = document.createElement('pre');
       const code = pre.appendChild(document.createElement('code'));
+      const labelOf = (n) => {
+        const lang = n.attrs.language || '';
+        const name = codeLanguages.find(([v]) => v === lang)?.[1] || lang || '코드';
+        const lines = n.textContent ? n.textContent.split('\n').length : 0;
+        return `${name} · ${lines}줄`;
+      };
+      const paint = (n) => {
+        const editing = editor.isEditable;
+        bar.hidden = !editing;
+        head.hidden = editing;
+        const shown = editing || open;
+        pre.hidden = !shown;
+        dom.classList.toggle('is-collapsed', !shown);
+        head.textContent = `${shown ? '▾' : '▸'} ${labelOf(n)}`;
+        head.setAttribute('aria-expanded', String(shown));
+      };
+      head.addEventListener('click', () => { open = !open; paint(node); });
+
       const sync = (n) => {
         const language = n.attrs.language || '';
         if (![...select.options].some((o) => o.value === language)) select.add(new Option(language, language));
         select.value = language;
-        // 언어 선택은 편집할 때만 보인다 (보기 화면에서는 숨김)
-        select.hidden = !editor.isEditable;
-        select.disabled = !editor.isEditable;
+        fold.checked = !!n.attrs.collapsed;
         code.className = language ? `language-${language}` : '';
+        paint(n);
       };
       sync(node);
-      select.addEventListener('change', () => {
-        const pos = getPos();
-        if (typeof pos === 'number') editor.view.dispatch(editor.state.tr.setNodeAttribute(pos, 'language', select.value || null));
-      });
-      dom.append(select, pre);
+      dom.append(bar, head, pre);
       return {
         dom, contentDOM: code,
-        update(n) { if (n.type !== node.type) return false; node = n; sync(n); return true; },
-        stopEvent: (event) => select.contains(event.target),
+        update(n) {
+          if (n.type !== node.type) return false;
+          if (n.attrs.collapsed !== node.attrs.collapsed) open = !n.attrs.collapsed;
+          node = n; sync(n); return true;
+        },
+        stopEvent: (event) => bar.contains(event.target) || head.contains(event.target),
         ignoreMutation: (mutation) => mutation.type !== 'selection' && !code.contains(mutation.target),
       };
     };
