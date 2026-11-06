@@ -3,6 +3,7 @@
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
 import { inlineElementView } from './inline-element-view.js';
 import { decisionBlock } from './slash-menu.js';
+import { openBlockMenu, closeBlockMenu, copyBlockLink } from './block-handle-menu.js';
 import { hydrateIssueCard } from './issue-card.js';
 import { hydrateLinkCard } from './link-card.js';
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule, InputRule } from '@tiptap/core';
@@ -843,8 +844,21 @@ export const BlockBackspace = Extension.create({
 // 중첩된 경우(펼치기 안 패널 등)엔 포인터 아래의 가장 안쪽 "블록"을 겨냥한다.
 export const BlockHandle = Extension.create({
   name: 'blockHandle',
+  // 선택 항목 링크 복사 (Confluence Ctrl+Alt+A): 커서가 있는 최상위 블록
+  addKeyboardShortcuts() {
+    return {
+      'Mod-Alt-a': () => {
+        const { $from } = this.editor.state.selection;
+        const node = this.editor.state.selection.node ?? ($from.depth >= 1 ? $from.node(1) : null);
+        if (!node) return false;
+        copyBlockLink(node);
+        return true;
+      },
+    };
+  },
   addProseMirrorPlugins() {
     const key = new PluginKey('blockHandle');
+    const editor = this.editor;
     let handle = null;
     let hoverPos = null;
     let hoverRect = null; // 지금 핸들이 붙은 블록의 화면 위치
@@ -861,20 +875,55 @@ export const BlockHandle = Extension.create({
     return [new Plugin({
       key,
       view(editorView) {
+        // 블록 왼쪽: '+'(바로 아래에 요소 넣기 — '/' 메뉴) + '⠿'(누르면 블록 메뉴, 끌면 이동) — GIRA-41
         handle = document.createElement('div');
         handle.className = 'block-handle';
         handle.setAttribute('contenteditable', 'false');
-        handle.title = '블록 선택 (삭제: Delete, 복사: Ctrl+C)';
-        handle.textContent = '⣿';
         handle.style.display = 'none';
+        const plus = document.createElement('button');
+        plus.type = 'button'; plus.className = 'bh-plus'; plus.textContent = '+';
+        plus.title = '삽입 (아래에 요소 넣기)'; plus.setAttribute('aria-label', '삽입');
+        const grip = document.createElement('button');
+        grip.type = 'button'; grip.className = 'bh-grip'; grip.textContent = '⠿'; grip.draggable = true;
+        grip.title = '드래그하여 이동합니다 / 메뉴를 열려면 클릭하세요'; grip.setAttribute('aria-label', '블록 메뉴');
+        handle.append(plus, grip);
         document.body.appendChild(handle);
-        handle.addEventListener('mousedown', (e) => {
-          e.preventDefault();
+        plus.addEventListener('mousedown', (e) => e.preventDefault());
+        plus.addEventListener('click', () => {
           if (hoverPos == null) return;
-          const sel = NodeSelection.create(editorView.state.doc, hoverPos);
-          editorView.dispatch(editorView.state.tr.setSelection(sel).scrollIntoView());
+          const node = editorView.state.doc.nodeAt(hoverPos);
+          if (!node) return;
+          const end = hoverPos + node.nodeSize;
+          const tr = editorView.state.tr.insert(end, editorView.state.schema.nodes.paragraph.create());
+          tr.setSelection(TextSelection.create(tr.doc, end + 1));
+          editorView.dispatch(tr.scrollIntoView());
           editorView.focus();
+          editor.commands.insertContent('/'); // 슬래시 메뉴가 열린다
+          hide();
         });
+        grip.addEventListener('click', (e) => {
+          if (hoverPos == null) return;
+          const pos = hoverPos;
+          const sel = NodeSelection.create(editorView.state.doc, pos);
+          editorView.dispatch(editorView.state.tr.setSelection(sel));
+          editorView.focus();
+          openBlockMenu(editor, pos, grip.getBoundingClientRect());
+          e.stopPropagation();
+        });
+        // 끌어서 이동: ProseMirror 기본 드래그(move)로 넘긴다 — 놓는 자리에 표시선(dropcursor)
+        grip.addEventListener('dragstart', (e) => {
+          if (hoverPos == null) { e.preventDefault(); return; }
+          closeBlockMenu();
+          const sel = NodeSelection.create(editorView.state.doc, hoverPos);
+          editorView.dispatch(editorView.state.tr.setSelection(sel));
+          const slice = sel.content();
+          editorView.dragging = { slice, move: true };
+          e.dataTransfer.effectAllowed = 'copyMove';
+          e.dataTransfer.setData('text/html', '');
+          const dom = editorView.nodeDOM(hoverPos);
+          if (dom?.nodeType === 1) e.dataTransfer.setDragImage(dom, 0, 0);
+        });
+        grip.addEventListener('dragend', () => hide());
         // 핸들로 마우스를 옮기는 도중 사라지지 않도록: 에디터 위이거나 핸들 근처면 유지.
         const onDocMove = (e) => {
           if (!handle || handle.style.display === 'none') return;
@@ -908,7 +957,7 @@ export const BlockHandle = Extension.create({
             hoverRect = rect;
             handle.style.display = 'flex';
             handle.style.top = `${rect.top + 2}px`;
-            handle.style.left = `${rect.left - 22}px`;
+            handle.style.left = `${rect.left - 46}px`;
             return false;
           },
         },
