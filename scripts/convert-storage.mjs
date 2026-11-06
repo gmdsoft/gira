@@ -161,8 +161,13 @@ export function convertStorage(xhtml) {
       case 'code': case 'noformat': {
         // ProseMirror는 빈 텍스트 노드를 허용하지 않는다 — 빈 코드 블록은 content 생략
         const code = (plainBody(n) ?? '').replace(/\r\n/g, '\n');
-        return { type: 'codeBlock', attrs: { language: params.language ?? null },
-          ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
+        const truthy = (v) => v === true || v === 'true';
+        return { type: 'codeBlock', attrs: {
+          language: params.language ?? null,
+          wrap: truthy(params.wrap),
+          lineNumbers: truthy(params.linenumbers),
+          collapsed: truthy(params.collapse),
+        }, ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
       }
       case 'info': case 'note': case 'tip': case 'warning': case 'panel':
         return { type: 'panel', attrs: {

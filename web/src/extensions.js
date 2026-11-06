@@ -591,7 +591,7 @@ const LinkCard = Node.create({
     const safe = /^(https?:\/\/|\/(?!\/))/i.test(href);
     return ['a', { class: 'link-card', 'data-link-card': '', 'data-kind': kind,
       href: safe ? href : '#', target: '_blank', rel: 'noopener noreferrer' },
-      ['span', { class: 'link-card-kind' }, kind === 'issue' ? 'Gira' : 'Gonfluence'],
+      ['span', { class: 'link-card-kind' }, kind === 'issue' ? 'Gira' : kind === 'url' ? '웹' : 'Gonfluence'],
       ['strong', {}, title || href],
       ...(status ? [['span', { class: 'link-card-status' }, status]] : []),
     ];
@@ -607,7 +607,7 @@ const LinkCard = Node.create({
       a.href = /^(https?:\/\/|\/(?!\/))/i.test(href) ? href : '#';
       a.target = '_blank'; a.rel = 'noopener noreferrer';
       const k = a.appendChild(document.createElement('span'));
-      k.className = 'link-card-kind'; k.textContent = kind === 'issue' ? 'Gira' : 'Gonfluence';
+      k.className = 'link-card-kind'; k.textContent = kind === 'issue' ? 'Gira' : kind === 'url' ? '웹' : 'Gonfluence';
       a.appendChild(document.createElement('strong')).textContent = title || href;
       if (status) { const s = a.appendChild(document.createElement('span')); s.className = 'link-card-status'; s.textContent = status; }
       return { dom: a, destroy: hydrateLinkCard(a) };
