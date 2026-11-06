@@ -272,6 +272,7 @@ details.expand[open] { border: 1px solid var(--border); border-radius: 8px; padd
 .tb-text { font-size: 13px; }
 /* 툴바 항목은 줄어들지 않게 — 줄어들면 '텍스트 스타일' 상자가 비어 보이고 넘침 계산도 틀어진다 */
 .toolbar > * { flex-shrink: 0; }
+.toolbar > .tb-hint { flex-shrink: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .tb:hover { background: var(--hover); }
 .tb-active { background: var(--sel); border-color: var(--sel-line); color: var(--accent); }
 .tb-select { border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; font-size: 13px; background: var(--panel); }
