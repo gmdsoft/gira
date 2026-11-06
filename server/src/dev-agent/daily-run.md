@@ -21,7 +21,7 @@ CLAUDE.md의 작업 규칙(브랜치, 데이터 원칙, 테스트 데이터 정�
 
 - 내용이 부족해 무엇을 바꿀지 정할 수 없으면 처리하지 않는다. 필요한 정보를 댓글로 묻고
   `--label +needs-info`를 단다.
-- `docs/alpha-spec.md`(개발 명세서) 범위를 넘는 작업인데 `needs-approval`이 없으면 처리하지 않는다.
+- 개발 명세서(최신본: `server/data/alpha-spec.md` — 시작할 때 받아 둔 Gonfluence 원본 사본) 범위를 넘는 작업인데 `needs-approval`이 없으면 처리하지 않는다.
   이유를 댓글로 남기고 `--label +needs-approval`을 단다.
 - 같은 내용이 이미 구현돼 있으면(중복) 근거를 댓글로 남기고 처리하지 않는다. 완료 처리는 사람이 한다.
 
@@ -50,7 +50,8 @@ git worktree add -b feature/<key> ../gira-work/<KEY> origin/master   # 이미 �
 - 원본 Jira/Confluence는 GET만, Atlassian 코드·에셋 복사 금지, 비밀 값은 `.env`에만.
 - 검증: 바꾼 서버 파일 `node --check`, 해당 화면 빌드(`npm --workspace web run build` / `build:jira` / `build:admin`),
   문서 변환 관련이면 `npm --workspace web run check`. 테스트는 전용 테스트 데이터로 하고 끝나면 지운다.
-- `spec-update` 레이블이 있으면 `docs/alpha-spec.md`의 해당 부분도 고친다.
+- `spec-update` 레이블이 있으면 브랜치에서 `docs/alpha-spec.md`의 해당 부분도 고친다(먼저 `node scripts/spec-sync.mjs --pull`로
+  최신화). Gonfluence 원본에는 게시하지 않는다 — 머지 후 사람이 `--push`로 게시한다.
 - 커밋: 한국어, 첫 줄에 이슈 키 (`GIRA-n: ...`). 기능 단위로.
 
 ## 6. 올리기

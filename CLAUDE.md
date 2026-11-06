@@ -25,6 +25,10 @@
   처리 절차는 `server/src/dev-agent/daily-run.md` (하루 한 번 확인·처리할 때와 직접 요청받았을 때 공통).
   매일 04:17 KST 시스템 cron이 `scripts/dev-daily-run.sh`(claude -p 헤드리스, 로그 logs/dev-daily/)로 실행 —
   무인 로그인은 `.env`의 `CLAUDE_CODE_OAUTH_TOKEN`(`claude setup-token`으로 발급).
+- **개발 명세서 원본은 Gonfluence** (GIRA 스페이스 › 개발문서 › Gira·Gonfluence 알파 명세서, page 1000000000009). 명세 업데이트는 거기서 한다.
+  `node scripts/spec-sync.mjs --pull`(원본 → `docs/alpha-spec.md` 사본 + `server/data/alpha-spec.md` 캐시) → 사본 수정 → `--push`(새 버전 게시,
+  사본 기준 버전이 원본과 다르면 거부). 챗봇·일일 처리는 캐시를 읽고, 일일 처리 시작 때 `--cache`로 갱신한다.
+  예전 Claude Doc(claude.ai/artifact/RhWSzPu8SU2nTfhEJqHLDY)은 더 이상 갱신하지 않는다.
 - `web/dist` 재빌드 후에는 API 서버도 재시작해야 정적 라우트가 갱신된다.
 - Jira PoC 웹(React SPA)은 `npm --workspace web run build:jira`(→ web/dist-jira-app, 3002 서버 재시작 불필요).
   개발 모드는 `npm --workspace web run dev:jira` (5174 포트, /api는 3002로 프록시).

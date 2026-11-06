@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import Tree from './Tree.jsx';
 import { GonfSettingsHub, CreateSpaceDialog } from './access.jsx';
-import { openDevChat, SPEC_URL, REPO_URL } from './dev-feedback-ui.jsx';
+import { openDevChat, SPEC_PAGE_ID, REPO_URL } from './dev-feedback-ui.jsx';
 import {
   IconGrid, IconSearch, IconPlus, IconSettings, IconHome, IconStar, IconRocket,
   IconChevronDown, IconChevronRight, IconSpace,
@@ -232,8 +232,9 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
             <div className="gs-nav gs-bottom">
               <div className="gs-item" onClick={openDevChat} title="개발참여 챗봇 — 새 탭에서 열림 (신규 기능·수정·버그 제안)">
                 <span className="gs-glyph">💡</span><span className="gs-trunc">거 참 답답하네</span></div>
-              <a className="gs-item" href={SPEC_URL} target="_blank" rel="noreferrer" title="개발 명세서 열기">
-                <span className="gs-glyph">📘</span><span className="gs-trunc">개발 명세서</span><span className="gs-ext">↗</span></a>
+              <a className={`gs-item${String(route.pageId) === SPEC_PAGE_ID ? ' on' : ''}`} href={`/s/GIRA/p/${SPEC_PAGE_ID}`}
+                onClick={go(`/s/GIRA/p/${SPEC_PAGE_ID}`)} title="개발 명세서 (GIRA › 개발문서)">
+                <span className="gs-glyph">📘</span><span className="gs-trunc">개발 명세서</span></a>
               <a className="gs-item" href={REPO_URL} target="_blank" rel="noreferrer" title="소스 저장소(GitHub) 열기">
                 <span className="gs-glyph">📦</span><span className="gs-trunc">저장소</span><span className="gs-ext">↗</span></a>
             </div>
