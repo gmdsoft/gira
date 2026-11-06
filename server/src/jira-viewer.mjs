@@ -1,4 +1,5 @@
 import { adfPageLink } from './adf-page-links.mjs';
+import { canReadCollection, gadgetParams } from './jira-collections.mjs';
 import { remoteLinkView } from './jira-remote-links.mjs';
 import { scheduleFields, parseDuration } from './jira-schedule.mjs';
 import { rankBetween, RANK_COLUMN } from './jira-rank.mjs';
@@ -258,6 +259,8 @@ const ISSUE_SORT_COLS = {
   resolution: 'i.resolution',
   created: 'i.created_at',
   updated: 'i.updated_at',
+  resolved: 'i.resolved_at',
+  due: 'i.due_date',
 };
 
 const STATS_JOINS = `
@@ -283,6 +286,17 @@ async function jqlCustomFields() {
   return rows;
 }
 
+// JQL 'filter = 이름|id' 용 저장 필터 조회 — 볼 수 있는 원본 이관 필터만 (GIRA-67)
+async function jqlFilterLookup(req) {
+  const access = await collectionAccess(req);
+  const { rows } = await query(`SELECT source_id::text AS sid, name, jql, owner_id, share FROM jira_filters WHERE jql IS NOT NULL`);
+  const ok = rows.filter((r) => canReadCollection(r, access));
+  return (ref) => {
+    const v = String(ref);
+    return (ok.find((r) => r.sid === v) ?? ok.find((r) => r.name.toLowerCase() === v.toLowerCase()))?.jql ?? null;
+  };
+}
+
 app.get('/api/stats', async (req, reply) => {
   reply.header('Cache-Control', 'private, no-store');
   try {
@@ -291,8 +305,8 @@ app.get('/api/stats', async (req, reply) => {
     const p = v => { params.push(v); return `$${params.length}`; };
     const roles = await projectRoles(req.access);
     const scope = `i.project_id = ANY(${p([...roles.keys()])}::bigint[])`;
-    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields() }).where : 'TRUE';
-    const { rows } = await query(`SELECT i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
+    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields(), filterJql: /\bfilter\b/i.test(jql) ? await jqlFilterLookup(req) : null }).where : 'TRUE';
+    const { rows } = await query(`SELECT i.issue_key, i.summary, i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
       pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
       ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
     const projects = (await query('SELECT key FROM jira_projects')).rows.map(r => r.key.toUpperCase());
@@ -318,7 +332,7 @@ app.get('/api/issues', async (req, reply) => {
   for (const one of [].concat(req.query.jql ?? [])) {
     if (!String(one).trim()) continue;
     try {
-      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields() });
+      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields(), filterJql: /\bfilter\b/i.test(one) ? await jqlFilterLookup(req) : null });
       cond.push(r.where);
       if (r.order) jqlOrder = r.order;
     } catch (e) {
@@ -958,14 +972,14 @@ function validColumns(columns) {
 
 // 보드 필터(JQL) 유효성: 문법만 검사 (파라미터는 버린다)
 function jqlErrorOf(jql) {
-  try { parseJql(jql, { p: () => '$1', userId: 0 }); return null; }
+  try { parseJql(jql, { p: () => '$1', userId: 0, filterJql: () => 'ORDER BY key' }); return null; } // 저장 필터 참조는 실행 때 확인
   catch (e) { return e instanceof JqlError ? `JQL 오류: ${e.message}` : (() => { throw e; })(); }
 }
 
 app.get('/api/boards', async (req, reply) => {
   if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
-    `SELECT b.id, b.name, b.columns, b.type, b.jql, b.sub_jql FROM jira_boards b
+    `SELECT b.id, b.name, b.columns, b.type, b.jql, b.sub_jql, b.estimation, COALESCE((SELECT jsonb_agg(q ORDER BY q.position) FROM jira_board_quickfilters q WHERE q.board_id=b.id), '[]') AS quickfilters FROM jira_boards b
        JOIN jira_projects p ON p.id = b.project_id
       WHERE p.key = $1 ORDER BY b.id`, [req.query.project]);
   return rows;
@@ -1016,10 +1030,45 @@ app.delete('/api/boards/:id', async (req, reply) => {
 
 // ---------- 저장 필터 ----------
 
+async function collectionAccess(req) {
+  const groups = (await query(`SELECT g.name FROM groups g JOIN user_groups ug ON ug.group_id=g.id WHERE ug.user_id=$1`, [req.access.userId])).rows.map(g=>g.name);
+  const roles = await projectRoles(req.access);
+  const projects = (await query('SELECT id,key FROM jira_projects WHERE id=ANY($1::bigint[])', [[...roles.keys()]])).rows;
+  return { userId: req.access.userId, groups, projects };
+}
 app.get('/api/filters', async (req) => {
-  const { rows } = await query(
-    `SELECT id, name, params FROM jira_filters WHERE owner_id = $1 ORDER BY name`, [req.access.userId]);
-  return rows;
+  const access = await collectionAccess(req);
+  const { rows } = await query(`SELECT f.*, EXISTS(SELECT 1 FROM jira_filter_favourites v WHERE v.filter_id=f.id AND v.user_id=$1) AS favourite FROM jira_filters f ORDER BY name`, [req.access.userId]);
+  return rows.filter(r=>canReadCollection(r,access)).map(r=>({...r,mine:String(r.owner_id)===String(req.access.userId)}));
+});
+app.put('/api/filters/:id/favourite', async (req, reply) => {
+  const row = (await query('SELECT * FROM jira_filters WHERE id=$1',[req.params.id])).rows[0];
+  if (!row || !canReadCollection(row,await collectionAccess(req))) return reply.code(404).send({error:'not found'});
+  if (req.body?.favourite) await query('INSERT INTO jira_filter_favourites(filter_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[row.id,req.access.userId]);
+  else await query('DELETE FROM jira_filter_favourites WHERE filter_id=$1 AND user_id=$2',[row.id,req.access.userId]);
+  return {ok:true};
+});
+app.get('/api/dashboards', async (req) => {
+  const access = await collectionAccess(req);
+  return (await query('SELECT id,name,owner_id,share FROM jira_dashboards ORDER BY name')).rows.filter(r=>canReadCollection(r,access));
+});
+app.get('/api/dashboards/:id', async (req, reply) => {
+  const access = await collectionAccess(req);
+  const row = (await query('SELECT * FROM jira_dashboards WHERE id=$1',[req.params.id])).rows[0];
+  if (!row || !canReadCollection(row,access)) return reply.code(404).send({error:'not found'});
+  const gadgets = [];
+  for (const g of row.gadgets) {
+    const params = gadgetParams(g);
+    let error = g.configurationError ?? null;
+    if (params?.filter && !/^\d+$/.test(params.filter)) error = '가젯 필터 설정을 해석할 수 없습니다';
+    else if (params?.filter) {
+      const filter = (await query('SELECT * FROM jira_filters WHERE source_id=$1',[params.filter])).rows[0];
+      if (!filter || !canReadCollection(filter,access)) error = '필터를 조회할 권한이 없거나 이관되지 않았습니다';
+      else params.jql = filter.jql;
+    } else if (params && !params.jql) error = '가젯 필터 설정이 없습니다';
+    gadgets.push({...g,params,error});
+  }
+  return {...row,gadgets};
 });
 
 app.post('/api/filters', async (req, reply) => {

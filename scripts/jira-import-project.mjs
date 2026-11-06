@@ -10,6 +10,7 @@ import { jiraGet } from './lib/jira-source-get.mjs';
 import { syncRemoteLinks } from './lib/jira-remote-links.mjs';
 import { syncWorklogs } from './lib/jira-worklogs.mjs';
 import { fillMediaIds } from './lib/jira-media.mjs';
+import { syncNameAliases } from './lib/jira-name-aliases.mjs';
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
 
@@ -107,6 +108,7 @@ for (const t of project.issueTypes ?? []) {
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, subtask = EXCLUDED.subtask`,
     [t.id, t.name, !!t.subtask, t.description ?? null]);
 }
+await syncNameAliases(get, query); // GIRA-67: 원본 필터 JQL의 번역 전 상태·유형 이름
 await query(`ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS schema_custom text`);
 await query(`ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '[]'`);
 async function pages(path) {

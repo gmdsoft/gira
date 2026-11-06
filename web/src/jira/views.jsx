@@ -21,6 +21,7 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
       if (filters.xjql) u.append('jql', filters.xjql); // 기본 모드로 못 옮긴 잔여 JQL — AND 결합
     }
     // 아바타 빠른 필터: 기본/JQL 모드와 무관하게 '이 프로젝트에서 이 사람이 담당' 으로 AND 적용
+    for (const jql of filters.quickJql ?? []) u.append('jql', jql);
     if (filters.who) u.set('who', filters.who);
     if (filters.scope === 'all') u.delete('project');
     u.delete('scope');
@@ -35,7 +36,7 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
     api('/api/issues?' + qs(0, pageSize || 1000)).then((d) => {
       if (seq.current !== my) return;
       setData(d); setLoading(false);
-    });
+    }).catch(() => { if (seq.current === my) {setData({total:0,rows:[]});setLoading(false);} });
   }, [project, JSON.stringify(filters), bump, sort, JSON.stringify(extraJql)]);
   const fetchMore = () => {
     if (!pageSize || loading || data.rows.length >= data.total) return;
@@ -571,7 +572,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
                           <div className="bcell-head"><span>{c.name}</span><span className="bcell-n">{lane.buckets[i].length}</span></div>
                           <div className="cards">
                             {lane.buckets[i].map((r) => (
-                              <BoardCard key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen} project={project} meta={meta} onChanged={onChanged}
+                              <BoardCard estimation={board?.estimation} key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen} project={project} meta={meta} onChanged={onChanged}
                                 onDrop={(e) => { e.preventDefault(); e.stopPropagation(); drop(lane, i, r.issue_key, e.clientY > e.currentTarget.getBoundingClientRect().top + e.currentTarget.offsetHeight / 2); }}
                                 onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => { setDragKey(null); setOver(null); }} />
                             ))}
@@ -635,7 +636,7 @@ function SprintBar({ sprint, rows, onComplete }) {
 }
 
 // 보드 카드: 제목 / 에픽·버전·레이블 칩 / 타입·키 + 우선순위·담당자
-function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, onDrop, project, meta, onChanged }) {
+function BoardCard({ estimation, r, dragging, onOpen, onDragStart, onDragEnd, onDrop, project, meta, onChanged }) {
   return (
     <div className={`card${dragging ? ' dragging' : ''}`} draggable={!isMobile()} onDrop={onDrop} onDragOver={(e) => e.preventDefault()} onDragStart={onDragStart} onDragEnd={onDragEnd}
       onClick={() => onOpen(r.issue_key)}>
@@ -653,7 +654,7 @@ function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, onDrop, projec
           <TypeIcon name={r.type_name} size={16} />
           <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`}>{r.issue_key}</span>
         </span>
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><span title="스토리 포인트">{r.storyPoints ?? ''}</span><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><span title={estimation?.field?.displayName ?? "스토리 포인트"}>{estimation?.type === 'issueCount' ? '' : estimation?.field?.fieldId ? (r.customFields?.find(f=>f.id===estimation.field.fieldId)?.display ?? '') : (r.storyPoints ?? '')}</span><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
       </div>
     </div>
   );

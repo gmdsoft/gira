@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS jira_statuses (
   name text NOT NULL,
   category text NOT NULL CHECK (category IN ('new','indeterminate','done'))
 );
+-- 원본 Jira의 번역 전 이름(untranslatedName, 예: 'In Progress') — 원본 필터 JQL이 이 이름을 쓴다
+ALTER TABLE jira_statuses ADD COLUMN IF NOT EXISTS alias text;
 
 CREATE TABLE IF NOT EXISTS jira_issue_types (
   id bigint PRIMARY KEY,
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS jira_issue_types (
   subtask boolean NOT NULL DEFAULT false,
   description text
 );
+ALTER TABLE jira_issue_types ADD COLUMN IF NOT EXISTS alias text; -- 번역 전 이름(예: 'Bug')
 
 -- 필드 사전: UI에서 customfield_* 를 사람이 읽을 이름으로 표시하기 위한 매핑
 CREATE TABLE IF NOT EXISTS jira_fields (
@@ -259,3 +262,24 @@ CREATE SEQUENCE IF NOT EXISTS jira_worklog_id_seq START 1000000000000;
 ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS due_date date;
 UPDATE jira_issues SET due_date = (fields_raw->>'duedate')::date
  WHERE due_date IS NULL AND fields_raw->>'duedate' ~ '^\d{4}-\d{2}-\d{2}';
+
+-- GIRA-67 원본 보드·필터·대시보드
+ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS estimation jsonb;
+CREATE TABLE IF NOT EXISTS jira_board_quickfilters (
+ id bigserial PRIMARY KEY, board_id bigint NOT NULL REFERENCES jira_boards(id) ON DELETE CASCADE,
+ source_id bigint UNIQUE NOT NULL, name text NOT NULL, jql text NOT NULL,
+ description text, position int NOT NULL DEFAULT 0
+);
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS source_id bigint UNIQUE;
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS jql text;
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS share jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS favourite_count int NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS jira_filter_favourites (
+ filter_id bigint REFERENCES jira_filters(id) ON DELETE CASCADE,
+ user_id bigint REFERENCES users(id), PRIMARY KEY(filter_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS jira_dashboards (
+ id bigserial PRIMARY KEY, source_id bigint UNIQUE NOT NULL, name text NOT NULL,
+ owner_id bigint REFERENCES users(id), share jsonb NOT NULL DEFAULT '[]', gadgets jsonb NOT NULL DEFAULT '[]'
+);
+ALTER TABLE jira_filters ALTER COLUMN owner_id DROP NOT NULL;
