@@ -7,9 +7,10 @@ import { api } from './api.js';
 import Tree from './Tree.jsx';
 import { GonfSettingsHub, CreateSpaceDialog } from './access.jsx';
 import { openDevChat, SPEC_PAGE_ID, REPO_URL } from './dev-feedback-ui.jsx';
+import { NotifyBell } from './notify-ui.jsx';
 import {
   IconGrid, IconSearch, IconPlus, IconSettings, IconHome, IconStar, IconRocket,
-  IconChevronDown, IconChevronRight, IconSpace,
+  IconChevronDown, IconChevronRight, IconSpace, IconBell,
 } from './jira/icons.jsx';
 
 const SPACE_COLORS = ['#0052cc', '#00875a', '#ff8b00', '#de350b', '#5243aa', '#00a3bf', '#403294', '#e56910'];
@@ -152,6 +153,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
             onClick={() => onCreatePage?.()}><IconPlus size={16} /> 만들기</button>
         </div>
         <div className="gtb-right">
+          <NotifyBell Icon={IconBell} onOpen={(p) => navigate(p)} />
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme}
             spaceKey={space?.key} spaceRole={space?.role} />
           <span className="gtb-sep" />

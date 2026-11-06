@@ -7,6 +7,7 @@ import { LoginGate, NewIssueModal } from './modals.jsx';
 import { DevChatPage, openDevChat } from '../dev-feedback-ui.jsx';
 import { AccessGate, SettingsHub, NewProjectModal } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
+import { NotifyBell } from '../notify-ui.jsx';
 import HomeView from './Home.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -402,7 +403,10 @@ export default function JiraApp() {
           <button className="primary createbtn" onClick={() => setShowNew(true)}><IconPlus size={16} /> 만들기</button>
         </div>
         <div className="tb-right">
-          <button className="iconbtn bell" title="알림 (아직 지원하지 않음)"><IconBell size={18} /><span className="bell-dot" /></button>
+          <NotifyBell Icon={IconBell} className="iconbtn" onOpen={(p) => {
+            const m = /^\/browse\/([^/?#]+)/.exec(p);
+            if (m) openIssue(decodeURIComponent(m[1])); else location.assign(p);
+          }} />
           <button className="iconbtn" title="도움말 (아직 지원하지 않음)"><IconHelp size={18} /></button>
           <span className="settings-wrap">
             <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={20} /></button>
