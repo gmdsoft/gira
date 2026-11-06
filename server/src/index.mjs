@@ -24,6 +24,7 @@ import { bodyDoc } from './markdown-doc.mjs';
 import { registerGiraCards } from './gira-cards.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
 import { registerAiAssist } from './ai-assist.mjs';
+import { linkifyDoc } from './linkify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -754,6 +755,7 @@ app.post('/api/content/:id/comments', async (req, reply) => {
       content: t.split(/\n+/).map((line) => ({ type: 'paragraph', content: [{ type: 'text', text: line }] })),
     };
   }
+  body = linkifyDoc(body); // 댓글 속 주소는 링크로 (입력창·인라인 댓글 모두)
   const k = kind === 'inline' ? 'inline' : 'footer';
   if (k === 'inline' && !inlineRef?.trim()) return reply.code(400).send({ error: 'inline 댓글은 inlineRef(선택한 텍스트)가 필요합니다' });
   const userId = req.access.userId;

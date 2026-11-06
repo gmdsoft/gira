@@ -3,6 +3,7 @@ import CommentComposer from './comment-composer.jsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { generateHTML } from '@tiptap/html';
+import { linkifyDoc } from '../../server/src/linkify.mjs'; // 댓글 속 주소 → 링크 (서버와 같은 규칙)
 import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
 import { hydrateMacros } from './macros.js';
@@ -436,7 +437,7 @@ function Doc({ page, navigate }) {
 function Comment({ comment, pageId }) {
   const html = useMemo(() => {
     if (!comment.doc) return '';
-    try { return generateHTML(hydrateDoc(structuredClone(comment.doc), pageId), extensions); }
+    try { return generateHTML(hydrateDoc(linkifyDoc(structuredClone(comment.doc)), pageId), extensions); }
     catch { return '<em>(렌더링 불가)</em>'; }
   }, [comment, pageId]);
   return (

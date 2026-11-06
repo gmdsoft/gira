@@ -6,6 +6,7 @@
 //        # 처리 기록 (Gira DB만 갱신 — 댓글 작성자는 GIRA 에이전트 계정)
 // 처리는 scripts/dev-dispatcher.mjs --run --issue <KEY> 로 맡기거나 세션에서 직접 한다.
 import path from 'node:path';
+import { textToAdf } from '../server/src/linkify.mjs'; // 주소는 링크로
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { configureDb, query, closeDb, DATA_DIR } from '../server/src/db.mjs';
@@ -33,10 +34,6 @@ const { values: opt, positionals } = parseArgs({
   options: { status: { type: 'string' }, comment: { type: 'string' }, label: { type: 'string' } },
 });
 const key = positionals[0]?.toUpperCase();
-const textToAdf = (text) => ({
-  type: 'doc', version: 1,
-  content: String(text).split('\n').map((line) => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] })),
-});
 
 // 처리 기록: 상태 변경·댓글·레이블 (변경 이력도 남긴다)
 async function record(issueKey) {
