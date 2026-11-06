@@ -1,5 +1,6 @@
 // 로그인 세션 (개발용 — Entra ID OIDC 도입 전).
-// 사용자 목록에서 선택해 로그인하면 서명된 쿠키로 세션을 유지한다.
+// 허용된 계정의 이메일 주소를 입력해 로그인하면 서명된 쿠키로 세션을 유지한다.
+// 계정 목록은 어디에도 노출하지 않는다 (예전 /api/auth/users 자동완성 제거).
 // Entra 연동 시 이 모듈의 login 라우트만 OIDC 콜백으로 교체하면 된다 (users 테이블은 동일).
 import fastifyCookie from '@fastify/cookie';
 import { createHash, randomBytes } from 'node:crypto';
@@ -11,6 +12,7 @@ import { getAccess } from './perm.mjs';
 const COOKIE = 'gmd_sid';
 // 개발 로그인 화면에 노출할 테스트 계정 (이관된 실제 사용자는 목록에서 숨긴다)
 const TEST_ACCOUNT_ID = 'test-login';
+const TEST_ACCOUNT_EMAIL = 'test@gira.local';
 
 export const hashToken = (token) => createHash('sha256').update(token).digest();
 
@@ -47,6 +49,10 @@ export async function registerAuth(app) {
     `INSERT INTO users (confluence_account_id, display_name, active, is_admin, dev_login)
      VALUES ($1, '테스트', true, true, true)
      ON CONFLICT (confluence_account_id) DO NOTHING`, [TEST_ACCOUNT_ID]);
+  // 이메일 로그인용 주소 (없을 때만)
+  await query(
+    `UPDATE users SET email = $2 WHERE confluence_account_id = $1 AND email IS NULL
+        AND NOT EXISTS (SELECT 1 FROM users WHERE email = $2)`, [TEST_ACCOUNT_ID, TEST_ACCOUNT_EMAIL]);
   // 부트스트랩: 관리자와 테스트 계정은 항상 로그인 허용 (그 외는 관리자가 조직 관리에서 지정)
   await query(
     `UPDATE users SET dev_login = true
@@ -84,37 +90,18 @@ export async function registerAuth(app) {
                 WHERE ug.user_id = u.id AND g.dev_login)
   )`;
 
-  // 로그인 화면용: 허용된 계정 목록 — 이름 입력 자동완성에 쓴다
-  app.get('/api/auth/users', async () => {
-    const { rows } = await query(
-      `SELECT u.id, u.display_name, u.email FROM users u
-        WHERE u.active AND u.display_name IS NOT NULL AND ${DEV_LOGIN_OK}
-        ORDER BY (u.confluence_account_id = $1) DESC, u.display_name`, [TEST_ACCOUNT_ID]);
-    return rows;
-  });
-
-  // 개발용 로그인 (Entra 전): 허용된 계정만, 계정명(이름 또는 이메일) 입력으로.
-  // 기존 userId 방식도 허용 계정에 한해 유지한다.
+  // 개발용 로그인 (Entra 전): 허용된 계정만, 이메일 주소 입력으로.
+  // 없는 계정과 허용되지 않은 계정을 같은 메시지로 답해 계정 존재 여부를 드러내지 않는다.
   app.post('/api/auth/login', async (req, reply) => {
-    const name = String(req.body?.name ?? '').trim();
-    let userId = Number(req.body?.userId) || null;
-    if (!userId && !name) return reply.code(400).send({ error: '계정명을 입력하세요' });
-    if (!userId) {
-      const { rows } = await query(
-        `SELECT u.id FROM users u
-          WHERE u.active AND (u.display_name = $1 OR lower(u.email) = lower($1)) AND ${DEV_LOGIN_OK}`, [name]);
-      if (!rows.length) {
-        return reply.code(403).send({ error: '로그인이 허용되지 않았거나 없는 계정입니다 — 관리자에게 허용을 요청하세요' });
-      }
-      if (rows.length > 1) {
-        return reply.code(409).send({ error: '같은 이름이 여러 명입니다 — 이메일로 입력하세요' });
-      }
-      userId = Number(rows[0].id);
-    } else {
-      const { rows } = await query(
-        `SELECT 1 AS x FROM users u WHERE u.id = $1 AND u.active AND ${DEV_LOGIN_OK}`, [userId]);
-      if (!rows.length) return reply.code(403).send({ error: '로그인이 허용되지 않은 계정입니다' });
+    const email = String(req.body?.email ?? '').trim();
+    if (!/^[^\s@]+@[^\s@]+$/.test(email)) return reply.code(400).send({ error: '이메일 주소를 입력하세요' });
+    const { rows } = await query(
+      `SELECT u.id FROM users u
+        WHERE u.active AND lower(u.email) = lower($1) AND ${DEV_LOGIN_OK}`, [email]);
+    if (rows.length !== 1) {
+      return reply.code(403).send({ error: '로그인할 수 없는 계정입니다 — 이메일을 확인하거나 관리자에게 허용을 요청하세요' });
     }
+    const userId = Number(rows[0].id);
     const access = await getAccess(userId);
     if (!access) return reply.code(404).send({ error: 'user not found or inactive' });
     reply.setCookie(COOKIE, String(userId), {
