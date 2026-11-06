@@ -1,3 +1,4 @@
+import { datePresentation } from './date-presentation.js';
 export const STATUS_COLORS = ['neutral', 'blue', 'green', 'yellow', 'red', 'purple', 'teal', 'orange', 'pink', 'lime'];
 
 // 문서에는 기존 date/status 속성만 저장하며, 팝업 DOM은 저장하지 않는다.
@@ -7,7 +8,8 @@ export function inlineElementView(kind) {
     let popup;
     const dom = document.createElement('span');
     const draw = () => {
-      dom.className = kind === 'date' ? 'date-lozenge' : `status status-${current.attrs.color}`;
+      dom.className = kind === 'date' ? datePresentation(current.attrs.date).class : `status status-${current.attrs.color}`;
+      if (kind === 'date') dom.dataset.date = current.attrs.date;
       dom.textContent = kind === 'date' ? current.attrs.date : current.attrs.text;
       if (editor.isEditable) { dom.tabIndex = 0; dom.setAttribute('role', 'button'); dom.setAttribute('aria-label', kind === 'date' ? '날짜 변경' : '상태 변경'); }
     };

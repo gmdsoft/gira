@@ -1,3 +1,4 @@
+@import './task-item.css';
 :root {
   color-scheme: light;
   --bg: #ffffff;
@@ -175,8 +176,8 @@ body.row-resizing { cursor: row-resize; user-select: none; }
 /* 작업 항목 */
 .task-list { list-style: none; padding-left: 4px; }
 .task-item { display: flex; gap: 8px; margin: 2px 0; }
-.task-item[data-checked="true"] .task-body { color: var(--muted); text-decoration: line-through; }
-.task-check { flex: none; }
+
+.task-check { flex: none; width: 16px; height: 16px; margin: 4px 0 0; accent-color: #1868db; opacity: 1; }
 .task-body p { margin: 0; }
 
 /* 패널 — Confluence 패널과 동일한 플랫한 색면 + 아이콘 */
