@@ -92,8 +92,8 @@ const HANDLERS = {
     let templates;
     try { templates = await api(base); }
     catch { button.title = '템플릿을 조회할 수 없습니다'; return; }
-    const id = templateId(params);
-    if (!templates.some((t) => String(t.id) === id)) {
+    const id = templateId(params, new Set(templates.map((t) => String(t.id))));
+    if (!id) {
       button.title = '원본 템플릿이 이관되지 않음'; return;
     }
     button.disabled = false;

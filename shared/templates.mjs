@@ -18,10 +18,17 @@ export function blueprintTemplate(params = {}) {
   const i = [/회의록|meeting note/i, /결정|decision/i, /문제 해결|troubleshooting/i, /파일 목록|file list/i].findIndex((r) => r.test(label));
   return BUILTIN_TEMPLATES[i] ?? null;
 }
-export function templateId(params = {}) {
-  return blueprintTemplate(params)?.id ?? String(params.templateName || params.templateId || '');
+// 버튼이 가리킬 수 있는 템플릿 id 후보 — 원본은 templateName에 옛/다른 id가, templateId에 실제 id가 들어 있는 경우가 많다 (FB 주간 보고)
+export function templateCandidates(params = {}) {
+  return [blueprintTemplate(params)?.id, params.templateId, params.templateName].filter(Boolean).map(String);
+}
+export function templateId(params = {}, available = null) {
+  const c = templateCandidates(params);
+  if (available) return c.find((id) => available.has(id)) ?? null;
+  return c[0] ?? '';
 }
 export function templateTitle(rule, templateName, spaceName, date = new Date()) {
   return (typeof rule === 'string' && rule.trim() ? rule : templateName)
-    .replaceAll('@currentDate', date.toISOString().slice(0, 10)).replaceAll('@spaceName', spaceName);
+    .replaceAll('@currentDate', new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(date)) // 한국 날짜 yyyy-MM-dd
+    .replaceAll('@spaceName', spaceName);
 }

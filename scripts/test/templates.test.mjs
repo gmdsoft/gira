@@ -106,3 +106,10 @@ test('템플릿 변경은 스페이스 관리자만 가능하고 기본 템플�
     assert.equal(writes.length, 0);
   } finally { await app.close(); }
 });
+
+test('templateName이 없는 id면 templateId로 찾는다 (FB 주간 보고 버튼)', async () => {
+  const { templateId } = await import('../../shared/templates.mjs');
+  const params = { title: '@currentDate_영업', templateId: '27600076', buttonLabel: '영업 보고', templateName: '57737223' };
+  assert.equal(templateId(params, new Set(['27600076', 'meeting-notes'])), '27600076');
+  assert.equal(templateId(params, new Set(['meeting-notes'])), null);
+});
