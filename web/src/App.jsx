@@ -184,7 +184,7 @@ export default function App() {
     return <DevChatPage api={api} appName="Gonfluence" giraOrigin={`//${location.hostname}:3002`} />;
   }
 
-  // 공통 틀(상단 바 + 사이드바) — 편집기·버전 기록·관리 화면은 전체 화면으로 둔다
+  // 공통 틀(상단 바 + 사이드바) — 버전 기록·관리 화면은 전체 화면으로 둔다
   const shell = (children, extra = {}) => (
     <GonfShell me={me} route={route} space={space} navigate={navigate} reloadSpace={reloadSpace} logout={logout}
       theme={theme} setTheme={setTheme} onContentClick={onContentClick} onMeChanged={refreshMe} {...extra}>{children}</GonfShell>
@@ -198,7 +198,9 @@ export default function App() {
     return shell(<RequestAccessView spaceKey={route.spaceKey} />);
   }
   if (mobile && ['edit', 'history', 'admin', 'archive'].includes(route.view)) return shell(<div className="page"><p>이 화면은 데스크톱에서 이용하세요.</p><a href={route.pageId ? `/s/${route.spaceKey}/p/${route.pageId}` : '/'} onClick={(e) => { e.preventDefault(); navigate(route.pageId ? `/s/${route.spaceKey}/p/${route.pageId}` : '/'); }}>보기로 돌아가기</a></div>);
-  if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
+  // 편집 화면도 공통 틀 안에 (상단 바·사이드바 유지, Confluence처럼). 본문 링크 클릭 가로채기는 끈다
+  if (route.view === 'edit') return shell(<Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />,
+    { onContentClick: undefined, onCreatePage: space?.role && space.role !== 'viewer' ? createPage : null });
   if (route.view === 'search') return shell(<SearchView key={location.search} navigate={navigate} />);
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
 
