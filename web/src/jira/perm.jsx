@@ -280,18 +280,30 @@ export function PackageBody({ project, projectRole, canCreate, onImported }) {
 // 설정 허브: 톱니 메뉴의 '설정…'에서 열리는 팝업 — 좌측 탭 + 우측 내용
 export function SettingsHub({ me, meta, project, onClose, onChanged, onMeChanged }) {
   const proj = meta.projects.find((p) => p.key === project);
+  // 권한·알림 탭 (GIRA-22): 관리 권한이 있는 프로젝트를 목록에서 고른다. 지금 보는 프로젝트를 관리하면 그것을 미리 고른다
+  const adminProjects = meta.projects.filter((p) => p.role === 'admin')
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+  const [target, setTarget] = useState(() => (proj?.role === 'admin' ? project : adminProjects[0]?.key ?? ''));
   const tabs = [
     ['profile', '프로필', true],
     ['keys', '내 API 키', true],
     ['pkg', '패키지 (내보내기/가져오기)', true],
     ['migrate', '원본 Jira에서 가져오기', !!me?.can_create],
-    ['perm', '프로젝트 권한', proj?.role === 'admin'],
-    ['notify', '프로젝트 알림', proj?.role === 'admin'],
-    ['inbox', '접근 요청 승인함', meta.projects.some((p) => p.role === 'admin')],
+    ['perm', '프로젝트 권한', adminProjects.length > 0],
+    ['notify', '프로젝트 알림', adminProjects.length > 0],
+    ['inbox', '접근 요청 승인함', adminProjects.length > 0],
     ['aiguide', 'AI 도움말 지침', !!me?.is_admin],
   ].filter((t) => t[2]);
   const [tab, setTab] = useState(tabs[0][0]);
   const TITLE = Object.fromEntries(tabs.map(([k, n]) => [k, n]));
+  const projectPicker = (
+    <label className="hub-proj">
+      <span>프로젝트</span>
+      <select value={target} onChange={(e) => setTarget(e.target.value)}>
+        {adminProjects.map((p) => <option key={p.key} value={p.key}>{p.name} ({p.key})</option>)}
+      </select>
+    </label>
+  );
   return (
     <div className="modal-backdrop" onClick={() => onClose()}>
       <div className="settings-hub" onClick={(e) => e.stopPropagation()}>
@@ -308,15 +320,16 @@ export function SettingsHub({ me, meta, project, onClose, onChanged, onMeChanged
           <button className="hub-close" onClick={() => onClose()}>닫기</button>
         </aside>
         <section className="hub-main">
-          <h2>{TITLE[tab]}{tab === 'perm' || tab === 'notify' ? ` — ${project}` : ''}</h2>
+          <h2>{TITLE[tab]}</h2>
+          {(tab === 'perm' || tab === 'notify') && projectPicker}
           {tab === 'profile' && <ProfileBody me={me} onChanged={onMeChanged ?? onChanged} />}
           {tab === 'keys' && <ApiKeysBody />}
           {tab === 'pkg' && <PackageBody project={project} projectRole={proj?.role}
             canCreate={!!me?.can_create} onImported={onChanged} />}
           {tab === 'migrate' && <MigrateBody api={api} resourceLabel="프로젝트"
             btn="plain linklike" btnPrimary="primary" onDone={onChanged} />}
-          {tab === 'perm' && <PermissionsBody project={project} />}
-          {tab === 'notify' && <NotifyRulesBody key={project} resourceKey={project} resourceLabel="프로젝트" />}
+          {tab === 'perm' && target && <PermissionsBody project={target} />}
+          {tab === 'notify' && target && <NotifyRulesBody key={target} resourceKey={target} resourceLabel="프로젝트" />}
           {tab === 'inbox' && <InboxBody />}
           {tab === 'aiguide' && <AiGuideBody />}
         </section>
