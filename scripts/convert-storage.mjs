@@ -300,12 +300,27 @@ export function convertStorage(xhtml) {
           collectCols(n);
           const tableWidth = n.attribs['data-table-width'] ? Math.round(Number(n.attribs['data-table-width'])) || null : null;
           const layout = dec(n.attribs['data-layout'] ?? '') || null;
+          const displayMode = n.attribs['data-table-display-mode'] === 'fixed' ? 'fixed' : null;
+          const cellsOf = (tr) => (tr.children ?? []).filter((c) => isEl(c) && (c.name === 'td' || c.name === 'th'));
+          // 번호가 매겨진 행: Confluence는 맨 앞에 class="numberingColumn" 칸을 실제로 둔다 → 표 속성으로 바꾸고 칸은 뺀다
+          const isNum = (c) => /(^|\s)numberingColumn(\s|$)/.test(c?.attribs?.class ?? '');
+          const numberedRows = rows.length > 0 && rows.every((tr) => isNum(cellsOf(tr)[0]));
+          if (numberedRows && colwidths.length) colwidths.shift();
+          const cellAttrs = (cell) => {
+            const a = { colspan: Number(cell.attribs.colspan ?? 1), rowspan: Number(cell.attribs.rowspan ?? 1) };
+            const bg = (cell.attribs['data-highlight-colour'] ?? '').trim().toLowerCase();
+            if (/^#[0-9a-f]{3,8}$/.test(bg) && bg !== '#ffffff' && bg !== '#fff') a.background = bg;
+            const va = /vertical-align:\s*(middle|bottom)/.exec(cell.attribs.style ?? '')?.[1] ?? (/^(middle|bottom)$/.test(cell.attribs.valign ?? '') ? cell.attribs.valign : null);
+            if (va) a.valign = va;
+            return a;
+          };
           items.push({ node: { type: 'table',
-            attrs: { tableWidth, layout, colwidths: colwidths.some((w) => w) ? colwidths : null },
+            attrs: { tableWidth, layout, colwidths: colwidths.some((w) => w) ? colwidths : null,
+              ...(numberedRows ? { numberedRows: true } : {}), ...(displayMode ? { displayMode } : {}) },
             content: rows.map((tr) => ({ type: 'tableRow',
-            content: (tr.children ?? []).filter((c) => isEl(c) && (c.name === 'td' || c.name === 'th')).map((cell) => ({
+            content: cellsOf(tr).slice(numberedRows ? 1 : 0).map((cell) => ({
               type: cell.name === 'th' ? 'tableHeader' : 'tableCell',
-              attrs: { colspan: Number(cell.attribs.colspan ?? 1), rowspan: Number(cell.attribs.rowspan ?? 1) },
+              attrs: cellAttrs(cell),
               content: ensureBlocks(blocks(cell.children)),
             })) })) } });
           break;
