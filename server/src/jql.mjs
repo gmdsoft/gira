@@ -62,6 +62,8 @@ const FIELDS = {
   updated: { kind: 'date', col: 'i.updated_at', label: 'updated' },
   updateddate: { kind: 'date', col: 'i.updated_at', label: 'updated' },
   resolved: { kind: 'date', col: 'i.resolved_at', label: 'resolved' },
+  due: { kind: 'date', col: 'i.due_date', label: 'due' }, // GIRA-71
+  duedate: { kind: 'date', col: 'i.due_date', label: 'due' },
 };
 
 // ORDER BY에서 쓸 수 있는 필드 → /api/issues sort 키

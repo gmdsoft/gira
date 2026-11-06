@@ -241,3 +241,21 @@ UPDATE jira_issues SET rank = fields_raw->>'customfield_10019'
  WHERE rank IS NULL AND fields_raw->>'customfield_10019' IS NOT NULL;
 CREATE INDEX IF NOT EXISTS jira_issues_project_rank_idx
  ON jira_issues (project_id, rank COLLATE "C", issue_key);
+
+-- GIRA-71: 작업 로그 (원본 id 유지, 로컬은 1e12 이상)
+CREATE TABLE IF NOT EXISTS jira_worklogs (
+  id bigint PRIMARY KEY,
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  author_id bigint REFERENCES users(id),
+  started_at timestamptz NOT NULL,
+  time_spent_seconds int NOT NULL CHECK (time_spent_seconds > 0),
+  comment_adf jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS jira_worklogs_issue ON jira_worklogs(issue_id, started_at);
+CREATE SEQUENCE IF NOT EXISTS jira_worklog_id_seq START 1000000000000;
+-- GIRA-71: 기한 (원본 duedate 소급 — 비어 있는 행만, 이후 편집은 이 열)
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS due_date date;
+UPDATE jira_issues SET due_date = (fields_raw->>'duedate')::date
+ WHERE due_date IS NULL AND fields_raw->>'duedate' ~ '^\d{4}-\d{2}-\d{2}';

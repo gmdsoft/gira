@@ -545,7 +545,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                 <CommentComposer key={'new-' + issueKey} upload={uploadFile} onSubmit={addComment} />
               </div>)}
             {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
-            {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
+            {actTab === 'worklog' && <Worklogs issueKey={issueKey} items={d.worklogs ?? []} canEdit={canEdit} onChanged={load} />}
           </section>
         </div>
 
@@ -560,6 +560,11 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
             <div className="body"><dl>
               {(d.customFields ?? []).filter(f => f.storyPoints).map(f => <React.Fragment key={f.id}><dt>{f.name}</dt><dd><CustomField field={f} canEdit={canEdit} attachments={d.attachments} onSave={value => patch({ customFields: { [f.id]: value } })} /></dd></React.Fragment>)}
               <dt>보고자</dt><dd><span className="person"><Avatar name={d.reporter_name} /><span>{d.reporter_name ?? '-'}</span></span></dd>
+              {/* GIRA-71: 기한·시간 추적·영향 버전·환경 */}
+              <dt>기한</dt><dd><DueDate value={d.due_date} done={d.status_category === 'done'} canEdit={canEdit} onSave={(v) => patch({ dueDate: v })} /></dd>
+              {d.timetracking && <><dt>시간 추적</dt><dd><TimeTracking t={d.timetracking} /></dd></>}
+              {(d.affects_versions ?? []).length > 0 && <><dt>영향 버전</dt><dd>{d.affects_versions.join(', ')}</dd></>}
+              {d.environment_adf && <><dt>환경</dt><dd><AdfView doc={d.environment_adf} attachments={d.attachments} /></dd></>}
             </dl></div>
           </div>
           <div className="dcard">
@@ -583,3 +588,52 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
   );
 }
 
+
+// ---------- GIRA-71: 기한·시간 추적·작업 로그 ----------
+const fmtDur = (sec) => {
+  let n = Math.round(Number(sec) || 0); if (n <= 0) return '0m';
+  const out = []; for (const [u, v] of [['w', 144000], ['d', 28800], ['h', 3600], ['m', 60]]) { const q = Math.floor(n / v); if (q) { out.push(q + u); n -= q * v; } }
+  return out.join(' ') || '0m';
+};
+
+function DueDate({ value, done, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const day = value ? String(value).slice(0, 10) : '';
+  const overdue = day && !done && day < new Date().toISOString().slice(0, 10);
+  if (editing) return <input type="date" autoFocus defaultValue={day} aria-label="기한"
+    onBlur={(e) => { setEditing(false); if (e.target.value !== day) onSave(e.target.value || null); }}
+    onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false); if (e.key === 'Enter') e.currentTarget.blur(); }} />;
+  return <span className={canEdit ? 'inline-edit' : undefined} title={canEdit ? '클릭하여 편집' : undefined} onClick={canEdit ? () => setEditing(true) : undefined}
+    style={overdue ? { color: 'var(--danger, #c9372c)', fontWeight: 600 } : undefined}>{day || (canEdit ? <span className="add-link">기한 추가</span> : '없음')}{overdue ? ' (지남)' : ''}</span>;
+}
+
+function TimeTracking({ t }) {
+  const spent = t.spent ?? 0, remaining = t.remaining ?? 0;
+  const total = Math.max(spent + remaining, t.original ?? 0, 1);
+  return <div className="timetrack">
+    <div className="timetrack-bar" aria-hidden="true"><div style={{ width: `${Math.min(100, (spent / total) * 100)}%` }} /></div>
+    <div className="dim">{fmtDur(spent)} 기록됨 · 남음 {t.remaining != null ? fmtDur(remaining) : '-'}{t.original != null ? ` · 처음 추정 ${fmtDur(t.original)}` : ''}</div>
+  </div>;
+}
+
+function Worklogs({ issueKey, items, canEdit, onChanged }) {
+  const [spent, setSpent] = useState(''); const [comment, setComment] = useState(''); const [error, setError] = useState(null);
+  const add = async () => {
+    setError(null);
+    try { await api(`/api/issue/${encodeURIComponent(issueKey)}/worklogs`, { method: 'POST', json: { timeSpent: spent, comment } }); setSpent(''); setComment(''); onChanged?.(); }
+    catch (e) { setError(e.message); }
+  };
+  return <div className="worklogs">
+    {canEdit && <div className="worklog-add">
+      <input placeholder="소요 시간 (예: 1h 30m)" value={spent} onChange={(e) => setSpent(e.target.value)} aria-label="소요 시간" />
+      <input placeholder="메모 (선택)" value={comment} onChange={(e) => setComment(e.target.value)} aria-label="작업 메모" />
+      <button className="primary mini" disabled={!spent.trim()} onClick={add}>기록</button>
+      {error && <span role="alert" className="dim">{error}</span>}
+    </div>}
+    {!items.length ? <div className="activity-empty">업무 로그가 없습니다.</div>
+      : items.map((w) => <div key={w.id} className="worklog-row">
+        <Avatar name={w.author_name} /> <strong>{w.author_name ?? '-'}</strong> <span>{fmtDur(w.time_spent_seconds)}</span> <span className="dim">{dt(w.started_at)}</span>
+        {w.comment_adf && <div className="worklog-comment"><AdfView doc={w.comment_adf} /></div>}
+      </div>)}
+  </div>;
+}
