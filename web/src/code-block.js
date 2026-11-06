@@ -105,6 +105,17 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         rendered: false,
         parseHTML: (element) => element.getAttribute('data-wrap') === 'true',
       },
+      // 제목(원본 Confluence 코드 매크로 title)·시작 줄 번호(firstline) — 도구 모음에서 입력
+      title: {
+        default: null,
+        rendered: false,
+        parseHTML: (element) => element.getAttribute('data-title') || null,
+      },
+      firstLine: {
+        default: 1,
+        rendered: false,
+        parseHTML: (element) => Number(element.getAttribute('data-first-line')) || 1,
+      },
       lineNumbers: {
         default: true,
         rendered: false,
@@ -125,6 +136,8 @@ export const HighlightedCodeBlock = CodeBlock.extend({
     if (node.attrs.collapsed) preAttrs['data-collapsed'] = 'true';
     if (node.attrs.wrap) preAttrs['data-wrap'] = 'true';
     preAttrs['data-line-numbers'] = String(node.attrs.lineNumbers);
+    if (node.attrs.title) preAttrs['data-title'] = node.attrs.title;
+    if (Number(node.attrs.firstLine) > 1) preAttrs['data-first-line'] = String(node.attrs.firstLine);
     if (node.attrs.wrap) preAttrs.class = 'code-wrap';
     return ['pre', preAttrs,
       ['code', node.attrs.language ? { class: `language-${node.attrs.language}` } : {}, ...parts]];
@@ -174,8 +187,11 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         const width = widthAttrs(n);
         if (width.style) { dom.setAttribute('data-block-width', width['data-block-width']); dom.style.setProperty('--block-width', `${n.attrs.blockWidth}px`); }
         else { dom.removeAttribute('data-block-width'); dom.style.removeProperty('--block-width'); }
-        // Confluence처럼 머리줄 없이 — '보기에서 접어 두기'를 켠 블록만 보기 화면에 접기/펼치기 줄을 둔다
-        head.hidden = editor.isEditable || !n.attrs.collapsed;
+        // 머리줄: 제목이 있으면 늘 제목(편집 화면에서도 보이되 누를 수 없음), 제목 없이 접어 둔 블록은 '코드 펼치기'
+        const title = (n.attrs.title || '').trim();
+        head.hidden = editor.isEditable ? !title : !(title || n.attrs.collapsed);
+        head.disabled = editor.isEditable;
+        head.classList.toggle('has-title', !!title);
         const shown = editor.isEditable || open;
         pre.hidden = !shown;
         gutter.hidden = !shown || !n.attrs.lineNumbers;
@@ -183,17 +199,20 @@ export const HighlightedCodeBlock = CodeBlock.extend({
         dom.classList.toggle('is-collapsed', !shown);
         dom.classList.toggle('has-line-numbers', !!n.attrs.lineNumbers);
         pre.classList.toggle('code-wrap', !!n.attrs.wrap);
-        head.textContent = shown ? `▾ 코드 접기` : `▸ ${labelOf(n)} — 펼치기`;
+        head.textContent = editor.isEditable ? title
+          : title ? `${shown ? '▾' : '▸'} ${title}` : (shown ? '▾ 코드 접기' : '▸ 코드 펼치기');
         head.setAttribute('aria-expanded', String(shown));
       };
       // 줄 번호 거터 — 코드 내용이 바뀌면 줄 수만큼 다시 만든다
       const paintGutter = (n) => {
         if (!n.attrs.lineNumbers) { gutter.replaceChildren(); return; }
         const count = Math.max(1, n.textContent ? n.textContent.split('\n').length : 1);
-        if (gutter.childElementCount === count) return;
+        const start = Math.max(1, Math.floor(Number(n.attrs.firstLine) || 1)); // 시작 줄 번호
+        if (gutter.childElementCount === count && gutter.dataset.start === String(start)) return;
+        gutter.dataset.start = String(start);
         gutter.replaceChildren(...Array.from({ length: count }, (_, i) => {
           const line = document.createElement('span');
-          line.textContent = String(i + 1);
+          line.textContent = String(start + i);
           return line;
         }));
       };

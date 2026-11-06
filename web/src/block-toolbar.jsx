@@ -402,6 +402,17 @@ function CodeTools({ editor, block }) {
         <option value="">자동 감지</option>
         {codeLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
+      {/* 제목·시작 줄: 입력을 마치면(Enter·포커스 이동) 반영 */}
+      <input className="bt-input" aria-label="코드 블록 제목" placeholder="제목 (선택)" key={`t${block.pos}-${attrs.title ?? ''}`}
+        defaultValue={attrs.title ?? ''} style={{ width: 150 }}
+        onBlur={(e) => { const v = e.target.value.trim() || null; if (v !== (attrs.title ?? null)) updateAttrs(editor, block.pos, { title: v }); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); editor.commands.focus(); } }} />
+      <label className="bt-label" title="시작 줄 번호">시작 줄
+        <input className="bt-input" type="number" min="1" aria-label="시작 줄 번호" key={`f${block.pos}-${attrs.firstLine}`}
+          defaultValue={attrs.firstLine || 1} style={{ width: 56, marginLeft: 4 }}
+          onBlur={(e) => { const v = Math.max(1, Math.floor(e.target.valueAsNumber || 1)); if (v !== (attrs.firstLine || 1)) updateAttrs(editor, block.pos, { firstLine: v }); }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); editor.commands.focus(); } }} />
+      </label>
       <TBtn title="줄 바꿈" active={!!attrs.wrap}
         onClick={() => updateAttrs(editor, block.pos, { wrap: !attrs.wrap })}>줄 바꿈</TBtn>
       <TBtn title="줄 번호 표시" active={!!attrs.lineNumbers}
