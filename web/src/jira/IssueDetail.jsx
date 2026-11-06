@@ -219,6 +219,9 @@ const HISTORY_ACTION = {
 export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew, onHome }) {
   const mobile = useMobile();
   const [d, setD] = useState(null);
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchBusy, setWatchBusy] = useState(false);
+  const [watchError, setWatchError] = useState('');
   const [descEditing, setDescEditing] = useState(false);
   const [editingComment, setEditingComment] = useState(null); // {id, text}
   const [actTab, setActTab] = useState('comments'); // all | comments | history | worklog
@@ -426,7 +429,19 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
       </div>
       <div className="issue-meta-row">
         <span className="issue-meta-pill"><IconLock size={14} /> 제한됨</span>
-        <span className="issue-meta-pill"><IconEye size={14} /> 1</span>
+        <div className="issue-watchers">
+          <button type="button" aria-label="관찰자 목록" className="issue-meta-pill" aria-expanded={watchOpen} onClick={() => setWatchOpen(!watchOpen)}><IconEye size={14} /> {d.watchers?.length ?? 0}</button>
+          {watchOpen && <div className="issue-watchers-panel" role="region" aria-label="관찰자">
+            {(d.watchers ?? []).map(w => <div key={w.id}><Avatar user={w} name={w.display_name} /> {w.display_name}</div>)}
+            {!d.watchers?.length && <div>관찰자가 없습니다.</div>}
+            <button type="button" disabled={watchBusy} onClick={async () => {
+              setWatchBusy(true); setWatchError('');
+              try { await api(`/api/issue/${encodeURIComponent(issueKey)}/watch`, { method: d.watching ? 'DELETE' : 'POST' }); await load(); }
+              catch (e) { setWatchError(e.message); } finally { setWatchBusy(false); }
+            }}>{d.watching ? '관찰 중지' : '관찰 시작'}</button>
+            {watchError && <div role="alert">{watchError}</div>}
+          </div>}
+        </div>
         <button className="toolbtn"><IconShare size={14} /> 공유</button>
       </div>
       <div className="dwrap">

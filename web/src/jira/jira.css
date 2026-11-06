@@ -1008,3 +1008,8 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .worklog-add input { padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
 .worklog-row { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .worklog-comment { flex-basis: 100%; padding-left: 32px; }
+
+/* 관찰자 목록 */
+.issue-watchers { position: relative; }
+.issue-watchers-panel { position: absolute; top: 28px; left: 0; z-index: 20; min-width: 220px; max-height: 320px; overflow-y: auto; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px #0002; }
+.issue-watchers-panel > div { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

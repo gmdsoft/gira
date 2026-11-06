@@ -95,7 +95,8 @@ export function NotifyRulesBody({ resourceKey, resourceLabel = '프로젝트' })
           <input value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })}
             placeholder={form.channel === 'teams'
               ? (cfg.teams ? '채널 웹훅 주소 (비우면 기본 웹훅)' : '채널 웹훅 주소 (https://…webhook.office.com/… 등)')
-              : '받는 주소(쉼표로) 또는 @assignee @reporter @author'} />
+              : '받는 주소(쉼표로) 또는 @assignee @reporter @author @watchers'} />
+          {form.channel === 'email' && resourceLabel === '프로젝트' && <button type="button" onClick={() => setForm({ ...form, target: [form.target, '@watchers'].filter(Boolean).join(', ') })}>관찰자 추가</button>}
         </div>
         <div className="nt-row"><span className="nt-k" />
           <button type="submit" className="primary btn btn-primary" disabled={busy || !form.events.length}>규칙 추가</button>

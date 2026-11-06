@@ -259,3 +259,12 @@ CREATE SEQUENCE IF NOT EXISTS jira_worklog_id_seq START 1000000000000;
 ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS due_date date;
 UPDATE jira_issues SET due_date = (fields_raw->>'duedate')::date
  WHERE due_date IS NULL AND fields_raw->>'duedate' ~ '^\d{4}-\d{2}-\d{2}';
+
+-- GIRA-69: 최초 이관 시각은 증분 재실행에서도 유지한다.
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS watchers_imported_at timestamptz;
+CREATE TABLE IF NOT EXISTS jira_issue_watchers (
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (issue_id, user_id)
+);
