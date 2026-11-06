@@ -293,22 +293,30 @@ details.expand[open] { border: 1px solid var(--border); border-radius: 8px; padd
 
 /* 블록 핸들 (최상위 블록 왼쪽, 호버 시 표시) */
 .block-handle {
+  /* 블록 왼쪽 '+'(삽입)·'⠿'(메뉴·이동) — GIRA-41 */
   position: fixed;
   z-index: 50;
-  width: 18px;
-  height: 20px;
+  height: 22px;
   display: none;
   align-items: center;
-  justify-content: center;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1;
-  cursor: grab;
-  border-radius: 4px;
+  gap: 2px;
   user-select: none;
-  background: var(--panel);
 }
-.block-handle:hover { background: var(--bg-soft, #f1f3f5); color: var(--text, #172b4d); }
+.block-handle > button { width: 20px; height: 22px; padding: 0; border: 0; border-radius: 4px; background: var(--panel);
+  color: var(--muted); font: inherit; font-size: 14px; line-height: 1; display: grid; place-items: center; cursor: pointer; }
+.block-handle > .bh-grip { cursor: grab; font-size: 13px; }
+.block-handle > button:hover { background: var(--hover); color: var(--text); }
+.bh-menu { position: fixed; z-index: 70; min-width: 210px; padding: 4px 0; background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; box-shadow: 0 8px 24px rgba(9,30,66,.22); display: flex; flex-direction: column; }
+.bh-mi { display: flex; align-items: center; gap: 8px; width: 100%; border: 0; background: none; color: var(--text); font: inherit;
+  font-size: 13.5px; padding: 7px 12px; text-align: left; cursor: pointer; white-space: nowrap; }
+.bh-mi:hover:not(:disabled) { background: var(--hover); }
+.bh-mi:disabled { opacity: .45; cursor: default; }
+.bh-mi.danger:hover { color: #ae2e24; }
+.bh-label { flex: 1; }
+.bh-mi kbd { font-size: 11px; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-family: inherit; }
+.bh-sub { color: var(--muted); }
+.bh-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* 하위 페이지 목록 (빈 본문일 때) */
 .children-list h2 { font-size: 16px; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
