@@ -1,5 +1,5 @@
 <!-- spec-sync: 자동 생성 사본 — 직접 고치지 말고 Gonfluence 원본을 고친 뒤 'node scripts/spec-sync.mjs --pull' -->
-> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://172.21.1.1:3001/s/GIRA/p/1000000000009), 버전 8
+> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://172.21.1.1:3001/s/GIRA/p/1000000000009), 버전 9
 
 ## 개요
 
@@ -44,7 +44,7 @@
 
 ### Docker 배포
 
-- 앱별 독립 스택 2개(`docker-compose.gira.yml` / `docker-compose.gonfluence.yml`) — 각자 postgres를 갖고 따로 배포·재배포한다. 같은 호스트든 다른 호스트든 무방하며, TLS는 앞단 리버스 프록시에서 처리한다.
+- 앱별 독립 스택 2개(`docker/docker-compose.gira.yml` / `docker/docker-compose.gonfluence.yml`, Docker 파일은 `docker/` 폴더에 모음) — 각자 postgres를 갖고 따로 배포·재배포한다. 같은 호스트든 다른 호스트든 무방하며, TLS는 앞단 리버스 프록시에서 처리한다.
 - 정적 빌드(web/dist, dist-jira-app)는 이미지 빌드 단계에 포함.
 - 비밀 값은 `.env` 파일 주입, 이미지에 포함 금지.
 - 배포 대상: 사내 TrueNAS 서버. DB 데일리 백업(pg_dump) + 첨부 볼륨 스냅샷.

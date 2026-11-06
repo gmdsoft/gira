@@ -3,7 +3,7 @@
 # 새 DB(gira)로 복사한다. 원본(rea)은 변경하지 않는다 — 검증 후 rea 쪽 jira_* 정리는 별도 작업.
 #
 # 사용법: scripts/split-gira-db.sh [컨테이너명]
-#   기본 컨테이너: rea-confluence-dev-postgres-1 (docker-compose.dev.yml)
+#   기본 컨테이너: rea-confluence-dev-postgres-1 (docker/docker-compose.dev.yml)
 #   완료 후 .env 에 GIRA_DATABASE_URL=postgres://rea:rea@localhost:5432/gira 추가하고 3002 재시작.
 set -euo pipefail
 

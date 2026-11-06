@@ -1,0 +1,95 @@
+# Gonfluence 배포 스택 (자체 postgres + opensearch + 관리 서비스 포함). 절차: docs/deploy-alpha.md
+# 실행(저장소 루트에서): docker compose -f docker/docker-compose.gonfluence.yml --env-file .env up -d --build
+# (compose 파일이 docker/에 있으므로 루트 .env는 --env-file로 지정한다)
+# 필요한 .env 키: POSTGRES_PASSWORD (필수), ADMIN_EMAIL, ATLASSIAN_*(첨부 프록시용, 선택)
+# 같은 호스트에 Gira 스택도 올리는 경우: 관리 서비스는 한쪽만 켜고(다른 쪽은 scale 0)
+# ORG_MIRROR_DATABASE_URL 로 상대 DB를 지정한다 (docs/deploy-alpha.md 참고)
+name: gonfluence
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rea}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 를 .env 에 설정하세요}
+      POSTGRES_DB: rea
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rea} -d rea"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["node", "server/src/index.mjs"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/rea
+      SEARCH_URL: http://search:9200
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-pottery@gmdsoft.com}
+      PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      # 프로필 이미지 업로드 프록시(GIRA-20) — 관리 서비스와 세션 쿠키를 공유한다
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+      ORG_ADMIN_URL: ${ORG_ADMIN_URL:-http://admin:3003}
+      ATLASSIAN_SITE: ${ATLASSIAN_SITE:-}
+      ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
+      ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}
+    ports:
+      - "${GONFLUENCE_PORT:-3001}:3001"
+    volumes:
+      - appdata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  # 조직 관리(사용자·팀·그룹) — 조직 테이블의 유일한 작성자
+  admin:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    command: ["node", "server/src/admin-app.mjs"]
+    environment:
+      ORG_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/rea
+      ORG_MIRROR_DATABASE_URL: ${ORG_MIRROR_DATABASE_URL:-}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-pottery@gmdsoft.com}
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+    ports:
+      - "${ADMIN_PORT:-3003}:3003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/healthz >/dev/null"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  search:
+    build: ./search
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      DISABLE_SECURITY_PLUGIN: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - osdata:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200 >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  pgdata:
+  appdata:
+  osdata:

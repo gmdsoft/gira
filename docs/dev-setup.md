@@ -8,7 +8,7 @@
 
 ## 실행
 ```bash
-docker compose -f docker-compose.dev.yml up -d   # PostgreSQL 16 (포트 5432)
+docker compose -f docker/docker-compose.dev.yml up -d   # PostgreSQL 16 (포트 5432)
 npm install
 node scripts/import-space.mjs --space Research    # 스페이스 임포트 (읽기 전용 GET, 최신 버전만)
 npm --workspace web run build                     # SPA 빌드 → web/dist
@@ -42,7 +42,7 @@ Confluence와 같은 **초안/게시 분리** 모델.
 - 작성자는 인증 도입 전까지 `개발 모드 사용자`로 기록
 
 ## 검색 (2026-10-25 추가)
-- OpenSearch 2.19 + **nori**(한국어 형태소) 커스텀 이미지: `search/Dockerfile`, compose의 `search` 서비스(포트 9200)
+- OpenSearch 2.19 + **nori**(한국어 형태소) 커스텀 이미지: `docker/search/Dockerfile`, compose의 `search` 서비스(포트 9200)
 - 색인: `node scripts/index-search.mjs` (일괄), 게시·복원 시 자동 재색인 (`server/src/search.mjs`)
 - API `GET /api/search?q=&space=&type=` — title^3·text·labels 매칭, `<mark>` 하이라이트
 - 웹: 홈·사이드바 검색창 → `/search` 결과 화면 (스페이스 필터)

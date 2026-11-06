@@ -1,5 +1,6 @@
 # 앱 이미지 — Gonfluence(3001)와 Gira(3002)가 같은 이미지를 쓰고,
-# compose의 command 로 어느 서버를 띄울지 정한다. (docker-compose.prod.yml 참고)
+# compose의 command 로 어느 서버를 띄울지 정한다. (docker/docker-compose.gira.yml·gonfluence.yml 참고)
+# 빌드 컨텍스트는 저장소 루트: docker build -f docker/Dockerfile .  (제외 목록: docker/Dockerfile.dockerignore)
 FROM node:24-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
