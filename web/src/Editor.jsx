@@ -322,11 +322,24 @@ function ToolbarOverflow({ compact, children }) {
 
 function Toolbar({ editor, onImage }) {
   const [palette, setPalette] = useState(false);
-  const [compact, setCompact] = useState(true);
+  // 좁을 때만 접는다: 펼친 상태에서 버튼들이 실제로 차지하는 폭을 재 두고, 툴바 폭이 그보다 좁아지면 '도구 더 보기'로
+  const [compact, setCompact] = useState(false);
   const toolbarRef = useRef(null);
+  const neededRef = useRef(0);
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || compact) return;
+    const cs = getComputedStyle(el);
+    const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    neededRef.current = [...el.children].reduce((a, c) => a + c.getBoundingClientRect().width + 2, 0) + pad;
+    if (el.clientWidth < neededRef.current) setCompact(true);
+  });
   useEffect(() => {
     const el = toolbarRef.current;
-    const observer = new ResizeObserver(([entry]) => setCompact(entry.contentRect.width < 1400));
+    const observer = new ResizeObserver(([entry]) => {
+      const w = entry.target.clientWidth;
+      setCompact((c) => (c ? w < neededRef.current : w < neededRef.current));
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
