@@ -403,8 +403,11 @@ app.post('/api/content/:id/publish', async (req, reply) => {
 // REST API: doc 또는 markdown을 함께 보내면 본문까지 게시된 상태(버전 1)로 만든다
 app.post('/api/content', async (req, reply) => {
   const { spaceKey, parentId } = req.body ?? {};
+  // 유형: 문서(page, 기본) 또는 폴더(folder — 본문 없이 문서를 묶는 용도, 제목 필수)
+  const type = req.body?.type === 'folder' ? 'folder' : 'page';
   let initialDoc;
-  try { initialDoc = bodyDoc(req.body); } catch (e) { return reply.code(400).send({ error: e.message }); }
+  try { initialDoc = type === 'page' ? bodyDoc(req.body) : null; } catch (e) { return reply.code(400).send({ error: e.message }); }
+  if (type === 'folder' && !req.body?.title?.trim()) return reply.code(400).send({ error: '폴더 이름을 입력하세요' });
   const title = req.body?.title?.trim() || '제목 없는 문서';
   if (!spaceKey) return reply.code(400).send({ error: 'spaceKey required' });
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
@@ -415,9 +418,9 @@ app.post('/api/content', async (req, reply) => {
   const userId = req.access.userId;
   const { rows } = await query(
     `INSERT INTO content (id, space_id, parent_id, type, title, status, author_id, owner_id, current_version, created_at, updated_at)
-     VALUES (nextval('content_id_seq'), $1, $2, 'page', $3, 'current', $4, $4, $5, now(), now())
+     VALUES (nextval('content_id_seq'), $1, $2, $6, $3, 'current', $4, $4, $5, now(), now())
      RETURNING id`,
-    [sp[0].id, parentId ?? null, title, userId, initialDoc ? 1 : 0]);
+    [sp[0].id, parentId ?? null, title, userId, initialDoc ? 1 : 0, type]);
   if (initialDoc) {
     await query(
       `INSERT INTO content_versions (content_id, version, doc, message, minor_edit, author_id, created_at)
@@ -425,7 +428,7 @@ app.post('/api/content', async (req, reply) => {
       [rows[0].id, JSON.stringify(initialDoc), req.body?.message ?? null, userId]);
     reindex(rows[0].id);
   }
-  return { id: rows[0].id, spaceKey, version: initialDoc ? 1 : 0 };
+  return { id: rows[0].id, spaceKey, type, version: initialDoc ? 1 : 0 };
 });
 
 // 첨부 업로드 (로컬 저장. 운영 전환 시 MinIO로 교체)

@@ -1,15 +1,14 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from './api.js';
-import Tree from './Tree.jsx';
+import GonfShell, { spaceColor } from './GonfShell.jsx';
 import PageView from './PageView.jsx';
 import MoveDialog from './MoveDialog.jsx';
 import Editor from './Editor.jsx';
 import SearchView from './SearchView.jsx';
 import VersionHistory from './VersionHistory.jsx';
 import AdminPage from './Admin.jsx';
-import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog, GonfSettingsHub } from './access.jsx';
-import { IconSettings } from './jira/icons.jsx';
-import { DevChatPage, openDevChat, SPEC_URL, REPO_URL } from './dev-feedback-ui.jsx';
+import { SpacePermissionsModal, RequestAccessView, CreateSpaceDialog } from './access.jsx';
+import { DevChatPage } from './dev-feedback-ui.jsx';
 
 function parsePath(pathname) {
   if (pathname.startsWith('/search')) return { view: 'search' };
@@ -135,7 +134,7 @@ export default function App() {
         e.preventDefault();
         createPage();
       } else if (e.key === '/') {
-        const inp = document.querySelector('.sidebar-search input, .search-input');
+        const inp = document.querySelector('.gtb-search input, .search-input');
         if (inp) { e.preventDefault(); inp.focus(); }
       }
     };
@@ -178,79 +177,38 @@ export default function App() {
     return <DevChatPage api={api} appName="Gonfluence" giraOrigin={`//${location.hostname}:3002`} />;
   }
 
-  if (route.view === 'home') {
-    return <Home navigate={navigate} me={me} logout={logout} theme={theme} setTheme={setTheme} />;
-  }
+  // 공통 틀(상단 바 + 사이드바) — 편집기·버전 기록·관리 화면은 전체 화면으로 둔다
+  const shell = (children, extra = {}) => (
+    <GonfShell me={me} route={route} space={space} navigate={navigate} reloadSpace={reloadSpace} logout={logout}
+      theme={theme} setTheme={setTheme} onContentClick={onContentClick} {...extra}>{children}</GonfShell>
+  );
+
+  if (route.view === 'home') return shell(<Home navigate={navigate} me={me} />);
   // 조직 관리(사용자·팀·그룹)는 관리 서비스(3003)로 분리 — 여기서는 접근 요청 승인함만
   if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
   // 권한 없는 스페이스: 접근 요청 화면
   if (route.spaceKey && spaceErr?.status === 403 && spaceErr.body?.canRequest) {
-    return (
-      <div className="app">
-        <aside className="sidebar">
-          <a className="sidebar-home" href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>← 스페이스 목록</a>
-          <div className="sidebar-user">
-            <span title={me.email}>👤 {me.display_name}</span>
-            <button className="btn btn-xs" onClick={logout}>로그아웃</button>
-          </div>
-        </aside>
-        <main className="main"><RequestAccessView spaceKey={route.spaceKey} /></main>
-      </div>
-    );
+    return shell(<RequestAccessView spaceKey={route.spaceKey} />);
   }
   if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
-  if (route.view === 'search') return <SearchView navigate={navigate} />;
+  if (route.view === 'search') return shell(<SearchView key={location.search} navigate={navigate} />);
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
 
+  const canWrite = space && space.role && space.role !== 'viewer';
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <a className="sidebar-home" href="/" onClick={(e) => { e.preventDefault(); navigate('/'); }}>← 스페이스 목록</a>
-        <SearchBox navigate={navigate} spaceKey={route.spaceKey} />
-        {space && <>
-          <div className="space-name">{space.name}</div>
-          {space.description && <div className="space-desc" title={space.description}>{space.description}</div>}
-          <button className="btn new-page" onClick={createPage}>+ 새 페이지</button>
-          <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate}
-            onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
-          <hr className="side-sep" />
-          {/* 스페이스 관리 */}
-          <div className="side-group">
-            <a className="archive-link" href={`/s/${space.key}/archive`}
-               onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
-            {space.role === 'admin' && (
-              <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
-            )}
-          </div>
-        </>}
-        <hr className="side-sep" />
-        {/* 다른 앱 */}
-        <div className="side-group">
-          <a className="archive-link" href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🎫 Gira ↗</a>
-        </div>
-        <hr className="side-sep" />
-        {/* 개발 관련 */}
-        <div className="side-group">
-          <a className="archive-link" href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
-             onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
-          <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
-          <a className="archive-link" href={REPO_URL} target="_blank" rel="noreferrer">📦 저장소 ↗</a>
-        </div>
-        <div className="sidebar-user">
-          <span title={me.email}>👤 {me.display_name}</span>
-          <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up
-            spaceKey={space?.key} spaceRole={space?.role} />
-          <button className="btn btn-xs" onClick={logout}>로그아웃</button>
-        </div>
-      </aside>
-      <main className="main" onClick={onContentClick}>
+    <>
+      {shell(<>
         {route.view === 'page' && <PageView pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />}
         {route.view === 'archive' && <ArchiveView spaceKey={route.spaceKey} navigate={navigate} reloadSpace={reloadSpace} />}
-      </main>
+      </>, {
+        onCreatePage: canWrite ? createPage : null,
+        onPerm: () => setPermOpen(true),
+        onMove: setMovePage,
+      })}
       {movePage && <MoveDialog page={movePage} navigate={navigate} reloadSpace={reloadSpace}
         onClose={() => setMovePage(null)} />}
       {permOpen && space && <SpacePermissionsModal spaceKey={space.key} onClose={() => setPermOpen(false)} />}
-    </div>
+    </>
   );
 }
 
@@ -321,21 +279,7 @@ function ArchiveView({ spaceKey, navigate, reloadSpace }) {
   );
 }
 
-function SearchBox({ navigate, spaceKey }) {
-  const [q, setQ] = useState('');
-  return (
-    <form className="sidebar-search" onSubmit={(e) => {
-      e.preventDefault();
-      if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}${spaceKey ? `&space=${spaceKey}` : ''}`);
-    }}>
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="검색 ( / )" />
-    </form>
-  );
-}
-
 // 홈 — Confluence 홈 구성을 따른다: 다시 시작하기(최근 방문 카드) · 최근 업데이트 피드 · 스페이스 타일
-const SPACE_COLORS = ['#0052cc', '#00875a', '#ff8b00', '#de350b', '#5243aa', '#00a3bf', '#403294', '#e56910'];
-const spaceColor = (s) => SPACE_COLORS[[...String(s ?? '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % SPACE_COLORS.length];
 const ago = (t) => {
   const m = Math.floor((Date.now() - new Date(t).getTime()) / 60000);
   if (m < 1) return '방금 전';
@@ -345,36 +289,9 @@ const ago = (t) => {
   return new Date(t).toLocaleDateString('ko-KR');
 };
 
-// 설정(톱니) 메뉴: 테마 선택 + '설정…'(허브 팝업) — Gira와 동일 구성
-function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }) {
-  const [open, setOpen] = useState(false);
-  const [showHub, setShowHub] = useState(false);
-  return (
-    <span className="setwrap">
-      <button className="set-btn" title="설정" onClick={() => setOpen((v) => !v)}><IconSettings size={20} /></button>
-      {open && <>
-        <div className="menu-overlay" onClick={() => setOpen(false)} />
-        <div className={'setmenu' + (up ? ' setmenu-up' : '')}>
-          <div className="setmenu-title">테마</div>
-          {[['light', 'Light'], ['dark', 'Dark'], ['system', 'System']].map(([v, name]) => (
-            <button key={v} onClick={() => { setTheme(v); setOpen(false); }}>
-              <span>{name}</span>{theme === v && <span className="chk">✓</span>}
-            </button>
-          ))}
-          <div className="setmenu-sep" />
-          <button onClick={() => { setShowHub(true); setOpen(false); }}><span>설정…</span></button>
-        </div>
-      </>}
-      {showHub && <GonfSettingsHub me={me} spaceKey={spaceKey} spaceRole={spaceRole}
-        navigate={navigate} onClose={() => setShowHub(false)} />}
-    </span>
-  );
-}
-
-function Home({ navigate, me, logout, theme, setTheme }) {
+function Home({ navigate, me }) {
   const [spaces, setSpaces] = useState(null);
   const [feed, setFeed] = useState(null);
-  const [q, setQ] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const recent = (() => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } })();
   useEffect(() => {
@@ -383,21 +300,9 @@ function Home({ navigate, me, logout, theme, setTheme }) {
   }, []);
   const go = (path) => (e) => { e.preventDefault(); navigate(path); };
   return (
-    <div className="home home-wide">
-      <div className="home-user muted">
-        <a href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
-           onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
-        <a href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서</a>
-        <a href={REPO_URL} target="_blank" rel="noreferrer">📦 저장소 ↗</a>
-        <a href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
-        <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} />
-        👤 {me.display_name} <button className="btn btn-xs" onClick={logout}>로그아웃</button>
-      </div>
-      <h1>Gonfluence <span className="poc-badge">Alpha</span></h1>
-      <form className="search-form" onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate(`/search?q=${encodeURIComponent(q.trim())}`); }}>
-        <input className="search-input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="문서 검색 (한국어 형태소 분석)" />
-        <button className="btn btn-primary" type="submit">검색</button>
-      </form>
+    <div className="home home-wide home-in-shell">
+      <h1 className="home-title">홈</h1>
+      <p className="muted home-hello">{me.display_name}님, 안녕하세요.</p>
 
       {recent.length > 0 && <>
         <h2 className="home-sec">다시 시작하기</h2>
