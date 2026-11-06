@@ -525,25 +525,26 @@ const inlineAtom = { group: 'inline', inline: true, atom: true };
 
 const Media = Node.create({
   name: 'media', ...inlineAtom,
+  parseHTML: () => [{ tag: '[data-media]', getAttrs: el => { try { return JSON.parse(el.getAttribute('data-media')); } catch { return false; } } }],
   addAttributes: () => ({
     kind: { default: 'attachment' }, filename: { default: null }, src: { default: null },
     width: { default: null }, align: { default: null }, layout: { default: null },
-    border: { default: null }, alt: { default: null }, caption: { default: null },
+    border: { default: null }, borderColor: { default: null }, borderWidth: { default: null }, alt: { default: null }, caption: { default: null },
   }),
   renderHTML: ({ node }) => {
-    const { src, filename, width, align, layout, border, alt, caption } = node.attrs;
+    const { src, filename, width, align, layout, border, borderColor, borderWidth, alt, caption } = node.attrs;
     if (!src) return ['span', { class: 'media-missing' }, `🖼 ${filename ?? '(이미지)'}`];
     const img = ['img', {
       src, alt: alt ?? filename ?? '',
       ...(width ? { width } : {}),
-      ...(border ? { class: 'media-border' } : {}),
+      ...(border ? { class: 'media-border', style: `border: ${[1, 2, 4].includes(Number(borderWidth)) ? Number(borderWidth) : 1}px solid ${['#DCDFE4', '#8590A2', '#44546F'].includes(borderColor) ? borderColor : '#DCDFE4'}` } : {}),
     }];
     const breakout = width && width > 760;
     const cls = `media ${align ? `media-${align}` : ''} ${layout ? `media-layout-${layout}` : ''}${breakout ? ' media-breakout' : ''}`.trim();
     const style = breakout ? `--media-w: ${width}px` : null;
     return caption
-      ? ['figure', { class: cls, ...(style ? { style } : {}) }, img, ['figcaption', {}, caption]]
-      : ['span', { class: cls, ...(style ? { style } : {}) }, img];
+      ? ['figure', { class: cls, 'data-media': JSON.stringify(node.attrs), ...(style ? { style } : {}) }, img, ['figcaption', {}, caption]]
+      : ['span', { class: cls, 'data-media': JSON.stringify(node.attrs), ...(style ? { style } : {}) }, img];
   },
 });
 

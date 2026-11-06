@@ -10,6 +10,7 @@ import { api, hydrateDoc } from './api.js';
 import { useEditPresence, EditingWarning } from './edit-presence.jsx';
 import { TableMenus } from './table-ui.jsx';
 import BlockTools from './block-toolbar.jsx';
+import ImageTools from './image-tools.jsx';
 
 async function send(path, method, body) {
   const res = await fetch(path, {
@@ -249,6 +250,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         </div>
       </div>
       <EditingWarning editors={editors} />
+      {editor && <ImageTools editor={editor} />}
       {editor && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
       </div>
       {linkChoice && <div className="link-choice" role="dialog" aria-label="붙여넣은 링크"

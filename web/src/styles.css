@@ -1055,3 +1055,14 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .status-orange { background: #ffe2bd; color: #9e4c00; }
 .status-pink { background: #fdd0ec; color: #943d73; }
 .status-lime { background: #d3f1a7; color: #4c6b1f; }
+
+/* 이미지 배치: 편집기와 게시 문서가 같은 속성을 사용한다. */
+.doc .media-left { display: block; text-align: left; }
+.doc .media-center { display: block; text-align: center; }
+.doc .media-right { display: block; text-align: right; }
+.doc .media-layout-wrap-left { display: block; float: left; margin: 0 16px 8px 0; max-width: 100%; }
+.doc .media-layout-wrap-right { display: block; float: right; margin: 0 0 8px 16px; max-width: 100%; }
+.doc .media.media-layout-wrap-left, .doc .media.media-layout-wrap-right { transform: none; margin-left: 0; }
+.doc .media.media-layout-wrap-right { margin-left: 16px; margin-right: 0; }
+.doc::after { content: ''; display: block; clear: both; }
+.doc .media img.ProseMirror-selectednode, .doc .media.ProseMirror-selectednode img { outline: 1px solid #388bff; outline-offset: 4px; }
