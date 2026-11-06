@@ -52,7 +52,13 @@ const plainBody = (node) => {
   return b == null ? null : textOf(b);
 };
 
-const text = (t, marks) => ({ type: 'text', text: t, ...(marks.length ? { marks } : {}) });
+// 같은 종류 마크는 안쪽 것만 남긴다(굵게 안의 굵게, 색 안의 색, 겹친 댓글) — 스키마는 마크 중복을 허용하지 않는다 (GIRA-75)
+const addMark = (marks, mark) => [...marks.filter((m) => m.type !== mark.type), mark];
+// 인라인 코드 마크는 다른 마크와 함께 쓸 수 없다(스키마 excludes) — 코드면 코드만
+const text = (t, marks) => {
+  const ms = marks.some((m) => m.type === 'code') ? marks.filter((m) => m.type === 'code') : marks;
+  return { type: 'text', text: t, ...(ms.length ? { marks: ms } : {}) };
+};
 const para = (content) => ({ type: 'paragraph', ...(content.length ? { content } : {}) });
 
 export function convertStorage(xhtml) {
@@ -69,7 +75,7 @@ export function convertStorage(xhtml) {
       }
       if (!isEl(n)) continue;
       inc(stats.tags, n.name);
-      const withMark = (mark) => out.push(...inline(n.children, [...marks, mark]));
+      const withMark = (mark) => out.push(...inline(n.children, addMark(marks, mark)));
       switch (n.name) {
         case 'strong': case 'b': withMark({ type: 'bold' }); break;
         case 'em': case 'i': withMark({ type: 'italic' }); break;
@@ -84,11 +90,11 @@ export function convertStorage(xhtml) {
         case 'mark':
         case 'span': {
           const style = n.attribs.style ?? '';
-          const next = [...marks];
+          let next = [...marks];
           const color = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style)?.[1];
           const background = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(style)?.[1];
-          if (color) next.push({ type: 'textColor', attrs: { color: color.trim() } });
-          if (background || n.name === 'mark') next.push({ type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
+          if (color) next = addMark(next, { type: 'textColor', attrs: { color: color.trim() } });
+          if (background || n.name === 'mark') next = addMark(next, { type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
           out.push(...inline(n.children, next));
           break;
         }
@@ -102,7 +108,7 @@ export function convertStorage(xhtml) {
           } });
           break;
         case 'ac:inline-comment-marker':
-          out.push(...inline(n.children, [...marks, { type: 'commentMark', attrs: { ref: dec(n.attribs['ac:ref'] ?? '') } }]));
+          out.push(...inline(n.children, addMark(marks, { type: 'commentMark', attrs: { ref: dec(n.attribs['ac:ref'] ?? '') } })));
           break;
         case 'ac:link': case 'ac:link-body': {
           const page = childEl(n, 'ri:page');
@@ -290,6 +296,7 @@ export function convertStorage(xhtml) {
   }
 
   const ensureBlocks = (arr) => (arr.length ? arr : [para([])]);
+  const leadPara = (arr) => (arr[0]?.type === 'paragraph' ? arr : [para([]), ...arr]);
   // 셀, 리스트 아이템 등 블록 컨테이너에서 벗어난 인라인을 문단으로 감싼다
   function wrapLoose(items) {
     const out = [];
@@ -316,10 +323,14 @@ export function convertStorage(xhtml) {
         case 'p':
           items.push({ node: para(inline(n.children, [])) });
           break;
-        case 'ul': case 'ol':
+        case 'ul': case 'ol': {
+          // 목록 항목은 문단으로 시작해야 한다(스키마 'paragraph block*') — 하위 목록·코드 등으로 시작하면 빈 문단을 앞에 둔다. 빈 목록은 버린다 (GIRA-75)
+          const lis = childEls(n, 'li');
+          if (!lis.length) break;
           items.push({ node: { type: n.name === 'ul' ? 'bulletList' : 'orderedList',
-            content: childEls(n, 'li').map((li) => ({ type: 'listItem', content: ensureBlocks(blocks(li.children)) })) } });
+            content: lis.map((li) => ({ type: 'listItem', content: leadPara(ensureBlocks(blocks(li.children))) })) } });
           break;
+        }
         case 'ac:task-list':
           items.push({ node: { type: 'taskList', content: childEls(n, 'ac:task').map((t) => ({
             type: 'taskItem',
@@ -331,6 +342,7 @@ export function convertStorage(xhtml) {
           const rows = [];
           const collect = (el) => { for (const c of el.children ?? []) if (isEl(c)) (c.name === 'tr' ? rows.push(c) : collect(c)); };
           collect(n);
+          if (!rows.some((tr) => (tr.children ?? []).some((c) => isEl(c) && (c.name === 'td' || c.name === 'th')))) break; // 칸 없는 빈 표는 버린다 (GIRA-75)
           // 폭 속성: 표 전체 폭(px)·레이아웃·colgroup 열 너비 ("469.0px" / "18.68%" 혼재)
           const colwidths = [];
           const collectCols = (el) => { for (const c of el.children ?? []) if (isEl(c)) (c.name === 'col' ? colwidths.push(/width:\s*([\d.]+(?:px|%))/.exec(c.attribs.style ?? '')?.[1]?.replace(/^([\d.]+)px$/, (_, v) => `${Math.round(Number(v))}px`) ?? null) : c.name === 'colgroup' || c.name === 'table' ? collectCols(c) : null); };
@@ -354,7 +366,7 @@ export function convertStorage(xhtml) {
           items.push({ node: { type: 'table',
             attrs: { tableWidth, layout, colwidths: colwidths.some((w) => w) ? colwidths : null,
               ...(numberedRows ? { numberedRows: true } : {}), ...(displayMode ? { displayMode } : {}) },
-            content: rows.map((tr) => ({ type: 'tableRow',
+            content: rows.filter((tr) => cellsOf(tr).length).map((tr) => ({ type: 'tableRow',
             content: cellsOf(tr).slice(numberedRows ? 1 : 0).map((cell) => ({
               type: cell.name === 'th' ? 'tableHeader' : 'tableCell',
               attrs: cellAttrs(cell),
@@ -374,7 +386,8 @@ export function convertStorage(xhtml) {
           items.push({ node: { type: 'horizontalRule' } });
           break;
         case 'ac:image':
-          items.push({ node: imageNode(n) });
+          // media는 인라인 노드 — 블록 자리(목록 항목·표 칸·레이아웃 열 바로 아래)에 오면 문단으로 감싼다 (GIRA-75)
+          items.push({ __inline: true, node: imageNode(n) });
           break;
         case 'ac:layout':
           items.push({ node: { type: 'layout', attrs: { blockWidth: Number(n.attribs['ac:width']) >= 760 ? Number(n.attribs['ac:width']) : null }, content: childEls(n, 'ac:layout-section').map((sec) => ({
