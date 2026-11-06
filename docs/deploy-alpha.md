@@ -23,6 +23,11 @@ docker compose -f docker-compose.gira.yml up -d --build --scale admin=0
 
 (개발 환경은 로컬 postgres 하나라 `.env` 의 `ORG_MIRROR_DATABASE_URL=...:5432/gira` 로 충분)
 
+개인 프로필 이미지 업로드(GIRA-20)는 앱 서버가 관리 서비스로 프록시하므로, 두 스택의 앱·관리 서비스에
+**같은 `COOKIE_SECRET`** 을 지정한다(세션 쿠키 공유). 관리 서비스를 한쪽만 켠 경우 앱의 `ORG_ADMIN_URL` 을
+그 관리 서비스 주소(예: `http://gonfluence-host:3003`)로 맞춘다. 관리 서비스는 조직 테이블만 쓰고,
+이미지 바이트는 `ORG_MIRROR_DATABASE_URL` 로 각 앱 DB에 복제된다.
+
 ## 처음 띄우기
 
 1. `.env` 작성 (저장소 루트, gitignore 됨):

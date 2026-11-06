@@ -83,6 +83,10 @@ export default function App() {
     setMe(null);
   }, []);
 
+  const refreshMe = useCallback(async () => {
+    setMe(await api('/api/auth/me'));
+  }, []);
+
   const navigate = useCallback((path) => {
     history.pushState(null, '', path);
     setRoute(parsePath(path));
@@ -183,7 +187,7 @@ export default function App() {
   // 공통 틀(상단 바 + 사이드바) — 편집기·버전 기록·관리 화면은 전체 화면으로 둔다
   const shell = (children, extra = {}) => (
     <GonfShell me={me} route={route} space={space} navigate={navigate} reloadSpace={reloadSpace} logout={logout}
-      theme={theme} setTheme={setTheme} onContentClick={onContentClick} {...extra}>{children}</GonfShell>
+      theme={theme} setTheme={setTheme} onContentClick={onContentClick} onMeChanged={refreshMe} {...extra}>{children}</GonfShell>
   );
 
   if (route.view === 'home') return shell(<Home navigate={navigate} me={me} />);

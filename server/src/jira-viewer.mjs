@@ -14,6 +14,7 @@ import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
+import { registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
@@ -65,6 +66,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 registerProjectCreate(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
 registerSourceSync(app, { appName: 'gira' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
 

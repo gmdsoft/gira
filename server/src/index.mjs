@@ -16,6 +16,7 @@ import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
 import { spaceRole, contentAccess, filterViewable, visibleTreeSet } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
+import { registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
@@ -63,6 +64,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
 registerSourceSync(app, { appName: 'gonfluence' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'conf' }); // 팀장 셀프 이관 (원본 Confluence → 이 인스턴스)
 

@@ -114,6 +114,8 @@ export default function JiraApp() {
   };
   useEffect(() => { boot(); }, []);
 
+  const refreshMe = async () => { setMe(await api('/api/auth/me')); };
+
   const reloadPdata = async () => {
     if (!project) return;
     const proj = encodeURIComponent(project);
@@ -424,7 +426,7 @@ export default function JiraApp() {
             </>}
           </span>
           <span className="tb-sep" />
-          <span className="tb-user" title={me.display_name}><Avatar name={me.display_name} /></span>
+          <span className="tb-user" title={me.display_name}><Avatar name={me.display_name} user={me} /></span>
           <button className="plain logout" onClick={logout}>로그아웃</button>
         </div>
       </header>
@@ -539,7 +541,7 @@ export default function JiraApp() {
         onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
       {!mobile && showHub && <SettingsHub me={me} meta={meta} project={project}
-        onClose={() => setShowHub(false)} onChanged={() => boot()} />}
+        onClose={() => setShowHub(false)} onChanged={() => boot()} onMeChanged={refreshMe} />}
     </>
   );
 }

@@ -4,6 +4,7 @@ import { useMobile } from './mobile.js';
 //           구분선 · Gira / 구분선 · 개발용 메뉴. 트리의 문서는 다른 문서·폴더·스페이스 위로 끌어 옮길 수 있다.
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { Avatar } from './avatar.jsx';
 import Tree from './Tree.jsx';
 import { GonfSettingsHub, CreateSpaceDialog } from './access.jsx';
 import { openDevChat, SPEC_PAGE_ID, REPO_URL } from './dev-feedback-ui.jsx';
@@ -19,7 +20,7 @@ export const spaceColor = (s) => SPACE_COLORS[[...String(s ?? '')].reduce((a, c)
 const readRecent = () => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } };
 
 // 설정(톱니) 메뉴: 테마 선택 + '설정…'(허브 팝업) — Gira와 동일 구성
-export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }) {
+export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole, onMeChanged }) {
   const [open, setOpen] = useState(false);
   const [showHub, setShowHub] = useState(false);
   return (
@@ -39,7 +40,7 @@ export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spac
         </div>
       </>}
       {showHub && <GonfSettingsHub me={me} spaceKey={spaceKey} spaceRole={spaceRole}
-        navigate={navigate} onClose={() => setShowHub(false)} />}
+        navigate={navigate} onMeChanged={onMeChanged} onClose={() => setShowHub(false)} />}
     </span>
   );
 }
@@ -65,7 +66,7 @@ function FolderDialog({ spaceName, onClose, onSubmit }) {
 }
 
 export default function GonfShell({ me, route, space, navigate, reloadSpace, logout, theme, setTheme,
-  onCreatePage, onPerm, onMove, onContentClick, children }) {
+  onCreatePage, onPerm, onMove, onContentClick, onMeChanged, children }) {
   const mobile = useMobile();
   const [sideOpen, setSideOpen] = useState(() => { if (window.matchMedia('(max-width: 600px)').matches) return false; try { return localStorage.getItem('gonf.side') !== '0'; } catch { return true; } });
   useEffect(() => { if (mobile) setSideOpen(false); }, [mobile, route]);
@@ -155,10 +156,10 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
         <div className="gtb-right">
           <NotifyBell Icon={IconBell} onOpen={(p) => navigate(p)} />
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme}
-            spaceKey={space?.key} spaceRole={space?.role} />
+            spaceKey={space?.key} spaceRole={space?.role} onMeChanged={onMeChanged} />
           <span className="gtb-sep" />
-          <span className="gtb-av" title={`${me.display_name}${me.email ? ` <${me.email}>` : ''}`}
-            style={{ background: spaceColor(me.display_name) }}>{(me.display_name ?? '?').trim()[0]}</span>
+          <Avatar name={me.display_name} user={me} className="gtb-av"
+            title={`${me.display_name}${me.email ? ` <${me.email}>` : ''}`} />
           <button className="gtb-logout" onClick={logout}>로그아웃</button>
         </div>
       </header>

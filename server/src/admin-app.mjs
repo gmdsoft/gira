@@ -7,6 +7,7 @@
 // 실행: node server/src/admin-app.mjs  (기본 0.0.0.0:3003)
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
+import fastifyMultipart from '@fastify/multipart';
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -14,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { query, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { registerOrgAdmin } from './admin-routes.mjs';
+import { registerAvatarAdmin } from './admin-avatar.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 try { process.loadEnvFile(path.join(here, '..', '..', '.env')); } catch { /* 환경변수 직접 지정 가능 */ }
@@ -25,8 +27,10 @@ configureDb({
 
 const app = Fastify({ logger: { level: 'warn' } });
 
+await app.register(fastifyMultipart, { limits: { fileSize: 1024 * 1024, files: 1 } });
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 registerOrgAdmin(app);   // /api/admin/* (사이트 관리자)
+registerAvatarAdmin(app); // /api/me/avatar (개인 프로필 이미지 — 조직 테이블의 유일한 작성자)
 
 // 관리 SPA (web/dist-admin — npm --workspace web run build:admin)
 const DIST = path.join(here, '..', '..', 'web', 'dist-admin');
