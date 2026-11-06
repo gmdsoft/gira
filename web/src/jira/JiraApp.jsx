@@ -378,7 +378,7 @@ export default function JiraApp() {
   const viewProps = {
     project, meta, pdata, me, filters, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
-    onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true),
+    onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true), onHome: gotoHome,
     boardJql: curBoard?.jql ?? null, // 보드 컨텍스트 필터 — 모든 뷰에 AND 적용
     board: curBoard ?? null,         // 백로그 요약 칩이 보드 컬럼 기준으로 세도록
   };
@@ -388,7 +388,7 @@ export default function JiraApp() {
       <header className="topbar">
         <div className="tb-left">
           <button className="iconbtn navtgl" onClick={toggleSide} title={sideOpen ? '사이드바 접기' : '사이드바 펼치기'}><IconGrid size={18} /></button>
-          <span className="brand"><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">Alpha</span></span>
+          <span className="brand" role="link" title="홈" onClick={gotoHome}><span className="brand-mark">G</span><span className="brand-word">Gira</span><span className="poc-badge">Alpha</span></span>
         </div>
         <div className="tb-center">
           <form className="tb-search" onSubmit={submitGlobal}>
@@ -432,7 +432,7 @@ export default function JiraApp() {
             onMine={(pkey) => { gotoProjView(pkey, 'list'); setFilters((f) => ({ ...f, who: String(me.id) })); }} /> : <>
           <div className="chead">
             <div className="chead-top">
-              <div className="crumb"><span>스페이스</span><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
+              <div className="crumb"><a className="crumb-home" href="/for-you" title="홈" onClick={(e) => { e.preventDefault(); gotoHome(); }}>스페이스</a><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
               <div className="chead-actions">
                 <button className="iconbtn" title="공유 (아직 지원하지 않음)"><IconShare size={17} /></button>
                 <button className="iconbtn" title="전체 화면 (아직 지원하지 않음)"><IconExpand size={17} /></button>

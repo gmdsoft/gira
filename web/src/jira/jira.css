@@ -844,3 +844,8 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .home-pname a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .home-links { display: flex; flex-wrap: wrap; gap: 4px; }
 .home-links button { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; padding: 2px 6px; }
+
+/* 홈으로 가는 길: 로고·경로의 '스페이스' (GIRA-7 검토 의견) */
+.brand[role=link] { cursor: pointer; }
+.crumb-home { color: inherit; text-decoration: none; }
+.crumb-home:hover { color: var(--accent); text-decoration: underline; }

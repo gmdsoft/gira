@@ -14,7 +14,7 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
     <nav id="sidebar">
       <div className="snav">
         <div className={`sitem snav-top${home ? ' on' : ''}`} onClick={onHome} title="홈 — 내 할당 이슈·최근 본 항목·바로가기">
-          <IconStar size={16} /><span className="strunc">추천</span><IconChevronRight size={14} className="sarrow" /></div>
+          <IconStar size={16} /><span className="strunc">홈 (추천)</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconStar size={16} /><span className="strunc">별표 표시됨</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconGrid size={16} /><span className="strunc">앱</span><IconChevronRight size={14} className="sarrow" /></div>
         <div className="sitem snav-top"><IconDashboard size={16} /><span className="strunc">계획</span><IconChevronRight size={14} className="sarrow" /></div>
