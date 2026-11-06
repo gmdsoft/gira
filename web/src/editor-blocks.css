@@ -206,3 +206,19 @@
 /* 코드 블록 제목 줄 (보기: 눌러 접기·펼치기, 편집: 표시만) */
 .doc .code-block-head.has-title { font-weight: 600; font-size: 13.5px; color: var(--text); padding: 8px 12px; border-bottom: 1px solid var(--border); }
 .doc .code-block-head:disabled { cursor: default; background: none; }
+
+.doc .mermaid-editor { border: 1px solid var(--border); border-radius: 6px; margin: 12px 0; }
+.doc .mermaid-toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+.doc .mermaid-toolbar button, .doc .mermaid-toolbar select { font: inherit; cursor: pointer; }
+.doc .mermaid-editor .code-body { overflow-x: auto; }
+.doc .mermaid-editor .code-body > pre { overflow: visible; font-family: var(--code-font); font-size: 14px; line-height: 24px; padding: 8px; white-space: pre; }
+.doc .mermaid-editor > .mermaid-view[hidden] { display: none; }
+.doc .mermaid-editor > .mermaid-view > details, .doc .mermaid-editor > .mermaid-view > button { display: none; }
+/* Mermaid 편집 블록 위 도구: 블록 도구 모음과 같은 모양 */
+.doc .mermaid-toolbar { display: flex; align-items: center; gap: 4px; }
+.doc .mermaid-toolbar button, .doc .mermaid-toolbar select {
+  height: 28px; padding: 0 9px; border: 1px solid transparent; border-radius: 5px; background: none;
+  color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; }
+.doc .mermaid-toolbar select { border-color: var(--border); background: var(--panel); }
+.doc .mermaid-toolbar button:hover { background: var(--hover); }
+.doc .mermaid-toolbar button:last-child { margin-left: auto; color: #ae2e24; }

@@ -1066,3 +1066,30 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .doc .media.media-layout-wrap-right { margin-left: 16px; margin-right: 0; }
 .doc::after { content: ''; display: block; clear: both; }
 .doc .media img.ProseMirror-selectednode, .doc .media.ProseMirror-selectednode img { outline: 1px solid #388bff; outline-offset: 4px; }
+
+/* Mermaid: 원본이 미리 그린 그림(코드 없는 원본) */
+.doc .mermaid-image { margin: 12px 0; text-align: center; }
+.doc .mermaid-image img { max-width: 100%; height: auto; }
+.doc .mermaid-image figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+.doc .mermaid-view { margin: 12px 0; min-width: 0; max-width: 100%; }
+.doc .mermaid-output { overflow-x: auto; padding: 8px; text-align: center; }
+/* Confluence처럼: 블록은 본문 폭 전체에 옅은 배경을 깔고, 다이어그램은 실제 크기로 가운데 */
+.doc .mermaid-view .mermaid-output { background: var(--code-block-bg, rgba(5, 21, 36, .06)); border-radius: 4px; padding: 16px; }
+.doc .mermaid-image { background: var(--code-block-bg, rgba(5, 21, 36, .06)); border-radius: 4px; padding: 16px; }
+/* 크기: Confluence처럼 다이어그램은 자연 크기(Mermaid가 넣는 max-width)로, 본문보다 크면 본문 폭에 맞춰 줄인다 — 확대하지 않는다.
+   원본이 미리 그린 PNG(고해상도)는 size 설정 폭으로 줄여 보인다 (Confluence 보통 ≈ 400px) */
+.doc .mermaid-output svg { height: auto; }
+.doc .mermaid-output img { max-width: 100%; height: auto; }
+.doc .mermaid-view[data-size="small"] .mermaid-output img { max-width: min(100%, 240px); }
+.doc .mermaid-view[data-size="medium"] .mermaid-output img, .doc .mermaid-view:not([data-size]) .mermaid-output img { max-width: min(100%, 400px); }
+.doc .mermaid-view details { margin-top: 8px; }
+.doc .mermaid-view summary { cursor: pointer; color: var(--muted); }
+.doc .mermaid-view button { margin-top: 6px; }
+.doc .mermaid-status, .doc .mermaid-caption { color: var(--muted); font-size: 13px; }
+.mermaid-scratch { position: absolute; left: -100000px; top: 0; width: 1000px; visibility: hidden; }
+/* 원문 보기·코드 복사는 다이어그램에 마우스를 올리거나(키보드로) 다가갈 때만 — Confluence처럼 평소엔 그림만 */
+.doc .mermaid-view > details, .doc .mermaid-view > button { opacity: 0; transition: opacity .15s; }
+.doc .mermaid-view:hover > details, .doc .mermaid-view:hover > button,
+.doc .mermaid-view:focus-within > details, .doc .mermaid-view:focus-within > button,
+.doc .mermaid-view > details[open], .doc .mermaid-view.has-error > details, .doc .mermaid-view.has-error > button { opacity: 1; }

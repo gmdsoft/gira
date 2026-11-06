@@ -204,8 +204,21 @@ export function convertStorage(xhtml) {
         if (params.jqlQuery) return { type: 'jiraTable', attrs: { jql: params.jqlQuery, columns: params.columns ?? null, maximumIssues: params.maximumIssues ?? null } };
         return { type: 'jiraIssue', attrs: { key: typeof params.key === 'string' ? params.key : '' } };
       case 'mermaid': case 'mermaid-cloud': {
-        const code = plainBody(n) ?? params.code ?? null;
-        if (code) return { type: 'mermaid', attrs: {}, content: [{ type: 'text', text: code }] };
+        // 원본 형식 (GIRA-46):
+        //  A) Mermaid Chart 앱: 파라미터 diagramCode = Mermaid 코드, 본문(plain-text-body) = 미리 그린 PNG(base64)
+        //  B) Mermaid Chart 클라우드 문서(documentID): 코드 없이 본문에 PNG만
+        //  C) 예전 매크로: 본문 = Mermaid 코드
+        const body = (plainBody(n) ?? '').trim();
+        const png = /^iVBORw0KGgo[A-Za-z0-9+/=\s]+$/.test(body) ? `data:image/png;base64,${body.replace(/\s+/g, '')}` : null;
+        const code = (typeof params.diagramCode === 'string' && params.diagramCode.trim() ? params.diagramCode
+          : !png && body ? body : typeof params.code === 'string' ? params.code : '').replace(/\r\n/g, '\n').trim();
+        if (code || png) {
+          return { type: 'mermaid', attrs: {
+            image: png, // 코드가 없을 때(B)는 이 그림을 보여 준다, 코드가 있으면 렌더링 실패 시 대체 그림
+            size: typeof params.size === 'string' ? params.size : null,
+            caption: typeof params.caption === 'string' && params.caption.trim() ? params.caption.trim() : null,
+          }, ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
+        }
         return cfMacro(name, params, rich, inlineCtx); // 첨부 기반 mermaid 매크로
       }
       case 'section': { // 구식 레이아웃: section > column

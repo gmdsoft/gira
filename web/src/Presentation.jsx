@@ -1,3 +1,4 @@
+import { hydrateMermaid } from './mermaid-view.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { generateHTML } from '@tiptap/html';
 import { extensions } from './extensions.js';
@@ -27,6 +28,8 @@ export default function Presentation({ page, onClose }) {
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     };
   }, [slides.length, onClose]);
+
+  useEffect(() => hydrateMermaid(ref.current), [i, slides]);
 
   const s = slides[i];
   return (

@@ -402,6 +402,8 @@ function CodeTools({ editor, block }) {
         <option value="">자동 감지</option>
         {codeLanguages.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
+      {attrs.language?.toLowerCase() === 'mermaid' && <TBtn title="Mermaid 다이어그램으로 바꾸기"
+        onClick={() => editor.chain().focus().setNodeSelection(block.pos).setNode('mermaid').run()}>Mermaid 다이어그램으로 바꾸기</TBtn>}
       {/* 제목·시작 줄: 입력을 마치면(Enter·포커스 이동) 반영 */}
       <input className="bt-input" aria-label="코드 블록 제목" placeholder="제목 (선택)" key={`t${block.pos}-${attrs.title ?? ''}`}
         defaultValue={attrs.title ?? ''} style={{ width: 150 }}
