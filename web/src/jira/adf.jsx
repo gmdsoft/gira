@@ -1,17 +1,19 @@
 // ADF(Atlassian Document Format) → React 읽기 전용 렌더러
 import React, { useContext } from 'react';
 
-// 첨부 매핑: media 노드의 alt(파일명) → 이슈 첨부. 이미지면 인라인으로 보여준다.
+// 첨부 매핑: media 노드 → 이슈 첨부. Gira에서 단 댓글은 attrs.id(첨부 id, collection 'gira'),
+// 이관된 Jira 본문은 alt(파일명)로 찾는다. 이미지면 인라인으로 보여준다.
 const AttCtx = React.createContext(null);
 
 function Media({ n }) {
-  const byName = useContext(AttCtx);
+  const { byName, byId } = useContext(AttCtx) ?? {};
   const a = n.attrs ?? {};
   if (a.type === 'external' && a.url) {
     return <img className="adf-img" src={a.url} alt={a.alt ?? ''} loading="lazy"
       style={{ maxWidth: '100%', width: a.width ? Math.min(a.width, 740) : undefined }} />;
   }
-  const hit = a.alt ? byName?.get(String(a.alt).toLowerCase()) : null;
+  const hit = (a.collection === 'gira' && a.id ? byId?.get(String(a.id)) : null)
+    ?? (a.alt ? byName?.get(String(a.alt).toLowerCase()) : null);
   if (hit && (hit.media_type ?? '').startsWith('image/')) {
     return <img className="adf-img" src={`/api/attachment/${hit.id}`} alt={a.alt} loading="lazy"
       style={{ maxWidth: '100%', width: a.width ? Math.min(a.width, 740) : undefined }} />;
@@ -79,8 +81,9 @@ function Node({ n }) {
 export default function AdfView({ doc, attachments }) {
   if (!doc) return <span className="dim">없음</span>;
   const byName = new Map((attachments ?? []).map((a) => [String(a.filename).toLowerCase(), a]));
+  const byId = new Map((attachments ?? []).map((a) => [String(a.id), a]));
   return (
-    <AttCtx.Provider value={byName}>
+    <AttCtx.Provider value={{ byName, byId }}>
       <div className="adf"><Node n={doc} /></div>
     </AttCtx.Provider>
   );
