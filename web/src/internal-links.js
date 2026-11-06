@@ -6,7 +6,8 @@ export function internalLink(text, base) {
     if (!['http:', 'https:'].includes(url.protocol) || url.hostname !== local.hostname || url.username || url.password) return null;
     const page = url.pathname.match(/^\/s\/[^/]+\/p\/(\d+)\/?$/)
       || url.pathname.match(/^\/wiki\/spaces\/[^/]+\/pages\/(\d+)(?:\/[^/]*)?\/?$/);
-    if (page && url.origin === local.origin) return { kind: 'page', id: page[1], href: url.href };
+    // 같은 호스트면 포트가 달라도 이 Gonfluence 문서로 본다 (미리보기·운영 서버가 포트만 다른 경우)
+    if (page && url.protocol === local.protocol) return { kind: 'page', id: page[1], href: url.href };
     const issue = url.pathname.match(/^\/browse\/([A-Z][A-Z0-9_]*-\d+)\/?$/);
     if (issue && url.protocol === local.protocol && url.port === '3002') return { kind: 'issue', id: issue[1], href: url.href };
   } catch { /* URL 아님 */ }
