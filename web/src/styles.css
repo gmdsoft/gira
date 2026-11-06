@@ -385,6 +385,9 @@ mark { background: #fff0b3; border-radius: 2px; padding: 0 1px; }
 .archive-link { display: block; margin-top: 16px; padding: 6px 8px; font-size: 13px; color: var(--muted2);
   text-decoration: none; border-radius: 4px; }
 .archive-link:hover { background: var(--bg-subtle); }
+/* 사이드바 묶음: 콘텐츠 | 스페이스 관리 | 다른 앱 | 개발 관련 — 구분선으로 나눈다 */
+.side-sep { border: 0; border-top: 1px solid var(--border); margin: 10px 8px; }
+.side-group .archive-link { margin-top: 0; }
 .archive-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .archive-row a { flex: 1; min-width: 0; color: inherit; }
 

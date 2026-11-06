@@ -213,17 +213,29 @@ export default function App() {
           <button className="btn new-page" onClick={createPage}>+ 새 페이지</button>
           <Tree tree={space.tree} spaceKey={space.key} currentId={route.pageId} navigate={navigate}
             onMove={(node) => setMovePage({ id: node.id, title: node.title, spaceKey: space.key })} />
-          <a className="archive-link" href={`/s/${space.key}/archive`}
-             onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
-          {space.role === 'admin' && (
-            <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
-          )}
+          <hr className="side-sep" />
+          {/* 스페이스 관리 */}
+          <div className="side-group">
+            <a className="archive-link" href={`/s/${space.key}/archive`}
+               onClick={(e) => { e.preventDefault(); navigate(`/s/${space.key}/archive`); }}>🗂 보관함 · 휴지통</a>
+            {space.role === 'admin' && (
+              <a className="archive-link" href="#" onClick={(e) => { e.preventDefault(); setPermOpen(true); }}>🔑 스페이스 권한</a>
+            )}
+          </div>
         </>}
-        <a className="archive-link" href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
-           onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
-        <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
-        <a className="archive-link" href={REPO_URL} target="_blank" rel="noreferrer">📦 저장소 ↗</a>
-        <a className="archive-link" href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🗂 Gira ↗</a>
+        <hr className="side-sep" />
+        {/* 다른 앱 */}
+        <div className="side-group">
+          <a className="archive-link" href={`//${location.hostname}:3002/`} target="_blank" rel="noreferrer">🎫 Gira ↗</a>
+        </div>
+        <hr className="side-sep" />
+        {/* 개발 관련 */}
+        <div className="side-group">
+          <a className="archive-link" href="#" title="신규 기능·수정·버그 제안 (개발참여 챗봇)"
+             onClick={(e) => { e.preventDefault(); openDevChat(); }}>💡 거 참 답답하네</a>
+          <a className="archive-link" href={SPEC_URL} target="_blank" rel="noreferrer">📘 개발 명세서 ↗</a>
+          <a className="archive-link" href={REPO_URL} target="_blank" rel="noreferrer">📦 저장소 ↗</a>
+        </div>
         <div className="sidebar-user">
           <span title={me.email}>👤 {me.display_name}</span>
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme} up
