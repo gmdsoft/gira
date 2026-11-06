@@ -170,6 +170,7 @@ export function convertStorage(xhtml) {
         const truthy = (v) => v === true || v === 'true';
         return { type: 'codeBlock', attrs: {
           language: params.language ?? null,
+          blockWidth: Number(n.attribs['ac:width']) >= 760 ? Number(n.attribs['ac:width']) : null,
           wrap: truthy(params.wrap),
           lineNumbers: params.linenumbers == null ? true : truthy(params.linenumbers),
           collapsed: truthy(params.collapse),
@@ -181,7 +182,7 @@ export function convertStorage(xhtml) {
           panelIcon: params.panelIconText ?? params.panelIcon ?? null,
         }, content: ensureBlocks(rich ? blocks(rich.children) : []) };
       case 'expand':
-        return { type: 'expand', attrs: { title: params.title ?? '' },
+        return { type: 'expand', attrs: { title: params.title ?? '', blockWidth: Number(n.attribs['ac:width']) >= 760 ? Number(n.attribs['ac:width']) : null },
           content: ensureBlocks(rich ? blocks(rich.children) : []) };
       case 'status':
         return { type: 'status', attrs: { text: params.title ?? '', color: (params.colour ?? params.color ?? 'neutral').toLowerCase() } };
@@ -351,9 +352,9 @@ export function convertStorage(xhtml) {
           items.push({ node: imageNode(n) });
           break;
         case 'ac:layout':
-          items.push({ node: { type: 'layout', content: childEls(n, 'ac:layout-section').map((sec) => ({
+          items.push({ node: { type: 'layout', attrs: { blockWidth: Number(n.attribs['ac:width']) >= 760 ? Number(n.attribs['ac:width']) : null }, content: childEls(n, 'ac:layout-section').map((sec) => ({
             type: 'layoutSection', attrs: { kind: dec(sec.attribs['ac:type'] ?? 'single') },
-            content: childEls(sec, 'ac:layout-cell').map((cell) => ({ type: 'layoutColumn', content: ensureBlocks(blocks(cell.children)) })),
+            content: childEls(sec, 'ac:layout-cell').map((cell) => ({ type: 'layoutColumn', attrs: { width: Number(cell.attribs['ac:width']) || null }, content: ensureBlocks(blocks(cell.children)) })),
           })) } });
           break;
         case 'ac:structured-macro': case 'ac:macro': {

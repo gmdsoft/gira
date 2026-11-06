@@ -136,7 +136,7 @@ function setLayoutColumns(editor, block, count) {
     cols[count - 1] = schema.nodes.layoutColumn.create(null, content.length ? content : [schema.nodes.paragraph.create()]);
   }
   const kind = count === 1 ? 'single' : `${['', 'single', 'two', 'three', 'four', 'five'][count]}_equal`;
-  const next = section.type.create({ ...section.attrs, kind }, cols);
+  const next = section.type.create({ ...section.attrs, kind }, cols.map(col => col.type.create({ ...col.attrs, width: null }, col.content)));
   const sectionPos = block.pos + 1;
   const tr = editor.state.tr.replaceWith(sectionPos, sectionPos + section.nodeSize, next);
   tr.setSelection(TextSelection.near(tr.doc.resolve(sectionPos + 2)));
@@ -148,7 +148,9 @@ function setLayoutColumns(editor, block, count) {
 function setLayoutKind(editor, block, kind) {
   const section = editor.state.doc.nodeAt(block.pos)?.firstChild;
   if (!section) return;
-  editor.view.dispatch(editor.state.tr.setNodeMarkup(block.pos + 1, null, { ...section.attrs, kind }));
+  let tr = editor.state.tr.setNodeMarkup(block.pos + 1, null, { ...section.attrs, kind });
+  section.forEach((col, offset) => { tr = tr.setNodeAttribute(block.pos + 2 + offset, 'width', null); });
+  editor.view.dispatch(tr);
   editor.view.focus();
 }
 

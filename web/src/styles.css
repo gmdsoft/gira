@@ -1,4 +1,5 @@
 @import './task-item.css';
+@import './block-resize.css';
 :root {
   color-scheme: light;
   --bg: #ffffff;
