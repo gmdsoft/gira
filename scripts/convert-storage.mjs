@@ -5,6 +5,7 @@
 // 모듈: import { convertStorage } from './convert-storage.mjs'
 // CLI : node scripts/convert-storage.mjs <storage.xhtml 파일>
 
+import { safeEmbedUrl, embedHeight } from '../shared/html-embed.mjs';
 import { parseDocument } from 'htmlparser2';
 import { decodeHTML } from 'entities';
 import { readFileSync } from 'node:fs';
@@ -174,6 +175,10 @@ export function convertStorage(xhtml) {
     const params = macroParams(n);
     const rich = childEl(n, 'ac:rich-text-body');
     switch (name) {
+      case 'html':
+        return { type: 'htmlEmbed', attrs: { source: 'html', html: plainBody(n) ?? '', height: embedHeight(params.height) } };
+      case 'iframe':
+        return { type: 'htmlEmbed', attrs: { source: 'iframe', src: safeEmbedUrl(params.src?.['ri:value'] ?? params.src), width: params.width ?? null, height: embedHeight(params.height) } };
       case 'code': case 'noformat': {
         // ProseMirror는 빈 텍스트 노드를 허용하지 않는다 — 빈 코드 블록은 content 생략
         const code = (plainBody(n) ?? '').replace(/\r\n/g, '\n');
@@ -279,6 +284,16 @@ export function convertStorage(xhtml) {
     }
     if (type === 'extension') {
       const key = String(attrs['extension-key'] ?? '');
+      if (key.endsWith('hmpcost-html-macro-pro')) {
+        const guest = attrs.parameters?.['guest-params'] ?? attrs['guest-params'] ?? {};
+        const encoded = String(guest.body ?? '').replace(/\s/g, '');
+        // Buffer.from는 잘못된 base64도 허용하므로 정규 형식과 UTF-8을 검사한다.
+        let html = '';
+        if (/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          try { html = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(encoded, 'base64')); } catch {}
+        }
+        return { type: 'htmlEmbed', attrs: { source: 'hmp', html, height: embedHeight(guest.height) } };
+      }
       const shortName = key.split('/').pop() || 'extension';
       inc(stats.unsupportedMacros, 'adf-ext:' + shortName);
       return { type: 'cfMacro', attrs: { name: 'adf-ext:' + shortName, params: attrs, dynamic: false } };
@@ -313,9 +328,18 @@ export function convertStorage(xhtml) {
       const h = /^h([1-6])$/.exec(n.name);
       if (h) { items.push({ node: { type: 'heading', attrs: { level: Number(h[1]) }, content: inline(n.children, []) } }); continue; }
       switch (n.name) {
-        case 'p':
-          items.push({ node: para(inline(n.children, [])) });
+        case 'p': {
+          // 구형 html 매크로는 문단 안에도 들어간다. 블록 노드를 문단 밖으로 꺼낸다.
+          let pending = [];
+          const flush = () => { if (pending.length) items.push({ node: para(pending) }); pending = []; };
+          for (const node of inline(n.children, [])) {
+            if (node.type === 'htmlEmbed') { flush(); items.push({ node }); }
+            else pending.push(node);
+          }
+          flush();
+          if (!n.children?.length) items.push({ node: para([]) });
           break;
+        }
         case 'ul': case 'ol':
           items.push({ node: { type: n.name === 'ul' ? 'bulletList' : 'orderedList',
             content: childEls(n, 'li').map((li) => ({ type: 'listItem', content: ensureBlocks(blocks(li.children)) })) } });

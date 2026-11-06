@@ -12,6 +12,15 @@ const { doc: formattingDoc } = convertStorage('<p><small>작은 텍스트</small
 getSchema(extensions).nodeFromJSON(formattingDoc).check();
 generateHTML(formattingDoc, extensions);
 
+// HTML 블록도 아직 DB에 없는 상태에서 공통 스키마/직렬화를 검사한다.
+const htmlEmbedDoc = { type: 'doc', content: [
+  { type: 'htmlEmbed', attrs: { source: 'hmp', html: '<script>document.body.append("차트")</script>', height: 1024 } },
+  { type: 'htmlEmbed', attrs: { source: 'html', html: '<table><tr><td>서명</td></tr></table>' } },
+  { type: 'htmlEmbed', attrs: { source: 'iframe', src: 'https://www.figma.com/embed', height: 800 } },
+] };
+getSchema(extensions).nodeFromJSON(htmlEmbedDoc).check();
+generateHTML(htmlEmbedDoc, extensions);
+
 // 편집기 이미지 속성이 게시용 스키마에서도 보존되는지 DB 검사 전에 확인한다.
 const imageDoc = { type: 'doc', content: [{ type: 'paragraph', content: [{
   type: 'media', attrs: { src: '/image-check.png', width: 836, layout: 'wrap-left',
