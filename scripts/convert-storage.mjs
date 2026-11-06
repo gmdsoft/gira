@@ -8,6 +8,7 @@
 import { parseDocument } from 'htmlparser2';
 import { decodeHTML } from 'entities';
 import { readFileSync } from 'node:fs';
+import { HIDDEN_MACROS, BODY_ONLY_MACROS, NOTICE_MACROS } from '../server/src/macro-kinds.mjs';
 
 // 새 서비스가 데이터로 렌더링할 동적 매크로. 그 외 미분류 매크로는 unsupported로 센다.
 const DYNAMIC_MACROS = new Set([
@@ -56,7 +57,11 @@ const text = (t, marks) => ({ type: 'text', text: t, ...(marks.length ? { marks 
 const para = (content) => ({ type: 'paragraph', ...(content.length ? { content } : {}) });
 
 export function convertStorage(xhtml) {
-  const stats = { tags: {}, unknownTags: {}, macros: {}, dynamicMacros: {}, unsupportedMacros: {} };
+  // hiddenMacros: 보기에서 숨기는 내보내기 앱 표시, noticeMacros: 옮길 수 없는 앱(안내로 대체) — 둘 다 '미지원'으로 세지 않는다
+  const stats = { tags: {}, unknownTags: {}, macros: {}, dynamicMacros: {}, unsupportedMacros: {}, hiddenMacros: {}, noticeMacros: {} };
+  // 매크로 이름별로 알맞은 통계 칸에 센다
+  const countMacro = (name, fallback) => inc(HIDDEN_MACROS.has(name) ? stats.hiddenMacros
+    : NOTICE_MACROS.has(name) ? stats.noticeMacros : fallback, name);
   const inc = (m, k) => (m[k] = (m[k] ?? 0) + 1);
 
   function inline(nodes, marks) {
@@ -129,6 +134,17 @@ export function convertStorage(xhtml) {
           break;
         }
         case 'ac:image': out.push(imageNode(n)); break; // 인라인 위치의 이미지도 수용
+        case 'ac:adf-extension': {
+          // 문단 안의 앱 블록(스마트 버튼 등 inline-extension). 예전에는 속성 글자가 본문으로 새어 나왔다(GIRA-48)
+          const an = childEl(n, 'ac:adf-node');
+          const node = an ? adfNode(an) : null;
+          if (node?.type === 'cfMacro') out.push({ type: 'cfMacroInline', attrs: node.attrs });
+          else {
+            const fb = childEl(n, 'ac:adf-fallback');
+            if (fb && !childEl(fb, 'ac:adf-node')) out.push(...inline(fb.children, marks));
+          }
+          break;
+        }
         case 'ac:placeholder': break;
         default:
           inc(stats.unknownTags, n.name);
@@ -234,7 +250,7 @@ export function convertStorage(xhtml) {
         return { type: 'layout', content: [{ type: 'layoutSection', attrs: { kind: 'legacy' },
           content: [{ type: 'layoutColumn', content: ensureBlocks(rich ? blocks(rich.children) : []) }] }] };
       default: {
-        inc(DYNAMIC_MACROS.has(name) ? stats.dynamicMacros : stats.unsupportedMacros, name);
+        if (!BODY_ONLY_MACROS.has(name)) countMacro(name, DYNAMIC_MACROS.has(name) ? stats.dynamicMacros : stats.unsupportedMacros);
         return cfMacro(name, params, rich, inlineCtx);
       }
     }
@@ -277,15 +293,17 @@ export function convertStorage(xhtml) {
       } else if (c.name === 'ac:adf-node') kids.push(adfNode(c));
       else if (c.name === 'ac:adf-content') kids.push(...blocks(c.children));
     }
-    if (type === 'extension') {
+    // inline-extension은 인라인 자리(ac:adf-extension이 문단 안)에서 cfMacroInline으로 바뀐다 — inline() 참고
+    if (type === 'extension' || type === 'inline-extension') {
       const key = String(attrs['extension-key'] ?? '');
       const shortName = key.split('/').pop() || 'extension';
-      inc(stats.unsupportedMacros, 'adf-ext:' + shortName);
+      countMacro('adf-ext:' + shortName, stats.unsupportedMacros);
       return { type: 'cfMacro', attrs: { name: 'adf-ext:' + shortName, params: attrs, dynamic: false } };
     }
     if (type === 'panel')
       return { type: 'panel', attrs: { panelType: attrs['panel-type'] || 'info', title: null, bgColor: null }, content: ensureBlocks(kids) };
-    if (type !== 'decision-list' && type !== 'decision-item') inc(stats.unsupportedMacros, 'adf:' + type);
+    // bodied-extension(Scroll Ignore 등 앱이 본문을 감싼 것)은 보기에서 본문만 그리므로 미지원으로 세지 않는다
+    if (!['decision-list', 'decision-item', 'bodied-extension'].includes(type)) inc(stats.unsupportedMacros, 'adf:' + type);
     return { type: 'adfNode', attrs: { adfType: type, attrs }, ...(kids.length ? { content: kids } : {}) };
   }
 

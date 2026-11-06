@@ -486,6 +486,13 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .macro-include > .doc { padding: 10px 14px; }
 .macro-details { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0.8em 0; }
 .macro-excerpt { margin: 0.4em 0; }
+/* GIRA-48: 내보내기 앱 표시(쪽 나눔 등)는 보기에서 숨기고, 편집기에서는 점선 한 줄로만 */
+.cf-macro-hidden { display: none; }
+.ProseMirror[contenteditable="true"] div.cf-macro-hidden { display: block; height: 0; border-top: 1px dashed var(--border); margin: 10px 0; position: relative; }
+.ProseMirror[contenteditable="true"] div.cf-macro-hidden::after { content: '쪽 나눔 (내보내기용)'; position: absolute; right: 0; top: -9px; font-size: 11px; color: var(--muted); background: var(--bg); padding: 0 4px; }
+.macro-body-only { margin: 0; }
+.cf-macro-notice { display: block; margin: 0.6em 0; padding: 6px 10px; border-radius: 6px; background: var(--bg-subtle); color: var(--muted); font-size: 12px; }
+span.cf-macro-notice { display: inline-block; margin: 0 2px; padding: 1px 6px; }
 .macro-contributors { color: var(--accent); }
 .decision-list { margin: 0.6em 0; }
 .decision-item { background: var(--bg-subtle); border-radius: 6px; padding: 8px 12px 8px 36px; margin: 4px 0; position: relative; }
