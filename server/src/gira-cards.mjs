@@ -42,7 +42,11 @@ export function registerGiraCards(app, { giraUrl = process.env.GIRA_URL ?? 'http
       });
       if (!res.ok) return { key };
       const issue = await res.json();
-      return { key, summary: issue.summary, status: issue.status_name, statusCategory: issue.status_category, type: issue.type_name };
+      return {
+        key, summary: issue.summary, status: issue.status_name, statusCategory: issue.status_category, type: issue.type_name,
+        assignee: issue.assignee_name, reporter: issue.reporter_name, priority: issue.priority,
+        updated: issue.updated_at, created: issue.created_at, resolution: issue.resolution, fixVersions: issue.fix_versions,
+      };
     } catch {
       return { key };
     }

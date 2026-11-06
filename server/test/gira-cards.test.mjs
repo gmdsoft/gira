@@ -84,3 +84,19 @@ test('슬래시 이슈 명령은 정규화한 키를 삽입하고 취소·잘못
     assert.equal(deleted, false);
   }
 });
+
+test('데이터베이스 Jira 파생 열은 권한을 확인한 Gira 필드만 반환한다', async (t) => {
+  const app = Fastify();
+  registerGiraCards(app, { giraUrl: 'https://gira.example' });
+  t.after(() => app.close());
+  const original = globalThis.fetch;
+  t.after(() => { globalThis.fetch = original; });
+  globalThis.fetch = async () => Response.json({ summary: '제목', type_name: '작업', status_name: '완료',
+    assignee_name: '담당자', priority: '높음', updated_at: '2026-11-06', fix_versions: ['1.0'], fields_raw: { secret: true } });
+  const result = (await app.inject('/api/gira/issues/GIRA-50')).json();
+  assert.equal(result.assignee, '담당자');
+  assert.equal(result.priority, '높음');
+  assert.equal(result.updated, '2026-11-06');
+  assert.deepEqual(result.fixVersions, ['1.0']);
+  assert.equal(result.fields_raw, undefined);
+});

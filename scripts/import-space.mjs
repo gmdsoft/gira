@@ -5,6 +5,7 @@
 // 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>] [--pages <id,id,...>]
 //   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
+import { fetchDatabase } from './lib/confluence-database.mjs';
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -86,7 +87,13 @@ if (args.pages) {
   if (args.wipe) { console.error('--pages와 --wipe는 같이 쓸 수 없습니다.'); process.exit(1); }
   const ids = args.pages.split(',').map((x) => x.trim()).filter(Boolean);
   console.log(`지정 페이지 ${ids.length}건 수집 (본문 포함)...`);
-  pages = (await mapLimit(ids, 6, (id) => get(`/wiki/api/v2/pages/${id}?body-format=storage`)))
+  pages = (await mapLimit(ids, 6, async (id) => {
+    try { return await get(`/wiki/api/v2/pages/${id}?body-format=storage`); }
+    catch (e) { if (e.status !== 404 && e.status !== 400) throw e;
+      const c = await get(`/wiki/rest/api/content/${id}?expand=space,version,ancestors`);
+      if (c.type !== 'database') throw e;
+      return { ...c, spaceId: c.space?.id, parentId: c.ancestors?.at(-1)?.id }; }
+  }))
     .filter((p) => { const ok = String(p.spaceId) === String(space.id); if (!ok) console.log(`  ⚠ ${p.id} "${p.title}"는 ${args.space} 스페이스가 아니라 건너뜀`); return ok; });
   console.log(`  페이지 ${pages.length}건`);
 } else if (!args.since) {
@@ -107,6 +114,35 @@ if (args.pages) {
   pages = await mapLimit(changed, 6, (p) => get(`/wiki/api/v2/pages/${p.id}?body-format=storage`));
 }
 
+// Databases are listed independently: they have no storage body in the page API.
+let databases = pages.filter(p => p.type === 'database');
+pages = pages.filter(p => p.type !== 'database');
+if (!args.pages) {
+  let listed;
+  try { listed = await getAll(`/wiki/api/v2/spaces/${space.id}/databases?limit=100`); }
+  catch (e) {
+    if (![400, 404, 501].includes(e.status)) throw e;
+    listed = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=database and space="${space.key}"`)}&expand=version,ancestors&limit=100`);
+  }
+  // Canvas changes need not increment the content version. Refresh each snapshot on incremental runs too.
+  databases = listed;
+}
+// Targeted page imports also retain a database parent instead of orphaning the page.
+for (const p of pages) if (p.parentType === 'database' && !databases.some(d => String(d.id) === String(p.parentId))) {
+  databases.push({ id: p.parentId });
+}
+const databaseData = new Map();
+for (const d of databases) {
+  if (databaseData.has(String(d.id))) continue;
+  const snapshot = await fetchDatabase(d.id, { get, site: SITE });
+  const c = snapshot.content;
+  Object.assign(d, { type: 'database', title: c.title, version: c.version ?? d.version,
+    parentId: d.parentId ?? c.ancestors?.at(-1)?.id, parentType: d.parentType ?? c.ancestors?.at(-1)?.type, spaceId: space.id });
+  databaseData.set(String(d.id), snapshot);
+  if (d.parentType === 'database' && !databases.some(parent => String(parent.id) === String(d.parentId))) databases.push({ id: d.parentId });
+}
+console.log(`  데이터베이스 ${databases.length}건`);
+
 // 충돌 가드: 원본 페이지와 id가 같은 '로컬에서 만든 페이지'(원본 본문 버전이 하나도 없는 page/live)는
 // 덮어쓰지 않는다 — 로컬 번호가 원본 대역 위에서 발급되던 시절의 페이지 보호
 {
@@ -123,7 +159,7 @@ if (args.pages) {
 // 폴더: 페이지 부모 체인에 등장하는 폴더를 재귀적으로 수집
 const folders = new Map();
 {
-  const queue = [...new Set(pages.filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
+  const queue = [...new Set([...pages, ...databases].filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
   while (queue.length) {
     const id = queue.shift();
     if (!id || folders.has(id)) continue;
@@ -180,7 +216,10 @@ for (const { doc } of docs) if (doc) walk(doc, (n) => { if (n.type === 'mention'
 // ---------- 사용자 ----------
 
 const accountIds = new Set(mentionIds);
-for (const p of pages) {
+for (const { data } of databaseData.values()) for (const row of data.rows) for (const field of data.fields) {
+  if (field.type === 'u') for (const value of row.cells[field.id] ?? []) if (value.a) accountIds.add(value.a);
+}
+for (const p of [...pages, ...databases]) {
   if (p.authorId) accountIds.add(p.authorId);
   if (p.ownerId) accountIds.add(p.ownerId);
   if (p.version?.authorId) accountIds.add(p.version.authorId);
@@ -273,7 +312,18 @@ for (const [i, p] of pages.entries()) {
      uid(p.authorId), uid(p.ownerId), p.version?.number ?? 1, perPage[i]?.fullWidth ?? false,
      ts(p.createdAt), ts(p.version?.createdAt)]);
 }
-const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id)]);
+for (const d of databases) {
+  const snap = databaseData.get(String(d.id));
+  const version = d.version?.number ?? 1;
+  await query(`INSERT INTO content (id, space_id, type, title, current_version, full_width, updated_at)
+    VALUES ($1,$2,'database',$3,$4,true,$5)
+    ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, current_version=EXCLUDED.current_version, updated_at=EXCLUDED.updated_at
+    WHERE content.type='database'`, [d.id, space.id, d.title, version, ts(d.version?.createdAt ?? d.version?.when)]);
+  await query(`INSERT INTO database_snapshots (content_id,version,data,source_ybin) VALUES ($1,$2,$3,$4)
+    ON CONFLICT (content_id,version) DO UPDATE SET data=EXCLUDED.data,source_ybin=EXCLUDED.source_ybin,fetched_at=now()`,
+    [d.id, version, JSON.stringify(snap.data), snap.binary]);
+}
+const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id), ...databases.map(d => d.id)]);
 // 증분 동기화에서는 부모가 이번 수집에 없을 수 있으므로 DB에 있는지도 본다
 const inDb = async (id) => (await query(`SELECT 1 FROM content WHERE id = $1`, [id])).rows.length > 0;
 const linkable = async (id) => !!id && (knownIds.has(id) || await inDb(id));
@@ -282,7 +332,7 @@ for (const f of folders.values()) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [f.id, f.parentId]);
   }
 }
-for (const p of pages) {
+for (const p of [...pages, ...databases]) {
   if (await linkable(p.parentId)) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [p.id, p.parentId]);
   }
