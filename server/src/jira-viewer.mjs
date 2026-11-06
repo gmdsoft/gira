@@ -397,7 +397,7 @@ app.get('/api/issue/:key', async (req, reply) => {
     query(`SELECT c.id, c.body_adf, c.created_at, u.display_name AS author_name
              FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
             WHERE c.issue_id = $1 ORDER BY c.created_at`, [issue.id]),
-    query(`SELECT id, filename, media_type, file_size, created_at FROM jira_attachments
+    query(`SELECT id, filename, media_type, media_id, file_size, created_at FROM jira_attachments
             WHERE issue_id = $1 ORDER BY created_at`, [issue.id]),
     query(`SELECT l.id, l.link_type, l.inward_issue, l.outward_issue,
                   ii.issue_key AS inward_key, ii.summary AS inward_summary,

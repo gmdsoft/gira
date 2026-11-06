@@ -6,6 +6,7 @@
 //
 // 사용법: node scripts/jira-import-project.mjs --project SIMSIM [--wipe] [--since <ISO 시각>]
 
+import { fillMediaIds } from './lib/jira-media.mjs';
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
 
@@ -311,6 +312,12 @@ for (;;) {
       linkCount++;
     }
   }
+
+  const pendingMedia = await query(`SELECT a.id FROM jira_attachments a
+    WHERE a.issue_id = ANY($1::bigint[]) AND (a.media_id IS NULL OR a.media_id = '')`, [issues.map((i) => i.id)]);
+  const mediaResult = await fillMediaIds(pendingMedia.rows, { query, site: SITE, auth: AUTH });
+  if (mediaResult.failed) process.exitCode = 1;
+  console.log('  첨부 미디어', mediaResult);
 
   total += issues.length;
   console.log(`  ${total}건 적재...`);

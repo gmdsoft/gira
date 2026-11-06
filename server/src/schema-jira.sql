@@ -205,3 +205,6 @@ CREATE TABLE IF NOT EXISTS jira_web_links (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS jira_web_links_issue ON jira_web_links(issue_id);
+
+ALTER TABLE jira_attachments ADD COLUMN IF NOT EXISTS media_id text;
+CREATE INDEX IF NOT EXISTS jira_attachments_media_id ON jira_attachments(media_id);
