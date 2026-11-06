@@ -64,7 +64,7 @@ function ListFoot({ total, shown, loading, onNew, onRefresh }) {
 }
 
 // ---------- 목록 (좌: 리스트 / 우: 상세) ----------
-export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, boardJql }) {
+export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOpen, onChanged, onTitle, onCount, onSeen, onNew, onHome, boardJql }) {
   const { rows, total, loading, fetchMore } = useIssues(project, filters, bump, { pageSize: 100, extraJql: [boardJql] });
   const [paneWidth, setPaneWidth] = useState(() => {
     const v = Number(localStorage.getItem('jira.listPaneWidth'));
@@ -119,7 +119,7 @@ export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOp
       <div className="pane-resizer" title="드래그하여 이슈 목록 폭 조절" onMouseDown={startPaneResize} />
       <div id="detail">
         {selKey
-          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} me={me} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} onNew={onNew} />
+          ? <IssueDetail issueKey={selKey} meta={meta} pdata={pdata} me={me} onOpen={onOpen} onChanged={onChanged} onTitle={onTitle} onSeen={onSeen} onNew={onNew} onHome={onHome} />
           : <div className="placeholder">왼쪽 목록에서 이슈를 선택하세요</div>}
       </div>
     </div>

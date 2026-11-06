@@ -4,6 +4,7 @@ import { editExtensions } from './extensions.js';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
+import { useEditPresence, EditingWarning } from './edit-presence.jsx';
 
 async function send(path, method, body) {
   const res = await fetch(path, {
@@ -62,6 +63,8 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
   const dirty = useRef(false);
   const fileInput = useRef(null);
   const editorRef = useRef(null);
+  // 편집 중 신호(30초 하트비트) — 다른 편집자가 있으면 상단에 경고 (막지는 않는다)
+  const editors = useEditPresence(page.id, { editing: true });
   const isUntitled = initialTitle === '제목 없는 문서';
   const [title, setTitle] = useState(isUntitled ? '' : initialTitle);
   const titleRef = useRef(title);
@@ -245,6 +248,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
           </button>
         </div>
       </div>
+      <EditingWarning editors={editors} />
       {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
       {editor && mode === 'notion' && (
         <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>

@@ -385,6 +385,9 @@ mark { background: #fff0b3; border-radius: 2px; padding: 0 1px; }
 .archive-link { display: block; margin-top: 16px; padding: 6px 8px; font-size: 13px; color: var(--muted2);
   text-decoration: none; border-radius: 4px; }
 .archive-link:hover { background: var(--bg-subtle); }
+/* 사이드바 묶음: 콘텐츠 | 스페이스 관리 | 다른 앱 | 개발 관련 — 구분선으로 나눈다 */
+.side-sep { border: 0; border-top: 1px solid var(--border); margin: 10px 8px; }
+.side-group .archive-link { margin-top: 0; }
 .archive-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
 .archive-row a { flex: 1; min-width: 0; color: inherit; }
 
@@ -749,3 +752,9 @@ span.cf-macro-slot { display: inline; margin: 0; }
 /* 개발참여 챗봇 — 새 탭 전용 페이지 */
 .devchat-page { min-height: 100vh; background: var(--bg); display: flex; justify-content: center; padding: 16px; box-sizing: border-box; }
 .devchat-page .devchat { width: 880px; max-width: 100%; height: calc(100vh - 32px); background: var(--panel); border-radius: 12px; box-shadow: 0 2px 12px rgba(9,30,66,.12); }
+
+/* 편집 중 표시 (edit-presence.jsx) */
+.editing-badge { font-size: 12px; color: #7a5a00; background: #fff7d6; border: 1px solid #e2c94f;
+  border-radius: 3px; padding: 1px 6px; }
+.editing-warning { background: #fff7d6; border: 1px solid #e2c94f; color: #292a2e; border-radius: 4px;
+  padding: 8px 12px; margin: 8px 0; font-size: 13px; }

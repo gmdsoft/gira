@@ -31,6 +31,8 @@ CLAUDE.md의 작업 규칙(브랜치, 데이터 원칙, 테스트 데이터 정�
 node scripts/gira-issue.mjs <KEY> --status "진행 중" --label +agent-running --comment "처리 시작 — 개발 세션, 브랜치 feature/<key>"
 ```
 
+대상 앱 레이블(`Gira` / `Gonfluence`, 공통이면 둘 다)이 없으면 이때 함께 단다 (예: `--label +agent-running,+Gonfluence`).
+
 ## 4. 작업 공간
 
 메인 작업 디렉터리(실행 중인 서버가 쓰는 곳)는 건드리지 않는다. 이슈 전용 worktree에서 작업한다.

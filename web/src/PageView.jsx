@@ -7,6 +7,7 @@ import { hydrateMacros } from './macros.js';
 import Presentation from './Presentation.jsx';
 import MoveDialog from './MoveDialog.jsx';
 import { RestrictionsModal } from './access.jsx';
+import { useEditPresence, EditingBadge } from './edit-presence.jsx';
 
 // 본문 텍스트 노드를 이어 붙여 needle을 찾아 Range로 반환 (서식으로 쪼개진 노드도 매칭)
 function findTextRange(root, needle, from = 0) {
@@ -55,6 +56,7 @@ function wrapRefMarks(root, ref) {
 
 export default function PageView({ pageId, navigate, reloadSpace }) {
   const [page, setPage] = useState(null);
+  const editors = useEditPresence(pageId); // 다른 사람이 편집 중인지 (30초마다 조회)
   const [comments, setComments] = useState(null);
   const [error, setError] = useState(null);
   const [present, setPresent] = useState(false);
@@ -182,6 +184,7 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
             v{page.version?.version} · 버전 기록
           </a>
           {page.version?.source_editor === 'legacy' && <span className="legacy-badge">레거시</span>}
+          <EditingBadge editors={editors} />
         </div>
         <LabelEditor page={page} onChange={(labels) => setPage({ ...page, labels })} />
       </header>

@@ -68,6 +68,10 @@ const TOOLS = [
               executor: { type: 'string', enum: ['codex', 'opencode', 'human'] },
               priority: { type: 'string', enum: ['Highest', 'High', 'Normal', 'Low'],
                 description: '중요도에 따른 우선순위 (지침의 우선순위 기준)' },
+              apps: {
+                type: 'array', items: { type: 'string', enum: ['Gira', 'Gonfluence'] },
+                description: '대상 앱 (지침의 대상 앱 기준). 둘 다 해당하면 둘 다',
+              },
               needs_approval: { type: 'boolean' },
               spec_update: { type: 'boolean' },
               attach_files: {
@@ -75,7 +79,7 @@ const TOOLS = [
                 description: '이 이슈에 첨부할 파일 번호 (사용자가 올린 [첨부 #번호]). 없으면 빈 배열',
               },
             },
-            required: ['ref', 'type', 'summary', 'description', 'parent', 'executor', 'priority', 'needs_approval', 'spec_update',
+            required: ['ref', 'type', 'summary', 'description', 'parent', 'executor', 'priority', 'apps', 'needs_approval', 'spec_update',
               'attach_files'],
             additionalProperties: false,
           },
@@ -128,6 +132,35 @@ async function expandFile(fileId) {
   return [{ type: 'text', text: head.text.replace(/\]$/, ' — 내용은 볼 수 없는 형식이거나 너무 큼. 이슈에는 첨부 가능]') }];
 }
 
+// ---------- 환경 정보 ----------
+
+// 챗봇을 연 화면·브라우저 정보 (클라이언트가 보낸 값 — 문자열만, 길이 제한)
+function cleanEnv(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const s = (v, n = 300) => (typeof v === 'string' ? v.replace(/[\r\n]+/g, ' ').trim().slice(0, n) : '');
+  const env = {
+    url: /^https?:\/\//i.test(s(raw.url, 1000)) ? s(raw.url, 1000) : '',
+    app: s(raw.app, 40), build: s(raw.build, 80), userAgent: s(raw.userAgent, 400),
+    platform: s(raw.platform, 60), language: s(raw.language, 40), screen: s(raw.screen, 80),
+  };
+  return Object.values(env).some(Boolean) ? env : null;
+}
+
+// 이슈 설명 끝에 붙이는 '환경 정보' 블록
+function envText(env, ctx = {}) {
+  const email = typeof ctx.authorEmail === 'string' && /^[^\s@]+@[^\s@]+$/.test(ctx.authorEmail) ? ctx.authorEmail.slice(0, 200) : '';
+  const author = [ctx.author, email && `<${email}>`].filter(Boolean).join(' ');
+  if (!env && !author) return '';
+  env = env ?? {};
+  const rows = [
+    ['작성자', author],
+    ['화면 URL', env.url || '(알 수 없음 — 챗봇을 직접 열었음)'],
+    ['앱', [env.app, env.build && `빌드 ${env.build}`].filter(Boolean).join(' · ')],
+    ['브라우저', env.userAgent], ['OS', env.platform], ['언어', env.language], ['화면', env.screen],
+  ].filter(([, v]) => v);
+  return ['환경 정보', ...rows.map(([k, v]) => `- ${k}: ${v}`)].join('\n');
+}
+
 // ---------- 도구 구현 ----------
 
 async function devProject() {
@@ -170,8 +203,12 @@ async function toolCreate({ items }, ctx, textToAdf) {
     const labels = ['dev-chat', `agent:${it.executor}`];
     if (it.needs_approval) labels.push('needs-approval');
     if (it.spec_update) labels.push('spec-update');
+    // 대상 앱 태그 (Gira / Gonfluence). 모델이 비워 두면 대화를 시작한 앱으로
+    const apps = (it.apps ?? []).filter((a) => a === 'Gira' || a === 'Gonfluence');
+    labels.push(...new Set(apps.length ? apps : [ctx.source]));
     const body = [it.description?.trim() || it.summary,
-      `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`].join('\n\n');
+      `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`, envText(ctx.env, ctx)]
+      .filter(Boolean).join('\n\n');
     const { rows } = await query(
       `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
          labels, reporter_id, assignee_id, priority, created_at, updated_at, fields_raw)
@@ -195,7 +232,7 @@ async function toolCreate({ items }, ctx, textToAdf) {
         [rows[0].id, f.filename, f.media_type, f.file_size, localKey, ctx.userId]);
     }
     created.push({ ref: it.ref, key: rows[0].issue_key, type: it.type, summary: it.summary.trim(),
-      executor: it.executor, priority: it.priority ?? 'Normal', needsApproval: !!it.needs_approval, parent: it.parent || null,
+      executor: it.executor, priority: it.priority ?? 'Normal', apps: labels.filter((l) => l === 'Gira' || l === 'Gonfluence'), needsApproval: !!it.needs_approval, parent: it.parent || null,
       attachments: files.map((f) => f.filename) });
   }
   // 2차: 상위 연결 (같은 호출의 ref 또는 기존 이슈 키)
@@ -293,12 +330,15 @@ export function registerDevChat(app, { textToAdf }) {
       if (!rows.length || Number(rows[0].user_id) !== req.access.userId
           || (req.body?.author && rows[0].author !== req.body.author)) sessionId = null;
     }
-    const { rows: me } = await query(`SELECT display_name FROM users WHERE id = $1`, [req.access.userId]);
+    const { rows: me } = await query(`SELECT display_name, email FROM users WHERE id = $1`, [req.access.userId]);
     const ctx = {
       userId: req.access.userId,
       author: req.body?.author || me[0]?.display_name || null,
+      // 작성자 메일: Gonfluence 프록시는 로그인 사용자의 메일을 함께 보낸다 (서비스 키 계정의 메일이 아니라)
+      authorEmail: (req.body?.author ? req.body?.authorEmail : me[0]?.email) || null,
       source: req.body?.source === 'Gonfluence' ? 'Gonfluence' : 'Gira',
       proxied: !!req.body?.author,
+      env: cleanEnv(req.body?.env),
     };
     const files = await ownedFiles(fileIds, ctx);
     if (files.length !== fileIds.length) return reply.code(400).send({ error: '첨부 파일을 찾을 수 없습니다 — 다시 올려 주세요' });
@@ -312,7 +352,8 @@ export function registerDevChat(app, { textToAdf }) {
     const messages = await loadHistory(sessionId, { expand: true });
     const userTurn = [
       ...files.map((f) => ({ type: 'dev_file', file_id: Number(f.id), filename: f.filename })),
-      { type: 'text', text: `[${ctx.author ?? '사용자'} · ${ctx.source}에서]\n${message || '(첨부 파일만 보냄)'}` },
+      { type: 'text', text: `[${ctx.author ?? '사용자'} · ${ctx.source}에서${ctx.env?.url ? ` · 보던 화면 ${ctx.env.url}` : ''}]\n`
+        + (message || '(첨부 파일만 보냄)') },
     ];
     await saveMessage(sessionId, 'user', userTurn);
     const expanded = [];
@@ -399,7 +440,7 @@ export function registerDevChat(app, { textToAdf }) {
     return rows
       .map((m) => ({
         role: m.role,
-        text: textOf(m.content).replace(/^\[[^\]\n]*에서\]\n/, '').replace(/^\(첨부 파일만 보냄\)$/, ''),
+        text: textOf(m.content).replace(/^\[[^\n]*에서(?: · 보던 화면 [^\n]*)?\]\n/, '').replace(/^\(첨부 파일만 보냄\)$/, ''),
         files: (Array.isArray(m.content) ? m.content : []).filter((b) => b.type === 'dev_file').map((b) => b.filename),
       }))
       .filter((m) => m.text || m.files.length);

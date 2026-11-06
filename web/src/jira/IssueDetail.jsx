@@ -163,7 +163,7 @@ const HISTORY_ACTION = {
   timeestimate: '시간 추적 업데이트됨', timespent: '시간 추적 업데이트됨',
 };
 
-export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew }) {
+export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew, onHome }) {
   const [d, setD] = useState(null);
   const [descEditing, setDescEditing] = useState(false);
   const [comment, setComment] = useState('');
@@ -312,7 +312,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
   return (
     <div className="issue-view">
       <div className="issue-crumb">
-        <span>스페이스</span><span className="crumb-sep">/</span>
+        <a className="crumb-home" href="/for-you" title="홈" onClick={(e) => { e.preventDefault(); onHome?.(); }}>스페이스</a><span className="crumb-sep">/</span>
         <span className="crumb-cur">{proj?.name ?? issueKey.split('-')[0]}</span><span className="crumb-sep">/</span>
         {d.parent_key && <>
           <span className="ilink" title={d.parent_summary ?? ''} onClick={() => onOpen(d.parent_key)}>{d.parent_key}</span>

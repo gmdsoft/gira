@@ -56,6 +56,14 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 ALTER TABLE drafts ADD COLUMN IF NOT EXISTS title text;
 
+-- 편집 중 표시: 편집 화면이 30초마다 신호를 보내고, 90초 동안 신호가 없으면 편집 중이 아닌 것으로 본다
+CREATE TABLE IF NOT EXISTS edit_presence (
+  content_id bigint NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+  user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  seen_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (content_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS attachments (
   id bigint PRIMARY KEY,
   content_id bigint NOT NULL REFERENCES content(id),
