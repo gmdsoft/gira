@@ -1,3 +1,4 @@
+import { useMobile } from '../mobile.js';
 // Jira PoC SPA 셸: 인증 게이트 → 상단 바 + 좌측 사이드바 + 콘텐츠(브레드크럼·탭·필터바·뷰) + URL 라우팅
 import React, { useEffect, useRef, useState } from 'react';
 import { api, AuthError, Avatar, hashColor } from './util.jsx';
@@ -62,7 +63,9 @@ export default function JiraApp() {
   const [bump, setBump] = useState(0);
   const [showProjectCreate, setShowProjectCreate] = useState(false);
   const [showNew, setShowNew] = useState(false);
-  const [sideOpen, setSideOpen] = useState(loadSideOpen);
+  const mobile = useMobile();
+  const [sideOpen, setSideOpen] = useState(() => !window.matchMedia('(max-width: 600px)').matches && loadSideOpen());
+  useEffect(() => { if (mobile) setSideOpen(false); }, [mobile, project, view, selKey, boardId, home]);
   const [recent, setRecent] = useState(loadRecent);
   const qTimer = useRef(null);
   const [qInput, setQInput] = useState('');
@@ -200,7 +203,7 @@ export default function JiraApp() {
     nav(`/projects/${encodeURIComponent(created.key)}/list`);
     await boot();
   };
-  const projectCreateModal = showProjectCreate && me?.can_create && <NewProjectModal
+  const projectCreateModal = !mobile && showProjectCreate && me?.can_create && <NewProjectModal
     onClose={() => setShowProjectCreate(false)} onCreated={projectCreated} />;
   // 접근 가능한 프로젝트가 없으면 요청 게이트
   if (!meta.projects.length) {
@@ -421,11 +424,13 @@ export default function JiraApp() {
           <button className="plain logout" onClick={logout}>로그아웃</button>
         </div>
       </header>
+      <div className="mobile-notice">모바일은 보기 전용입니다. 편집은 데스크톱에서 이용하세요.</div>
       <div className="shell">
+        {mobile && sideOpen && <button className="mobile-shade" aria-label="메뉴 닫기" onClick={() => setSideOpen(false)} />}
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent.slice(0, 5)} home={home} onHome={gotoHome}
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
-          onDevFeedback={openDevChat} onCreateProject={me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
+          onDevFeedback={openDevChat} onCreateProject={!mobile && me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
         <div className="content">
           {home ? <HomeView me={me} meta={meta} recent={recent} onIssue={openIssue}
             onProjView={gotoProjView} onBoard={gotoBoard}
@@ -444,7 +449,7 @@ export default function JiraApp() {
               <span className="chead-key">{project}</span>
             </div>
             <nav className="tabs">
-              {VIEWS.map((v) => {
+              {(mobile ? ['list', 'board'] : VIEWS).map((v) => {
                 const Icon = v === 'list' ? IconList : v === 'table' ? IconTable : v === 'board' ? IconBoard : IconBacklog;
                 return <button key={v} className={view === v ? 'on' : ''} onClick={() => gotoView(v)}><Icon size={16} /> {VIEW_NAMES[v]}</button>;
               })}
@@ -509,27 +514,27 @@ export default function JiraApp() {
             </select>
             <button onClick={() => { setFilters(EMPTY_FILTERS); setQInput(''); setJqlInput(''); setJqlErr(null); setSavedSel(''); }}>초기화</button>
             <span style={{ borderLeft: '1px solid var(--line)', height: 20 }} />
-            <button onClick={saveFilter}>현재 필터 저장</button>
-            {savedSel && <button onClick={deleteFilter} title="적용 중인 저장 필터 삭제">필터 삭제</button>}
+            <button className="desktop-write" onClick={saveFilter}>현재 필터 저장</button>
+            {savedSel && <button className="desktop-write" onClick={deleteFilter} title="적용 중인 저장 필터 삭제">필터 삭제</button>}
             <span className="fbar-spacer" />
             <span id="count">{count.toLocaleString()}건</span>
             <button className="iconbtn" title="새로고침" onClick={refresh}><IconRefresh size={17} /></button>
             {fmode === 'jql' && jqlErr && <div className="jqlerr">{jqlErr}</div>}
           </div>
           <main>
-            {view === 'list' && <ListView {...viewProps} selKey={selKey} />}
-            {view === 'table' && <TableView {...viewProps} />}
+            {(view === 'list' || (mobile && ['table', 'backlog'].includes(view))) && <ListView {...viewProps} selKey={selKey} />}
+            {!mobile && view === 'table' && <TableView {...viewProps} />}
             {view === 'board' && <BoardView {...viewProps} boardId={boardId} onBoard={(bid) => gotoBoard(project, bid)} />}
-            {view === 'backlog' && <BacklogView {...viewProps} />}
+            {!mobile && view === 'backlog' && <BacklogView {...viewProps} />}
           </main>
           </>}
         </div>
       </div>
       {projectCreateModal}
-      {showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
+      {!mobile && showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
         onClose={() => setShowNew(false)} onRefresh={refresh}
         onCreated={(key) => { setShowNew(false); refresh(); openIssue(key); }} />}
-      {showHub && <SettingsHub me={me} meta={meta} project={project}
+      {!mobile && showHub && <SettingsHub me={me} meta={meta} project={project}
         onClose={() => setShowHub(false)} onChanged={() => boot()} />}
     </>
   );

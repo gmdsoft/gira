@@ -1,3 +1,4 @@
+import { useMobile, isMobile } from './mobile.js';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from './api.js';
 import GonfShell, { spaceColor } from './GonfShell.jsx';
@@ -28,6 +29,7 @@ function parsePath(pathname) {
 }
 
 export default function App() {
+  const mobile = useMobile();
   const [route, setRoute] = useState(() => parsePath(location.pathname));
   const [space, setSpace] = useState(null);
   const [spaceErr, setSpaceErr] = useState(null); // 403(접근 요청 가능) 등
@@ -120,6 +122,7 @@ export default function App() {
   // Confluence 단축키 (보기 화면): e=편집, c=새 페이지, /=검색, m=댓글
   useEffect(() => {
     const onKey = (e) => {
+      if (isMobile() && ['e', 'm', 'c'].includes(e.key)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
       if (t.closest?.('input, textarea, select, [contenteditable="true"]')) return;
@@ -185,11 +188,12 @@ export default function App() {
 
   if (route.view === 'home') return shell(<Home navigate={navigate} me={me} />);
   // 조직 관리(사용자·팀·그룹)는 관리 서비스(3003)로 분리 — 여기서는 접근 요청 승인함만
-  if (route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
+  if (!mobile && route.view === 'admin') return <AdminPage me={me} navigate={navigate} tabs={['requests']} />;
   // 권한 없는 스페이스: 접근 요청 화면
   if (route.spaceKey && spaceErr?.status === 403 && spaceErr.body?.canRequest) {
     return shell(<RequestAccessView spaceKey={route.spaceKey} />);
   }
+  if (mobile && ['edit', 'history', 'admin', 'archive'].includes(route.view)) return shell(<div className="page"><p>이 화면은 데스크톱에서 이용하세요.</p><a href={route.pageId ? `/s/${route.spaceKey}/p/${route.pageId}` : '/'} onClick={(e) => { e.preventDefault(); navigate(route.pageId ? `/s/${route.spaceKey}/p/${route.pageId}` : '/'); }}>보기로 돌아가기</a></div>);
   if (route.view === 'edit') return <Editor key={route.pageId} pageId={route.pageId} navigate={navigate} reloadSpace={reloadSpace} />;
   if (route.view === 'search') return shell(<SearchView key={location.search} navigate={navigate} />);
   if (route.view === 'history') return <VersionHistory key={route.pageId} pageId={route.pageId} spaceKey={route.spaceKey} navigate={navigate} />;
@@ -290,6 +294,7 @@ const ago = (t) => {
 };
 
 function Home({ navigate, me }) {
+  const mobile = useMobile();
   const [spaces, setSpaces] = useState(null);
   const [feed, setFeed] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -334,7 +339,7 @@ function Home({ navigate, me }) {
         </div>
         <div className="home-side">
           <h2 className="home-sec">스페이스
-            <button className="btn btn-xs space-new" onClick={() => setCreateOpen(true)}>+ 만들기</button>
+            {!mobile && <button className="btn btn-xs space-new" onClick={() => setCreateOpen(true)}>+ 만들기</button>}
           </h2>
           {!spaces ? <p className="muted">불러오는 중…</p> : (
             <ul className="space-tiles">
@@ -349,7 +354,7 @@ function Home({ navigate, me }) {
           )}
         </div>
       </div>
-      {createOpen && <CreateSpaceDialog me={me} onClose={() => setCreateOpen(false)}
+      {!mobile && createOpen && <CreateSpaceDialog me={me} onClose={() => setCreateOpen(false)}
         onCreated={(sp) => { setCreateOpen(false); navigate(`/s/${sp.key}`); }} />}
     </div>
   );

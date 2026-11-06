@@ -1,3 +1,4 @@
+import { isMobile, useMobile } from '../mobile.js';
 // 뷰 4종: 목록(분할), 전체 목록(표), 보드(칸반), 백로그(스프린트)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, hashColor, epicColor, PRIORITY_ORDER } from './util.jsx';
@@ -120,7 +121,7 @@ export function ListView({ project, meta, pdata, me, filters, bump, selKey, onOp
     setPaneResize({ startX: e.clientX, startW: paneWidth });
   };
   return (
-    <div className="view on" id="view-list">
+    <div className="view on" id="view-list" data-selected={!!selKey}>
       <div className="lpane" style={{ width: paneWidth }}>
       <div id="list" onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
         {ordered.map((r, i) => r.__group !== undefined
@@ -298,6 +299,7 @@ const DEFAULT_COLS = [['new', '해야 할 일'], ['indeterminate', '진행 중']
 const NO_LANE_LABEL = { epic: '에픽 없음', assignee: '미지정', priority: '우선순위 없음', type: '타입 없음' };
 
 export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardId, onBoard }) {
+  const mobile = useMobile();
   const board = pdata.boards.find((b) => String(b.id) === boardId);
   // 보드 필터(JQL) + 스크럼 보드는 활성 스프린트만 (실제 Jira 스크럼 보드 동작)
   // 칸반 보드는 하위 필터(sub_jql)까지 적용 — Jira처럼 출시된 버전의 이슈 등은 보드에서 빠진다
@@ -379,7 +381,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
 
   const drop = async (lane, colIdx) => {
     setOver(null);
-    if (!dragKey) return;
+    if (isMobile() || !dragKey) return;
     const r = cards.find((x) => x.issue_key === dragKey);
     if (!r) return;
     const c = cols[colIdx];
@@ -483,7 +485,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
                                 onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => { setDragKey(null); setOver(null); }} />
                             ))}
                           </div>
-                          {creating === cell
+                          {!mobile && creating === cell
                             ? <CellCreate meta={meta} noEpic={laneMode === 'epic'}
                                 presetType={laneMode === 'type' && lane.key !== NO_LANE ? lane.key : null}
                                 onCancel={() => setCreating(null)}
@@ -505,7 +507,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
           })}
         </div>
       </div>
-      {modal && <BoardModal meta={meta} project={project} board={modal.board}
+      {!mobile && modal && <BoardModal meta={meta} project={project} board={modal.board}
         onClose={() => setModal(null)}
         onSaved={(b) => { setModal(null); reloadPdata().then(() => onBoard(String(b.id))); }} />}
     </div>
@@ -544,7 +546,7 @@ function SprintBar({ sprint, rows, onComplete }) {
 // 보드 카드: 제목 / 에픽·버전·레이블 칩 / 타입·키 + 우선순위·담당자
 function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta, onChanged }) {
   return (
-    <div className={`card${dragging ? ' dragging' : ''}`} draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
+    <div className={`card${dragging ? ' dragging' : ''}`} draggable={!isMobile()} onDragStart={onDragStart} onDragEnd={onDragEnd}
       onClick={() => onOpen(r.issue_key)}>
       <EpicBar r={r} />
       <div className="sum">{r.summary}</div>

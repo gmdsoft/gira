@@ -1,3 +1,4 @@
+import { useMobile } from './mobile.js';
 // Gonfluence 공통 틀: 상단 바 + 왼쪽 사이드바 (Gira와 같은 구성 — Confluence의 새 내비게이션에 대응)
 // 사이드바: 홈·별표·앱·스페이스 만들기 / 스페이스(펼치면 문서 트리, + 로 문서·폴더 만들기) / 최근 항목 /
 //           구분선 · Gira / 구분선 · 개발용 메뉴. 트리의 문서는 다른 문서·폴더·스페이스 위로 끌어 옮길 수 있다.
@@ -64,7 +65,9 @@ function FolderDialog({ spaceName, onClose, onSubmit }) {
 
 export default function GonfShell({ me, route, space, navigate, reloadSpace, logout, theme, setTheme,
   onCreatePage, onPerm, onMove, onContentClick, children }) {
-  const [sideOpen, setSideOpen] = useState(() => { try { return localStorage.getItem('gonf.side') !== '0'; } catch { return true; } });
+  const mobile = useMobile();
+  const [sideOpen, setSideOpen] = useState(() => { if (window.matchMedia('(max-width: 600px)').matches) return false; try { return localStorage.getItem('gonf.side') !== '0'; } catch { return true; } });
+  useEffect(() => { if (mobile) setSideOpen(false); }, [mobile, route]);
   const [spaces, setSpaces] = useState([]);
   const [open, setOpen] = useState(() => new Set(route.spaceKey ? [route.spaceKey] : []));
   const [trees, setTrees] = useState({}); // 현재 스페이스가 아닌, 펼친 스페이스의 트리
@@ -157,21 +160,23 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
           <button className="gtb-logout" onClick={logout}>로그아웃</button>
         </div>
       </header>
+      <div className="mobile-notice">모바일은 보기 전용입니다. 편집은 데스크톱에서 이용하세요.</div>
       <div className="gbody">
+        {mobile && sideOpen && <button className="mobile-shade" aria-label="메뉴 닫기" onClick={() => setSideOpen(false)} />}
         {sideOpen && (
           <nav className="gs-side">
             <div className="gs-nav">
               <a className={`gs-item${isHome ? ' on' : ''}`} href="/" onClick={go('/')}><IconHome size={16} /><span className="gs-trunc">홈</span></a>
               <div className="gs-item gs-muted" title="아직 지원하지 않음"><IconStar size={16} /><span className="gs-trunc">별표 표시됨</span><IconChevronRight size={14} className="gs-arrow" /></div>
               <div className="gs-item gs-muted" title="아직 지원하지 않음"><IconGrid size={16} /><span className="gs-trunc">앱</span><IconChevronRight size={14} className="gs-arrow" /></div>
-              <div className="gs-item" onClick={() => setCreateSpace(true)}><IconRocket size={16} /><span className="gs-trunc">스페이스 만들기</span><IconPlus size={14} className="gs-arrow" /></div>
+              {!mobile && <div className="gs-item" onClick={() => setCreateSpace(true)}><IconRocket size={16} /><span className="gs-trunc">스페이스 만들기</span><IconPlus size={14} className="gs-arrow" /></div>}
             </div>
 
             <div className="gs-head">스페이스</div>
             {spaces.map((sp) => {
               const opened = open.has(sp.key);
               const cur = sp.key === route.spaceKey;
-              const canWrite = sp.role && sp.role !== 'viewer';
+              const canWrite = !mobile && sp.role && sp.role !== 'viewer';
               const tree = treeOf(sp.key);
               return (
                 <div key={sp.key} className="gs-space">
@@ -203,10 +208,10 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                         : tree.length === 0 ? <div className="gs-dim gs-pad">문서가 없습니다</div>
                         : <Tree tree={tree} spaceKey={sp.key} currentId={cur ? route.pageId : null} navigate={navigate}
                             draggable={canWrite} onDropMove={moveTo}
-                            onMove={onMove && ((node) => onMove({ id: node.id, title: node.title, spaceKey: sp.key }))} />}
+                            onMove={!mobile && onMove && ((node) => onMove({ id: node.id, title: node.title, spaceKey: sp.key }))} />}
                       <a className={`gs-item gs-child${cur && route.view === 'archive' ? ' on' : ''}`} href={`/s/${sp.key}/archive`} onClick={go(`/s/${sp.key}/archive`)}>
                         <span className="gs-glyph">🗂</span><span className="gs-trunc">보관함 · 휴지통</span></a>
-                      {cur && sp.role === 'admin' && onPerm && (
+                      {!mobile && cur && sp.role === 'admin' && onPerm && (
                         <div className="gs-item gs-child" onClick={onPerm}><span className="gs-glyph">🔑</span><span className="gs-trunc">스페이스 권한</span></div>
                       )}
                     </div>
