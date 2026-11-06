@@ -11,20 +11,29 @@ const schema = getSchema(editExtensions);
 const p = { type: 'paragraph', content: [{ type: 'text', text: '결정 사항' }] };
 
 test('결정 목록과 원본 Confluence 결정은 같은 모델과 보기로 보존된다', () => {
-  const { doc } = convertStorage('<ac:adf-node type="decision-list"><ac:adf-node type="decision-item"><ac:adf-content><p>결정 사항</p></ac:adf-content></ac:adf-node></ac:adf-node>');
-  schema.nodeFromJSON(doc).check();
-  const expected = generateHTML({ type: 'doc', content: [decisionBlock([p])] }, extensions);
-  assert.equal(generateHTML(doc, extensions), expected);
-  const parsed = generateJSON(expected, extensions);
-  assert.equal(parsed.content[0].attrs.adfType, 'decision-list');
-  assert.equal(parsed.content[0].content[0].attrs.adfType, 'decision-item');
+  const storage = '<ac:adf-node type="decision-list"><ac:adf-attribute key="local-id">list-id</ac:adf-attribute><ac:adf-node type="decision-item"><ac:adf-attribute key="state">DECIDED</ac:adf-attribute><ac:adf-content><p>결정 사항</p></ac:adf-content></ac:adf-node></ac:adf-node>';
+  for (const source of [storage, `<ac:adf-extension>${storage}<ac:adf-fallback><p>중복되면 안 되는 폴백</p></ac:adf-fallback></ac:adf-extension>`]) {
+    const { doc, stats } = convertStorage(source);
+    schema.nodeFromJSON(doc).check();
+    assert.deepEqual(stats.unsupportedMacros, {});
+    assert.equal(doc.content[0].attrs.attrs['local-id'], 'list-id');
+    assert.equal(doc.content[0].content[0].attrs.attrs.state, 'DECIDED');
+    const expected = generateHTML({ type: 'doc', content: [decisionBlock([p])] }, extensions);
+    assert.equal(generateHTML(doc, extensions), expected);
+    const parsed = generateJSON(expected, extensions);
+    assert.equal(parsed.content[0].attrs.adfType, 'decision-list');
+    assert.equal(parsed.content[0].content[0].attrs.adfType, 'decision-item');
+  }
 });
 
 test('패널 5종과 상태 10색, 날짜와 레이아웃 1~5열을 게시 모델로 직렬화한다', () => {
-  for (const panelType of ['info', 'note', 'success', 'warning', 'error']) {
-    const { doc } = convertStorage(`<ac:structured-macro ac:name="${panelType === 'success' ? 'tip' : panelType}"><ac:rich-text-body><p>패널</p></ac:rich-text-body></ac:structured-macro>`);
+  for (const macro of ['info', 'note', 'tip', 'success', 'warning', 'error']) {
+    const panelType = macro === 'tip' ? 'success' : macro;
+    const { doc, stats } = convertStorage(`<ac:structured-macro ac:name="${macro}"><ac:rich-text-body><p>패널</p></ac:rich-text-body></ac:structured-macro>`);
     schema.nodeFromJSON(doc).check();
-    assert.match(generateHTML(doc, extensions), /class="panel panel-/);
+    assert.deepEqual(stats.unsupportedMacros, {});
+    assert.equal(doc.content[0].attrs.panelType, panelType);
+    assert.match(generateHTML(doc, extensions), new RegExp(`panel-${panelType}`));
     const inserted = { type: 'doc', content: [{ type: 'panel', attrs: { panelType }, content: [p] }] };
     assert.match(generateHTML(inserted, extensions), new RegExp(`panel-${panelType}`));
   }
