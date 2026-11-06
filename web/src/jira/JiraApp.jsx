@@ -8,6 +8,7 @@ import { DevChatPage, openDevChat } from '../dev-feedback-ui.jsx';
 import { AccessGate, SettingsHub, NewProjectModal } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
 import { NotifyBell } from '../notify-ui.jsx';
+import { AiHelpPanel, AiSearchBar } from '../ai-ui.jsx';
 import HomeView from './Home.jsx';
 import JqlInput from './JqlInput.jsx';
 import { IconGrid, IconSearch, IconPlus, IconBell, IconHelp, IconSettings, IconList, IconTable, IconBoard, IconBacklog, IconShare, IconExpand, IconRefresh } from './icons.jsx';
@@ -75,6 +76,8 @@ export default function JiraApp() {
   const [jqlInput, setJqlInputRaw] = useState(() => { try { return localStorage.getItem('jira.jql') ?? ''; } catch { return ''; } });
   const setJqlInput = (v) => { setJqlInputRaw(v); try { localStorage.setItem('jira.jql', v); } catch { /* 무시 */ } };
   const [jqlErr, setJqlErr] = useState(null);
+  const [showHelp, setShowHelp] = useState(false); // AI 도움말 패널 (GIRA-15)
+  const [showAi, setShowAi] = useState(false);     // AI 검색 (GIRA-17)
   const [globalQ, setGlobalQ] = useState('');
   // 테마: light | dark | system (system은 OS 설정을 따라가고 변경도 실시간 반영)
   const [theme, setTheme] = useState(() => {
@@ -315,6 +318,11 @@ export default function JiraApp() {
       setJqlErr(e.message);
     }
   };
+  // AI 검색 결과 JQL을 JQL 모드로 적용 (입력칸에 남겨 고치거나 저장할 수 있게)
+  const applyAiJql = (j) => {
+    try { localStorage.setItem('jira.fmode', 'jql'); } catch { /* 무시 */ }
+    setFmode('jql'); setJqlInput(j); applyJql(j);
+  };
   // 모드 전환으로 결과 집합이 바뀌지 않게 한다 — 적용 중인 쿼리를 반대쪽 표현으로 번역해 이어받는다
   const switchMode = (m) => {
     if (m === fmode) return;
@@ -407,7 +415,7 @@ export default function JiraApp() {
             const m = /^\/browse\/([^/?#]+)/.exec(p);
             if (m) openIssue(decodeURIComponent(m[1])); else location.assign(p);
           }} />
-          <button className="iconbtn" title="도움말 (아직 지원하지 않음)"><IconHelp size={18} /></button>
+          <button className={`iconbtn${showHelp ? ' on' : ''}`} title="도움말 (AI)" onClick={() => setShowHelp((v) => !v)}><IconHelp size={18} /></button>
           <span className="settings-wrap">
             <button className="iconbtn" title="설정" onClick={() => setShowSet((v) => !v)}><IconSettings size={20} /></button>
             {showSet && <>
@@ -463,6 +471,7 @@ export default function JiraApp() {
             <span className="fmode">
               <button className={fmode === 'basic' ? 'on' : ''} onClick={() => switchMode('basic')}>기본</button>
               <button className={fmode === 'jql' ? 'on' : ''} onClick={() => switchMode('jql')}>JQL</button>
+              <button className={showAi ? 'on' : ''} title="자연어로 찾기 (AI가 JQL로 바꿔 줍니다)" onClick={() => setShowAi((v) => !v)}>AI</button>
             </span>
             {fmode === 'basic' ? <>
               <select value={filters.status} onChange={(e) => setF('status', e.target.value)}>
@@ -525,6 +534,7 @@ export default function JiraApp() {
             <button className="iconbtn" title="새로고침" onClick={refresh}><IconRefresh size={17} /></button>
             {fmode === 'jql' && jqlErr && <div className="jqlerr">{jqlErr}</div>}
           </div>
+          {showAi && <AiSearchBar key={project} project={project} onApply={applyAiJql} onClose={() => setShowAi(false)} />}
           <main>
             {(view === 'list' || (mobile && ['table', 'backlog'].includes(view))) && <ListView {...viewProps} selKey={selKey} />}
             {!mobile && view === 'table' && <TableView {...viewProps} />}
@@ -534,6 +544,7 @@ export default function JiraApp() {
           </>}
         </div>
       </div>
+      {showHelp && <AiHelpPanel appName="Gira" view={home ? 'home' : view} onClose={() => setShowHelp(false)} />}
       {projectCreateModal}
       {!mobile && showNew && <NewIssueModal meta={meta} pdata={pdata} project={project} me={me}
         onClose={() => setShowNew(false)} onRefresh={refresh}

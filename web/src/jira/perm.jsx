@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from './util.jsx';
 import { MigrateBody } from '../migrate-ui.jsx';
 import { NotifyRulesBody } from '../notify-ui.jsx';
+import { AiGuideBody } from '../ai-ui.jsx';
 
 const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
@@ -285,6 +286,7 @@ export function SettingsHub({ me, meta, project, onClose, onChanged }) {
     ['perm', '프로젝트 권한', proj?.role === 'admin'],
     ['notify', '프로젝트 알림', proj?.role === 'admin'],
     ['inbox', '접근 요청 승인함', meta.projects.some((p) => p.role === 'admin')],
+    ['aiguide', 'AI 도움말 지침', !!me?.is_admin],
   ].filter((t) => t[2]);
   const [tab, setTab] = useState(tabs[0][0]);
   const TITLE = Object.fromEntries(tabs.map(([k, n]) => [k, n]));
@@ -313,6 +315,7 @@ export function SettingsHub({ me, meta, project, onClose, onChanged }) {
           {tab === 'perm' && <PermissionsBody project={project} />}
           {tab === 'notify' && <NotifyRulesBody key={project} resourceKey={project} resourceLabel="프로젝트" />}
           {tab === 'inbox' && <InboxBody />}
+          {tab === 'aiguide' && <AiGuideBody />}
         </section>
       </div>
     </div>

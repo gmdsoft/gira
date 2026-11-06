@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from './api.js';
 import { MigrateBody } from './migrate-ui.jsx';
 import { NotifyRulesBody } from './notify-ui.jsx';
+import { AiGuideBody } from './ai-ui.jsx';
 import { RequestsTab } from './Admin.jsx';
 
 export const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
@@ -379,6 +380,7 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate }) 
     ['migrate', '원본 Confluence에서 가져오기', true],
     ['notify', '스페이스 알림', !!spaceKey && spaceRole === 'admin'],
     ['inbox', '접근 요청 승인함', !!me.is_admin],
+    ['aiguide', 'AI 도움말 지침', !!me.is_admin],
   ].filter((t) => t[2]);
   const [tab, setTab] = useState(tabs[0][0]);
   const TITLE = Object.fromEntries(tabs.map(([k, n]) => [k, n]));
@@ -399,6 +401,7 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate }) 
         </aside>
         <section className="hub-main">
           <h2>{TITLE[tab]}{(tab === 'pkg' || tab === 'notify') && spaceKey ? ` — ${spaceKey}` : ''}</h2>
+          {tab === 'aiguide' && <AiGuideBody />}
           {tab === 'notify' && <NotifyRulesBody key={spaceKey} resourceKey={spaceKey} resourceLabel="스페이스" />}
           {tab === 'keys' && <ApiKeysBody />}
           {tab === 'pkg' && <SpacePackageBody spaceKey={spaceKey} spaceRole={spaceRole}
