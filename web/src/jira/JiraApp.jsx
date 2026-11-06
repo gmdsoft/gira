@@ -470,10 +470,11 @@ export default function JiraApp() {
             </nav>
           </div>
           <div className="fbar">
+            <button className={`ai-ask${showAi ? ' on' : ''}`} title="자연어로 찾기 — AI가 JQL로 바꿔 줍니다"
+              onClick={() => setShowAi((v) => !v)}><span className="ai-tag">AI</span>에게 물어보기</button>
             <span className="fmode">
               <button className={fmode === 'basic' ? 'on' : ''} onClick={() => switchMode('basic')}>기본</button>
               <button className={fmode === 'jql' ? 'on' : ''} onClick={() => switchMode('jql')}>JQL</button>
-              <button className={showAi ? 'on' : ''} title="자연어로 찾기 (AI가 JQL로 바꿔 줍니다)" onClick={() => setShowAi((v) => !v)}>AI</button>
             </span>
             {fmode === 'basic' ? <>
               <select value={filters.status} onChange={(e) => setF('status', e.target.value)}>
@@ -484,7 +485,7 @@ export default function JiraApp() {
                 <option value="">타입: 전체</option>
                 {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-              <select value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
+              <select className="f-narrow" value={filters.assignee} onChange={(e) => setF('assignee', e.target.value)}>
                 <option value="">담당자: 전체</option>
                 {(pdata.people ?? []).map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
               </select>
@@ -492,7 +493,7 @@ export default function JiraApp() {
                 <option value="">우선순위: 전체</option>
                 {meta.priorities.map((p) => <option key={p} value={p}>{p}</option>)}
               </select>
-              <select value={filters.sprint} onChange={(e) => setF('sprint', e.target.value)}>
+              <select className="f-narrow" value={filters.sprint} onChange={(e) => setF('sprint', e.target.value)}>
                 <option value="">스프린트: 전체</option>
                 <option value="none">백로그(없음)</option>
                 {openSprints.map((s) => <option key={s.id} value={s.id}>{s.name}{s.state === 'active' ? ' (활성)' : ''}</option>)}
