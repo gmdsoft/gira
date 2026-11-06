@@ -343,7 +343,9 @@ function Toolbar({ editor, onImage }) {
     if (!el || compact) return;
     const cs = getComputedStyle(el);
     const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-    neededRef.current = [...el.children].reduce((a, c) => a + c.getBoundingClientRect().width + 2, 0) + pad;
+    // 끝의 '/ 로 블록 삽입' 안내 글은 자리가 모자라면 줄어들므로 필요 폭에서 뺀다
+    neededRef.current = [...el.children].filter((c) => !c.classList.contains('tb-hint'))
+      .reduce((a, c) => a + c.getBoundingClientRect().width + 2, 0) + pad;
     if (el.clientWidth < neededRef.current) setCompact(true);
   });
   useEffect(() => {
