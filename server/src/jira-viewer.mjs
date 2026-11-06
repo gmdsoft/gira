@@ -19,6 +19,7 @@ import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
 import { registerDevChat } from './dev-chat.mjs';
+import { textToAdf } from './linkify.mjs';
 import { registerProjectCreate } from './jira-project-create.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
@@ -86,13 +87,7 @@ app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
 app.get('/dev-chat', page);                    // 개발참여 챗봇 (새 탭 전용 페이지)
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
 
-// 플레인 텍스트 → 최소 ADF 문서 (PoC 입력용)
-const textToAdf = (text) => ({
-  type: 'doc', version: 1,
-  content: String(text ?? '').split('\n').map((line) => ({
-    type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [],
-  })),
-});
+// 플레인 텍스트 → ADF 문서 (댓글·설명 입력용, 주소는 링크로) — server/src/linkify.mjs
 
 // 댓글 본문 = 글(문단) + 첨부 미디어(이미지면 인라인 표시). media.attrs.id에 Gira 첨부 id를 넣는다 (collection: 'gira').
 // 화면(adf.jsx)은 id로 먼저, 없으면 파일명(alt)으로 이슈 첨부를 찾는다 — 이관된 Jira 댓글은 파일명으로 찾는다.

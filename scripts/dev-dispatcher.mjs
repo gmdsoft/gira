@@ -19,6 +19,7 @@
 // 환경변수: GIRA_DATABASE_URL, (선택) GITHUB_TOKEN(PR 생성), PR_BASE_BRANCH(기본 master),
 //          CODEX_MODEL, OPENCODE_MODEL, AGENT_TIMEOUT_MIN(기본 40)
 import { parseArgs } from 'node:util';
+import { textToAdf } from '../server/src/linkify.mjs'; // 주소는 링크로
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -62,10 +63,6 @@ const adfText = (doc) => {
   walk(doc);
   return out.join('').trim();
 };
-const textToAdf = (text) => ({
-  type: 'doc', version: 1,
-  content: String(text).split('\n').map((line) => ({ type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [] })),
-});
 
 async function statusId(name) {
   const { rows } = await query(`SELECT id FROM jira_statuses WHERE name = $1 ORDER BY id LIMIT 1`, [name]);

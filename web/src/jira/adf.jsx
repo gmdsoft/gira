@@ -1,4 +1,5 @@
 // ADF(Atlassian Document Format) → React 읽기 전용 렌더러
+import { linkParts } from '../../../server/src/linkify.mjs';
 import React, { useContext } from 'react';
 
 // 첨부 매핑: media 노드 → 이슈 첨부. Gira에서 단 댓글은 attrs.id(첨부 id, collection 'gira'),
@@ -23,6 +24,13 @@ function Media({ n }) {
 }
 
 function Marked({ text, marks }) {
+  // 링크·코드 표시가 없는 글자 속 주소는 링크로 (예전에 글자로만 저장된 댓글·설명 포함)
+  if (!(marks ?? []).some((m) => m.type === 'link' || m.type === 'code')) {
+    const parts = linkParts(text);
+    if (parts.some((p) => p.href)) {
+      return <>{parts.map((p, i) => <Marked key={i} text={p.text} marks={p.href ? [...(marks ?? []), { type: 'link', attrs: { href: p.href } }] : marks} />)}</>;
+    }
+  }
   let el = <>{text}</>;
   for (const m of marks ?? []) {
     if (m.type === 'strong') el = <strong>{el}</strong>;
