@@ -118,11 +118,40 @@ for (const t of project.issueTypes ?? []) {
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, subtask = EXCLUDED.subtask`,
     [t.id, t.name, !!t.subtask, t.description ?? null]);
 }
+await query(`ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS schema_custom text`);
+await query(`ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '[]'`);
+async function pages(path) {
+  const values = [];
+  for (let startAt = 0; ;) {
+    const page = await get(`${path}${path.includes('?') ? '&' : '?'}startAt=${startAt}&maxResults=100`);
+    values.push(...(page.values ?? []));
+    startAt += page.values?.length ?? 0;
+    if (page.isLast || !page.values?.length || startAt >= page.total) return values;
+  }
+}
 for (const f of fields) {
+  let contexts = null;
+  if (f.custom && /:(select|radiobuttons|multicheckboxes|multiselect)$/.test(f.schema?.custom ?? '')) {
+    try {
+      const base = `/rest/api/3/field/${encodeURIComponent(f.id)}/context`;
+      contexts = await pages(base);
+      for (const c of contexts) {
+        c.options = await pages(`${base}/${c.id}/option`);
+        c.projectIds = c.isGlobalContext ? [] : (await pages(`${base}/projectmapping?contextId=${c.id}`)).map(m => m.projectId);
+        c.issueTypeIds = c.isAnyIssueType ? [] : (await pages(`${base}/issuetypemapping?contextId=${c.id}`)).map(m => m.issueTypeId);
+      }
+    } catch (e) {
+      // 컨텍스트 조회 권한이 없으면 기존 선택지를 보존하고 값 이관은 계속한다.
+      console.warn(`  ${f.id} 선택지 조회 실패 (HTTP ${e.status ?? '오류'}): 기존 선택지 보존`);
+      contexts = null;
+    }
+  }
   await query(
-    `INSERT INTO jira_fields (id, name, custom, schema_type) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
-    [f.id, f.name, !!f.custom, f.schema?.type ?? null]);
+    `INSERT INTO jira_fields (id, name, custom, schema_type, schema_custom, options) VALUES ($1, $2, $3, $4, $5, COALESCE($6::jsonb, '[]'::jsonb))
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, custom = EXCLUDED.custom,
+       schema_type = EXCLUDED.schema_type, schema_custom = EXCLUDED.schema_custom,
+       options = COALESCE($6::jsonb, jira_fields.options)`,
+    [f.id, f.name, !!f.custom, f.schema?.type ?? null, f.schema?.custom ?? null, contexts ? JSON.stringify(contexts) : null]);
 }
 for (const v of versions) {
   await query(

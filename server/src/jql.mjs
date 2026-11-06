@@ -1,3 +1,4 @@
+import { HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // JQL 부분집합 파서: 토크나이저 + 재귀 하강 → 파라미터 바인딩 SQL WHERE.
 // 필드·연산자는 화이트리스트 매핑이며 값은 전부 $n 파라미터로만 들어간다 (SQL 주입 불가).
 // 지원: = != ~ > >= < <=, IN / NOT IN, IS [NOT] EMPTY(=EMPTY/NULL), AND/OR/NOT, 괄호,
@@ -76,11 +77,13 @@ const REL_MS = { m: 60e3, h: 3600e3, d: 86400e3, w: 604800e3 };
 
 // ---------- 파서 ----------
 class Parser {
-  constructor(src, { p, userId }) {
+  constructor(src, { p, userId, customFields = null }) {
     this.toks = tokenize(src);
     this.i = 0;
     this.p = p;           // 값 → $n 자리표시자 (호출자 params 배열에 push)
     this.userId = userId; // currentUser()
+    // 사용자 정의 필드 목록 [{id, name, schema_type}] — 주면 필드 id를 미리 풀어 SQL에 바로 넣는다(빠름). 없으면 jira_fields를 행마다 조회
+    this.customFields = customFields;
   }
   peek() { return this.toks[this.i]; }
   next() { return this.toks[this.i++]; }
@@ -133,8 +136,10 @@ class Parser {
 
   condition() {
     const ft = this.next();
-    if (ft.type !== 'word') this.fail(ft, '필드 이름이 필요합니다');
-    const field = FIELDS[ft.value.toLowerCase()];
+    if (!['word', 'str'].includes(ft.type)) this.fail(ft, '필드 이름이 필요합니다');
+    const customId = ft.value.match(/^cf\[(\d+)\]$/i)?.[1];
+    if (HIDDEN_CUSTOM_FIELDS.includes(customId ? `customfield_${customId}` : ft.value)) this.fail(ft, '내부 필드는 검색할 수 없습니다');
+    const field = FIELDS[ft.value.toLowerCase()] ?? ((customId || ft.type === 'str' || /^customfield_\d+$/.test(ft.value)) ? { kind: 'custom', label: ft.value, id: customId ? `customfield_${customId}` : /^customfield_\d+$/.test(ft.value) ? ft.value : null } : null);
     if (!field) this.fail(ft, `알 수 없는 필드 '${ft.value}' (가능: ${[...new Set(Object.values(FIELDS).map((f) => f.label))].join(', ')})`);
 
     const t = this.next();
@@ -163,6 +168,10 @@ class Parser {
       case '!=': return this.negSql(field, ft, this.eqSql(field, ft, v));
       case '~': {
         if (field.kind === 'search') return this.searchSql(v);
+        if (field.kind === 'custom') {
+          if (v.empty || v.fn) this.fail(ft, '검색어가 필요합니다');
+          return this.customSql(field, ft, `EXISTS (SELECT 1 FROM unnest(jira_custom_search(i.fields_raw -> cf.id)) x WHERE x ILIKE ${this.p('%' + v.value + '%')})`);
+        }
         if (field.kind !== 'text') this.fail(ft, `'~'는 텍스트 필드에만 쓸 수 있습니다 (${field.label})`);
         return `${field.col} ILIKE ${this.p('%' + v.value + '%')}`;
       }
@@ -210,13 +219,14 @@ class Parser {
 
   // != / NOT IN: Jira 의미론대로 EMPTY(미지정)인 이슈는 결과에서 제외한다
   negSql(field, ft, ors) {
-    const canEmpty = ['text', 'user', 'sprint', 'array', 'parent', 'date'].includes(field.kind);
+    const canEmpty = ['text', 'user', 'sprint', 'array', 'parent', 'date', 'custom'].includes(field.kind);
     const base = `(NOT (${ors}))`;
     return canEmpty ? `((NOT ${this.emptySql(field, ft)}) AND ${base})` : base;
   }
 
   emptySql(field, ft) {
     switch (field.kind) {
+      case 'custom': return `(NOT ${this.customSql(field, ft, 'cardinality(jira_custom_search(i.fields_raw -> cf.id)) > 0')})`;
       case 'user': case 'sprint': return `${field.kind === 'sprint' ? 'i.sprint_id' : field.id} IS NULL`;
       case 'array': return `(${field.col} IS NULL OR cardinality(${field.col}) = 0)`;
       case 'parent': return `i.parent_id IS NULL`;
@@ -249,6 +259,12 @@ class Parser {
                        ON _v.project_id = i.project_id AND lower(_v.name) = lower(_x) WHERE ${cond})`;
     }
     switch (field.kind) {
+      case 'custom': {
+        const value = this.p(v.value);
+        const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(v.value);
+        const comparison = numeric ? `CASE WHEN cf.schema_type = 'number' AND x ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' THEN x::numeric = ${value}::numeric ELSE lower(x) = lower(${value}) END` : `lower(x) = lower(${value})`;
+        return this.customSql(field, ft, `EXISTS (SELECT 1 FROM unnest(jira_custom_search(i.fields_raw -> cf.id)) x WHERE ${comparison})`);
+      }
       case 'text': case 'user':
         return `(${field.col} IS NOT NULL AND lower(${field.col}) = lower(${this.p(v.value)}))`;
       case 'sprint':
@@ -266,6 +282,27 @@ class Parser {
       default:
         this.fail(ft, `'${field.label}'에는 =/IN을 쓸 수 없습니다`);
     }
+  }
+
+  customSql(field, ft, condition) {
+    if (this.customFields) {
+      const hits = this.customFields.filter((f) => (field.id ? f.id === field.id : f.name.toLowerCase() === String(ft.value).toLowerCase()));
+      if (!hits.length) this.fail(ft, `알 수 없는 사용자 정의 필드 '${ft.value}'`);
+      // 같은 이름 필드가 여럿이면(예: Story Points 두 종류) 어느 하나라도 맞으면 참
+      // 자리표시자는 실제로 쓰일 때만 만든다 — 쓰이지 않는 $n이 있으면 PostgreSQL이 형식을 정하지 못한다
+      const sub = (c, f) => {
+        let out = c;
+        if (out.includes('i.fields_raw -> cf.id')) { const ph = `${this.p(f.id)}::text`; out = out.replaceAll('i.fields_raw -> cf.id', `i.fields_raw -> ${ph}`); }
+        if (out.includes('cf.schema_type')) { const ph = `${this.p(f.schema_type ?? '')}::text`; out = out.replaceAll('cf.schema_type', ph); }
+        return out;
+      };
+      return `(${hits.map((f) => `(${sub(condition, f)})`).join(' OR ')})`;
+    }
+    const lookup = field.id ? `cf.id = ${this.p(field.id)}` : `lower(cf.name) = lower(${this.p(ft.value)})`;
+    return `EXISTS (SELECT 1 FROM jira_fields cf WHERE cf.custom AND ${lookup}
+      AND NOT (cf.id = ANY(${this.p(HIDDEN_CUSTOM_FIELDS)}::text[]))
+      AND COALESCE(cf.schema_custom, '') !~ ${this.p(HIDDEN_CUSTOM_TYPES.join('|'))}
+      AND (${condition}))`;
   }
 
   searchSql(v) {
@@ -291,7 +328,7 @@ class Parser {
 }
 
 // 반환: { where, order }  — where는 괄호로 감싼 SQL 조각, order는 sort 키('-updated' 등) 또는 null
-export function parseJql(src, { p, userId }) {
-  const parser = new Parser(src, { p, userId });
+export function parseJql(src, { p, userId, customFields }) {
+  const parser = new Parser(src, { p, userId, customFields });
   return parser.parse();
 }

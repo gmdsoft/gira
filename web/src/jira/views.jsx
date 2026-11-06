@@ -174,6 +174,9 @@ const readLS = (key, fallback) => {
 };
 
 export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onChanged, onCount, onNew, onSeen, onHome, boardJql }) {
+  const [customColumns, setCustomColumns] = useState(() => readLS('jira.customColumns', []));
+  const extraColumns = (meta.customFields ?? []).filter(f => customColumns.includes(f.id));
+  const tableCols = [...TABLE_COLS, ...extraColumns.map(f => [f.id, f.name])];
   const readIssue = () => {
     const key = new URLSearchParams(location.search).get('selectedIssue') ?? '';
     return /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(key) ? key.toUpperCase() : null;
@@ -238,9 +241,9 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   useEffect(() => onCount(total), [total]);
   useEffect(() => { setSelected((cur) => new Set([...cur].filter((id) => rows.some((r) => r.id === id)))); }, [rows]);
 
-  const fixedSum = CHECKBOX_WIDTH + TABLE_COLS
+  const fixedSum = CHECKBOX_WIDTH + tableCols
     .filter(([f]) => f !== 'summary')
-    .reduce((sum, [f]) => sum + (widths[f] ?? DEFAULT_COL_WIDTHS[f]), 0);
+    .reduce((sum, [f]) => sum + (widths[f] ?? DEFAULT_COL_WIDTHS[f] ?? 160), 0);
   useEffect(() => { try { localStorage.setItem('jira.tableWidths.v3', JSON.stringify(widths)); } catch { /* 무시 */ } }, [widths]);
   useEffect(() => { try { localStorage.setItem('jira.summaryWidth', String(summaryWidth)); localStorage.setItem('jira.summaryManual', summaryManual ? 'true' : 'false'); } catch { /* 무시 */ } }, [summaryWidth, summaryManual]);
   // 업무 열은 창 폭에 맞춰 남는 공간을 차지한다. 사용자가 직접 조절한 뒤에는 그 폭을 유지한다.
@@ -277,11 +280,11 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   }, [resizing]);
   const startResize = (e, field) => {
     e.preventDefault(); e.stopPropagation();
-    setResizing({ field, startX: e.clientX, startW: field === 'summary' ? summaryWidth : (widths[field] ?? DEFAULT_COL_WIDTHS[field]) });
+    setResizing({ field, startX: e.clientX, startW: field === 'summary' ? summaryWidth : (widths[field] ?? DEFAULT_COL_WIDTHS[field] ?? 160) });
   };
   const resetCol = (field) => {
     if (field === 'summary') setSummaryManual(false);
-    else setWidths((w) => ({ ...w, [field]: DEFAULT_COL_WIDTHS[field] }));
+    else setWidths((w) => ({ ...w, [field]: DEFAULT_COL_WIDTHS[field] ?? 160 }));
   };
 
   const ordered = useMemo(() => groupRows(rows, filters.group), [rows, filters.group]);
@@ -301,23 +304,29 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   return (
     <div className="view on" id="view-table">
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+    <details style={{ padding: 8 }}><summary>사용자 정의 필드 열</summary>
+      {(meta.customFields ?? []).map(f => <label key={f.id} style={{ display: 'inline-block', margin: 6 }}><input type="checkbox" checked={customColumns.includes(f.id)} onChange={e => {
+        const next = e.target.checked ? [...customColumns, f.id] : customColumns.filter(id => id !== f.id);
+        setCustomColumns(next); try { localStorage.setItem('jira.customColumns', JSON.stringify(next)); } catch { /* 무시 */ }
+      }} />{f.name}</label>)}
+    </details>
     <div id="tablewrap" ref={wrapRef} onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
       <table className="issues" style={{ width: fixedSum + summaryWidth, minWidth: '100%' }}>
         <colgroup>
           <col style={{ width: CHECKBOX_WIDTH }} />
-          {TABLE_COLS.map(([f]) => <col key={f} style={{ width: f === 'summary' ? summaryWidth : widths[f] }} />)}
+          {tableCols.map(([f]) => <col key={f} style={{ width: f === 'summary' ? summaryWidth : widths[f] ?? 160 }} />)}
         </colgroup>
         <thead><tr>
           <th className="c-check"><input type="checkbox" checked={allOn} onChange={toggleAll} aria-label="전체 선택" /></th>
-          {TABLE_COLS.map(([f, label]) => (
-            <th key={f} className={`c-${f}`} onClick={() => clickSort(f)}>{label}
+          {tableCols.map(([f, label]) => (
+            <th key={f} className={`c-${f}`} onClick={() => { if (!f.startsWith('customfield_')) clickSort(f); }}>{label}
               {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}
               <span className="col-resizer" title="드래그하여 열 폭 조절 (더블클릭: 초기화)"
                 onMouseDown={(e) => startResize(e, f)} onClick={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => { e.stopPropagation(); resetCol(f); }} /></th>))}
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
-          ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
+          ? <tr className="ghead" key={'g' + i}><td colSpan={tableCols.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
           : <tr key={r.id} className={selected.has(r.id) ? 'selected' : ''} onClick={() => setIssue(r.issue_key)}>
               <td className="c-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.issue_key} 선택`} /></td>
               <td className="c-key"><span className="key-wrap"><TypeIcon name={r.type_name} /><a href={`/browse/${encodeURIComponent(r.issue_key)}`} className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={(e) => issueClick(e, r.issue_key)}>{r.issue_key}</a></span></td>
@@ -331,6 +340,7 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
               <td className="c-resolution">{r.resolution ? <span className="resolved"><IconCheck size={14} />{r.resolution}</span> : (r.resolved_at ? <span className="resolved"><IconCheck size={14} />완료</span> : '')}</td>
               <td className="c-created">{dt(r.created_at)}</td>
               <td className="c-updated">{dt(r.updated_at)}</td>
+              {extraColumns.map(f => <td key={f.id}>{r.customFields?.find(v => v.id === f.id)?.display ?? ''}</td>)}
             </tr>)}
         </tbody>
       </table>
@@ -638,7 +648,7 @@ function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta,
           <TypeIcon name={r.type_name} size={16} />
           <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`}>{r.issue_key}</span>
         </span>
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><span title="스토리 포인트">{r.storyPoints ?? ''}</span><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
       </div>
     </div>
   );

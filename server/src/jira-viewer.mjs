@@ -1,3 +1,4 @@
+import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // Jira PoC 앱 서버. 이관된 jira_* 테이블 조회 + 기본 쓰기(이슈/댓글/첨부/스프린트/필터).
 // 원본 Jira Cloud API는 읽기 전용(GET, 첨부 프록시)으로만 쓴다 — 쓰기는 전부 로컬 DB.
 // 인증은 Confluence 앱과 동일(auth.mjs, 테스트 계정 로그인) — 같은 DB 세션 쿠키를 공유한다.
@@ -134,7 +135,7 @@ function notifyIssue(req, issueId, event, extra) {
 }
 
 async function issueByKey(key) {
-  const { rows } = await query(`SELECT id, project_id, issue_key FROM jira_issues WHERE issue_key = $1`, [key]);
+  const { rows } = await query(`SELECT id, project_id, issue_key, issue_type_id FROM jira_issues WHERE issue_key = $1`, [key]);
   return rows[0] ?? null;
 }
 
@@ -190,6 +191,7 @@ app.get('/api/meta', async (req) => {
     statuses: statuses.rows, types: types.rows,
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
     resolutions: resolutions.rows.map((r) => r.resolution),
+    customFields: (await query('SELECT * FROM jira_fields WHERE custom')).rows.filter(visibleField).map(f => ({ id: f.id, name: f.name })),
   };
 });
 
@@ -266,6 +268,16 @@ const STATS_JOINS = `
        LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
        LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
 
+// JQL용 사용자 정의 필드 목록 (숨김 필드 제외) — 1분 캐시. 필드 id를 미리 풀어 행마다 jira_fields를 찾지 않게 한다 (GIRA-65)
+let customFieldCache = { at: 0, rows: null };
+async function jqlCustomFields() {
+  if (customFieldCache.rows && Date.now() - customFieldCache.at < 60000) return customFieldCache.rows;
+  const { rows } = await query(`SELECT id, name, schema_type FROM jira_fields
+    WHERE custom AND NOT (id = ANY($1::text[])) AND COALESCE(schema_custom, '') !~ $2`, [HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES.join('|')]);
+  customFieldCache = { at: Date.now(), rows };
+  return rows;
+}
+
 app.get('/api/stats', async (req, reply) => {
   reply.header('Cache-Control', 'private, no-store');
   try {
@@ -274,7 +286,7 @@ app.get('/api/stats', async (req, reply) => {
     const p = v => { params.push(v); return `$${params.length}`; };
     const roles = await projectRoles(req.access);
     const scope = `i.project_id = ANY(${p([...roles.keys()])}::bigint[])`;
-    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId }).where : 'TRUE';
+    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields() }).where : 'TRUE';
     const { rows } = await query(`SELECT i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
       pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
       ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
@@ -301,7 +313,7 @@ app.get('/api/issues', async (req, reply) => {
   for (const one of [].concat(req.query.jql ?? [])) {
     if (!String(one).trim()) continue;
     try {
-      const r = parseJql(String(one), { p, userId: req.access.userId });
+      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields() });
       cond.push(r.where);
       if (r.order) jqlOrder = r.order;
     } catch (e) {
@@ -342,7 +354,7 @@ app.get('/api/issues', async (req, reply) => {
   const total = (await query(
     `SELECT count(*)::int AS n ${JOINS} WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
   const { rows } = await query(
-    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
+    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at, i.fields_raw, i.project_id, i.issue_type_id,
             i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions, i.assignee_id,
             t.name AS type_name, t.subtask,
             s.id AS status_id, s.name AS status_name, s.category AS status_category,
@@ -361,6 +373,13 @@ app.get('/api/issues', async (req, reply) => {
       WHERE ${cond.join(' AND ')}
       ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
       OFFSET ${offset} LIMIT ${limit}`, params);
+  const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
+  for (const row of rows) {
+    const fields = normalizeCustomFields(defs, row.fields_raw, row.project_id, row.issue_type_id);
+    row.customFields = fields.map(({ id, display }) => ({ id, display }));
+    row.storyPoints = fields.find(f => f.storyPoints)?.value ?? null;
+    delete row.fields_raw;
+  }
   return { total, rows };
 });
 
@@ -425,6 +444,7 @@ app.get('/api/issue/:key', async (req, reply) => {
   const proj = await requireProjectId(req, reply, issue.project_id);
   if (!proj) return;
   issue.project_role = proj.role;
+  issue.customFields = normalizeCustomFields((await query('SELECT * FROM jira_fields WHERE custom')).rows, issue.fields_raw, issue.project_id, issue.issue_type_id);
   delete issue.fields_raw;
 
   const [comments, attachments, links, subtasks, history, weblinks] = await Promise.all([
@@ -515,6 +535,13 @@ app.patch('/api/issue/:key', async (req, reply) => {
   const sets = [];
   const params = [issue.id];
   const p = (v) => { params.push(v); return `$${params.length}`; };
+  if ('customFields' in b) {
+    const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
+    try {
+      const raw = validateCustomPatch(b.customFields, defs, issue.project_id, b.typeId ?? issue.issue_type_id);
+      sets.push(`fields_raw = COALESCE(fields_raw, '{}'::jsonb) || ${p(JSON.stringify(raw))}::jsonb`);
+    } catch (e) { return reply.code(400).send({ error: e.message }); }
+  }
   if ('statusId' in b) {
     sets.push(`status_id = ${p(b.statusId)}`);
     // done 카테고리로 이동하면 해결 시각 기록, 아니면 해제
@@ -559,6 +586,13 @@ app.patch('/api/issue/:key', async (req, reply) => {
   // 로컬 수정도 Jira처럼 기록(changelog)에 남긴다
   const after = await issueSnapshot(issue.id);
   const items = [];
+  if ('customFields' in b) {
+    const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
+    for (const id of Object.keys(b.customFields)) {
+      const old = before.fields_raw?.[id], value = after.fields_raw?.[id];
+      if (JSON.stringify(old) !== JSON.stringify(value)) items.push({ field: defs.find(f => f.id === id)?.name ?? id, fieldId: id, fromString: displayValue(old), toString: displayValue(value) });
+    }
+  }
   for (const [field, label] of Object.entries(SNAP_FIELDS)) {
     if (before[label] !== after[label]) items.push({ field, fromString: before[label], toString: after[label] });
   }
@@ -582,7 +616,7 @@ const SNAP_FIELDS = {
 };
 async function issueSnapshot(id) {
   const { rows } = await query(
-    `SELECT i.summary, i.priority, i.resolution,
+    `SELECT i.summary, i.priority, i.resolution, i.fields_raw,
             array_to_string(i.labels, ', ') AS labels, array_to_string(i.components, ', ') AS components,
             array_to_string(i.fix_versions, ', ') AS fix_versions,
             s.name AS status, t.name AS type, u.display_name AS assignee,
