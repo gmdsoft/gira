@@ -55,9 +55,10 @@ export const BlockResize = Extension.create({
           if (!['codeBlock', 'expand', 'layout'].includes(node?.type.name)) return;
           active = blockPos; clear();
           const rect = target.getBoundingClientRect();
-          const area = view.dom.closest('.page')?.getBoundingClientRect() || view.dom.parentElement.getBoundingClientRect();
+          // 최대 폭: 본문 칼럼(.page 824px)이 아니라 편집 영역(사이드바를 뺀 본문 영역) 기준 — 표 돌출과 같은 상한(100vw-380px)
+          const area = (view.dom.closest('.gmain') || view.dom.closest('.page') || view.dom.parentElement).getBoundingClientRect();
           const center = (rect.left + rect.right) / 2;
-          const max = Math.max( Math.min(760, area.width - 32), Math.floor(2 * Math.min(center - area.left - 16, area.right - center - 16)));
+          const max = Math.max(760, Math.floor(Math.min(2 * Math.min(center - area.left - 24, area.right - center - 24), window.innerWidth - 380)));
           for (const side of [-1, 1]) button(side < 0 ? rect.left - 8 : rect.right + 8, rect, node.type.name === 'codeBlock' ? '코드 조각 크기 조정' : node.type.name === 'expand' ? '펼치기 크기 조정' : '레이아웃 크기 조정', e => {
             let width = rect.width;
             const originalStyle = target.getAttribute('style');
