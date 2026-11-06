@@ -278,14 +278,14 @@ for (;;) {
       `INSERT INTO jira_issues
          (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
           priority, resolution, assignee_id, reporter_id, sprint_id, labels, fix_versions, components,
-          created_at, updated_at, resolved_at, fields_raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          created_at, updated_at, resolved_at, fields_raw, rank)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
        ON CONFLICT (id) DO UPDATE SET
          status_id = EXCLUDED.status_id, summary = EXCLUDED.summary,
          description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
          resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id, sprint_id = EXCLUDED.sprint_id,
          labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
-         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw
+         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw, rank = EXCLUDED.rank
        WHERE jira_issues.project_id = EXCLUDED.project_id`,
       [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
        f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
@@ -293,7 +293,7 @@ for (;;) {
        uid(f.assignee), uid(f.reporter), sprintId,
        f.labels ?? [], names(f.fixVersions), names(f.components),
        f.created ?? null, f.updated ?? null, f.resolutiondate ?? null,
-       JSON.stringify(rawRest)]);
+       JSON.stringify(rawRest), f.customfield_10019 ?? null]);
     knownIds.add(Number(iss.id));
     if (f.parent?.id) parentPairs.push([Number(iss.id), Number(f.parent.id)]);
 

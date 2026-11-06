@@ -1,4 +1,5 @@
 import { remoteLinkView } from './jira-remote-links.mjs';
+import { rankBetween, RANK_COLUMN } from './jira-rank.mjs';
 import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // Jira PoC 앱 서버. 이관된 jira_* 테이블 조회 + 기본 쓰기(이슈/댓글/첨부/스프린트/필터).
 // 원본 Jira Cloud API는 읽기 전용(GET, 첨부 프록시)으로만 쓴다 — 쓰기는 전부 로컬 DB.
@@ -136,7 +137,7 @@ function notifyIssue(req, issueId, event, extra) {
 }
 
 async function issueByKey(key) {
-  const { rows } = await query(`SELECT id, project_id, issue_key, issue_type_id FROM jira_issues WHERE issue_key = $1`, [key]);
+  const { rows } = await query(`SELECT id, project_id, issue_key, issue_type_id, rank FROM jira_issues WHERE issue_key = $1`, [key]);
   return rows[0] ?? null;
 }
 
@@ -243,6 +244,7 @@ app.get('/api/labels', async (req, reply) => {
 
 // 정렬 가능 컬럼 (화이트리스트 — 쿼리 문자열이 SQL에 직접 들어가지 않도록)
 const ISSUE_SORT_COLS = {
+  rank: RANK_COLUMN,
   key: `(split_part(i.issue_key, '-', 2))::bigint`,
   summary: 'i.summary',
   type: 't.name',
@@ -372,7 +374,7 @@ app.get('/api/issues', async (req, reply) => {
                  WHEN pt2.name = '에픽' THEN p2.fields_raw->>'customfield_10017' END AS epic_color
        ${JOINS}
       WHERE ${cond.join(' AND ')}
-      ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
+      ORDER BY ${col} ${dir} NULLS LAST, i.issue_key ASC
       OFFSET ${offset} LIMIT ${limit}`, params);
   const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
   for (const row of rows) {
@@ -536,6 +538,26 @@ app.patch('/api/issue/:key', async (req, reply) => {
   const sets = [];
   const params = [issue.id];
   const p = (v) => { params.push(v); return `$${params.length}`; };
+  if ('rankBefore' in b || 'rankAfter' in b) {
+    if (('rankBefore' in b) === ('rankAfter' in b)) return reply.code(400).send({ error: 'rankBefore 또는 rankAfter 하나를 지정하세요' });
+    const before = 'rankBefore' in b;
+    const target = await issueByKey(String(before ? b.rankBefore : b.rankAfter).toUpperCase());
+    if (!target || target.project_id !== issue.project_id || target.id === issue.id) {
+      return reply.code(400).send({ error: '같은 프로젝트의 다른 이슈를 지정하세요' });
+    }
+    if (!target.rank) {
+      const { rows: last } = await query(`SELECT rank FROM jira_issues WHERE project_id = $1 AND rank IS NOT NULL
+        ORDER BY rank COLLATE "C" DESC LIMIT 1`, [issue.project_id]);
+      target.rank = rankBetween(last[0]?.rank ?? null, null);
+      await query('UPDATE jira_issues SET rank = $1 WHERE id = $2 AND rank IS NULL', [target.rank, target.id]);
+    }
+    const { rows } = await query(`SELECT rank FROM jira_issues
+      WHERE project_id = $1 AND id <> $2 AND rank COLLATE "C" ${before ? '<' : '>'} $3 COLLATE "C"
+      ORDER BY rank COLLATE "C" ${before ? 'DESC' : 'ASC'} LIMIT 1`, [issue.project_id, issue.id, target.rank]);
+    try {
+      sets.push(`rank = ${p(rankBetween(before ? rows[0]?.rank ?? null : target.rank, before ? target.rank : rows[0]?.rank ?? null))}`);
+    } catch (e) { return reply.code(409).send({ error: e.message }); }
+  }
   if ('customFields' in b) {
     const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
     try {

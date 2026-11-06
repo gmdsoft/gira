@@ -235,3 +235,9 @@ ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS app_name text;
 ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS relationship text;
 ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS icon_url text;
 CREATE UNIQUE INDEX IF NOT EXISTS jira_web_links_source ON jira_web_links(source_id);
+-- Rank migration: only missing values are backfilled; local reorderings survive startup.
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS rank text;
+UPDATE jira_issues SET rank = fields_raw->>'customfield_10019'
+ WHERE rank IS NULL AND fields_raw->>'customfield_10019' IS NOT NULL;
+CREATE INDEX IF NOT EXISTS jira_issues_project_rank_idx
+ ON jira_issues (project_id, rank COLLATE "C", issue_key);
