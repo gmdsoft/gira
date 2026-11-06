@@ -45,6 +45,10 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
           </React.Fragment>
         );
       })}
+      {/* 스페이스 바로 아래: 다른 앱(Gonfluence) — 같은 호스트의 3001 포트 */}
+      <a className="sitem" href={`//${location.hostname}:3001/`} target="_blank" rel="noreferrer" title="Gonfluence 열기">
+        <IconSpace size={16} /><span className="strunc">Gonfluence</span><span className="sext">↗</span>
+      </a>
       {recent.length > 0 && <>
         <div className="shead2"><span>최근 항목</span></div>
         <div className="srecent">
@@ -61,6 +65,7 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
             <IconFilter size={15} /><span className="strunc" title={f.name}>{f.name}</span>
           </div>))}
       </>}
+      {/* 구분선 아래: 개발용 메뉴 */}
       <div className="snav snav-bottom">
         <div className="sitem snav-top" onClick={onDevFeedback} title="개발참여 챗봇 — 새 탭에서 열림 (신규 기능·수정·버그 제안)">
           <span className="sglyph">💡</span><span className="strunc">거 참 답답하네</span>
@@ -70,9 +75,6 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         </a>
         <a className="sitem" href={REPO_URL} target="_blank" rel="noreferrer" title="소스 저장소(GitHub) 열기">
           <span className="sglyph">📦</span><span className="strunc">저장소</span><span className="sext">↗</span>
-        </a>
-        <a className="sitem" href="http://172.21.1.1:3001" target="_blank" rel="noreferrer" title="Gonfluence 열기">
-          <IconSpace size={16} /><span className="strunc">Gonfluence</span><span className="sext">↗</span>
         </a>
       </div>
     </nav>
