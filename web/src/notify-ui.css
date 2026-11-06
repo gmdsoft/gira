@@ -1,0 +1,48 @@
+/* 알림 화면 (GIRA-14) — Gira(--line·--dim)와 Gonfluence(--border·--muted) 변수 모두에서 동작하도록 대체값을 둔다 */
+.nt-dim { color: var(--dim, var(--muted)); font-size: 12.5px; }
+.nt-rules h3 { font-size: 14px; margin: 18px 0 8px; }
+.nt-chan { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12.5px; margin-top: 6px; }
+.nt-chan span { padding: 3px 8px; border-radius: 4px; background: var(--hover); }
+.nt-chan .ok { background: #dcfff1; color: #216e4e; }
+.nt-chan .warn { background: #fff7d6; color: #7f5f01; }
+:root[data-theme="dark"] .nt-chan .ok { background: #164b35; color: #baf3db; }
+:root[data-theme="dark"] .nt-chan .warn { background: #533f04; color: #f8e6a0; }
+.nt-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nt-table th { text-align: left; font-weight: 600; color: var(--dim, var(--muted)); font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line, var(--border)); }
+.nt-table td { padding: 6px; border-bottom: 1px solid var(--line, var(--border)); vertical-align: middle; }
+.nt-table tr.off td { opacity: .5; }
+.nt-target { color: var(--dim, var(--muted)); word-break: break-all; }
+.nt-acts { white-space: nowrap; text-align: right; }
+.nt-acts button { font-size: 12px; padding: 2px 8px; margin-left: 4px; }
+.nt-form { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.nt-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nt-k { width: 56px; flex: none; font-size: 12.5px; color: var(--dim, var(--muted)); }
+.nt-evs { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.nt-evs label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.nt-row input:not([type="checkbox"]) { flex: 1; min-width: 220px; padding: 5px 8px; }
+.nt-err { color: #c9372c; font-size: 12.5px; }
+.nt-recent td { font-size: 12.5px; }
+.nt-st.sent { color: #216e4e; }
+.nt-st.failed, .nt-st.skipped { color: #ae2e24; }
+:root[data-theme="dark"] .nt-st.sent { color: #7ee2b8; }
+:root[data-theme="dark"] .nt-st.failed, :root[data-theme="dark"] .nt-st.skipped { color: #fd9891; }
+
+/* 종 */
+.nt-bellwrap { position: relative; display: inline-flex; }
+.nt-bell { position: relative; width: 32px; height: 32px; display: inline-grid; place-items: center; border: 0; background: transparent;
+  border-radius: 4px; color: var(--text2, var(--muted)); padding: 0; cursor: pointer; }
+.nt-bell:hover { background: var(--hover); }
+.nt-badge { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+  background: #c9372c; color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; }
+.nt-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 80; width: 360px; max-height: 480px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--line, var(--border)); border-radius: 8px; box-shadow: 0 8px 24px rgba(9,30,66,.25); }
+.nt-pop-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid var(--line, var(--border)); font-size: 14px; }
+.nt-link { border: 0; background: none; color: var(--accent); font-size: 12px; cursor: pointer; padding: 0; }
+.nt-empty { padding: 24px 12px; text-align: center; color: var(--dim, var(--muted)); font-size: 13px; }
+.nt-item { display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; border: 0; border-bottom: 1px solid var(--line, var(--border));
+  background: none; padding: 9px 12px; cursor: pointer; font: inherit; color: var(--text); }
+.nt-item:hover { background: var(--hover); }
+.nt-item.unread { background: var(--selected, var(--sel)); }
+.nt-item-top { display: flex; justify-content: space-between; gap: 8px; }
+.nt-ev { font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.nt-item-title { font-size: 13px; overflow-wrap: anywhere; }

@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from './util.jsx';
 import { MigrateBody } from '../migrate-ui.jsx';
+import { NotifyRulesBody } from '../notify-ui.jsx';
 
 const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
@@ -282,6 +283,7 @@ export function SettingsHub({ me, meta, project, onClose, onChanged }) {
     ['pkg', '패키지 (내보내기/가져오기)', true],
     ['migrate', '원본 Jira에서 가져오기', !!me?.can_create],
     ['perm', '프로젝트 권한', proj?.role === 'admin'],
+    ['notify', '프로젝트 알림', proj?.role === 'admin'],
     ['inbox', '접근 요청 승인함', meta.projects.some((p) => p.role === 'admin')],
   ].filter((t) => t[2]);
   const [tab, setTab] = useState(tabs[0][0]);
@@ -302,13 +304,14 @@ export function SettingsHub({ me, meta, project, onClose, onChanged }) {
           <button className="hub-close" onClick={() => onClose()}>닫기</button>
         </aside>
         <section className="hub-main">
-          <h2>{TITLE[tab]}{tab === 'perm' ? ` — ${project}` : ''}</h2>
+          <h2>{TITLE[tab]}{tab === 'perm' || tab === 'notify' ? ` — ${project}` : ''}</h2>
           {tab === 'keys' && <ApiKeysBody />}
           {tab === 'pkg' && <PackageBody project={project} projectRole={proj?.role}
             canCreate={!!me?.can_create} onImported={onChanged} />}
           {tab === 'migrate' && <MigrateBody api={api} resourceLabel="프로젝트"
             btn="plain linklike" btnPrimary="primary" onDone={onChanged} />}
           {tab === 'perm' && <PermissionsBody project={project} />}
+          {tab === 'notify' && <NotifyRulesBody key={project} resourceKey={project} resourceLabel="프로젝트" />}
           {tab === 'inbox' && <InboxBody />}
         </section>
       </div>
