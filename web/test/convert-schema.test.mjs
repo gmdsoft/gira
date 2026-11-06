@@ -28,3 +28,8 @@ test('겹친 같은 마크는 안쪽만, 코드 마크는 단독', () => {
   assert.deepEqual(texts.find((t) => t.text === 'c').marks, [{ type: 'textColor', attrs: { color: 'blue' } }]);
   assert.deepEqual(texts.find((t) => t.text === 'd').marks.map((m) => m.type), ['code']);
 });
+
+test('문단 안 JQL jira 매크로(표)는 문단 밖 블록으로 꺼낸다', () => {
+  const doc = valid('<p>JIRA 이슈 관리 : <ac:structured-macro ac:name="jira"><ac:parameter ac:name="jqlQuery">project = A</ac:parameter></ac:structured-macro> 끝</p>');
+  assert.deepEqual(doc.content.map((n) => n.type), ['paragraph', 'jiraTable', 'paragraph']);
+});

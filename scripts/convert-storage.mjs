@@ -62,6 +62,9 @@ const text = (t, marks) => {
   return { type: 'text', text: t, ...(ms.length ? { marks: ms } : {}) };
 };
 const para = (content) => ({ type: 'paragraph', ...(content.length ? { content } : {}) });
+// 문단 안 매크로가 블록 노드가 되는 경우(구형 html 매크로, JQL 표 jira 매크로 등) 문단 밖으로 꺼낸다 (GIRA-75)
+const HOIST_BLOCKS = new Set(['htmlEmbed', 'jiraTable', 'panel', 'expand', 'codeBlock', 'cfMacro', 'mermaid', 'layout',
+  'linkCard', 'adfNode', 'horizontalRule', 'table', 'bulletList', 'orderedList', 'heading', 'blockquote']);
 
 export function convertStorage(xhtml) {
   // hiddenMacros: 보기에서 숨기는 내보내기 앱 표시, noticeMacros: 옮길 수 없는 앱(안내로 대체) — 둘 다 '미지원'으로 세지 않는다
@@ -361,7 +364,7 @@ export function convertStorage(xhtml) {
           let pending = [], pushed = false;
           const flush = () => { if (pending.length) { items.push({ node: para(pending) }); pushed = true; } pending = []; };
           for (const node of inline(n.children, [])) {
-            if (node.type === 'htmlEmbed') { flush(); items.push({ node }); pushed = true; }
+            if (HOIST_BLOCKS.has(node.type)) { flush(); items.push({ node }); pushed = true; }
             else pending.push(node);
           }
           flush();
