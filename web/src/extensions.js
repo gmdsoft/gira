@@ -770,7 +770,17 @@ export const BlockHandle = Extension.create({
     const key = new PluginKey('blockHandle');
     let handle = null;
     let hoverPos = null;
-    const hide = () => { if (handle) handle.style.display = 'none'; hoverPos = null; };
+    let hoverRect = null; // 지금 핸들이 붙은 블록의 화면 위치
+    const hide = () => { if (handle) handle.style.display = 'none'; hoverPos = null; hoverRect = null; };
+    // 블록 왼쪽 끝과 핸들 사이 '통로'(핸들 높이만큼)에 포인터가 있으면 대상을 바꾸지 않는다.
+    // 표 셀 안 펼치기·패널처럼 안쪽 블록의 핸들이 바깥 블록(표) 영역에 뜰 때, 핸들로 가는 도중
+    // 바깥 블록으로 대상이 바뀌어 핸들이 달아나는 문제 방지
+    const inCorridor = (e) => {
+      if (hoverPos == null || !hoverRect || !handle || handle.style.display === 'none') return false;
+      const h = handle.getBoundingClientRect();
+      return e.clientX >= h.left - 4 && e.clientX <= hoverRect.left + 6
+        && e.clientY >= h.top - 8 && e.clientY <= h.bottom + 8;
+    };
     return [new Plugin({
       key,
       view(editorView) {
@@ -803,6 +813,7 @@ export const BlockHandle = Extension.create({
       props: {
         handleDOMEvents: {
           mousemove(view, event) {
+            if (inCorridor(event)) return false;
             const at = view.posAtCoords({ left: event.clientX, top: event.clientY });
             if (!at) return false;
             const $pos = view.state.doc.resolve(at.pos);
@@ -817,6 +828,7 @@ export const BlockHandle = Extension.create({
             if (!dom || dom.nodeType !== 1) return false;
             const rect = dom.getBoundingClientRect();
             hoverPos = blockPos;
+            hoverRect = rect;
             handle.style.display = 'flex';
             handle.style.top = `${rect.top + 2}px`;
             handle.style.left = `${rect.left - 22}px`;
