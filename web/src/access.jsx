@@ -6,6 +6,7 @@ import { MigrateBody } from './migrate-ui.jsx';
 import { NotifyRulesBody } from './notify-ui.jsx';
 import { AiGuideBody } from './ai-ui.jsx';
 import { RequestsTab } from './Admin.jsx';
+import { ProfileBody } from './profile-ui.jsx';
 
 export const TYPE_LABEL = { user: '사용자', group: '그룹', team: '팀', anyone: '전체' };
 export const ROLE_LABEL = { viewer: '보기', editor: '편집', admin: '관리' };
@@ -373,8 +374,9 @@ export function SpacePackageBody({ spaceKey, spaceRole, canCreate, onImported })
 }
 
 // 설정 허브: 톱니 메뉴의 '설정…'에서 열리는 팝업 — 좌측 탭 + 우측 내용
-export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate }) {
+export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, onMeChanged }) {
   const tabs = [
+    ['profile', '프로필', true],
     ['keys', '내 API 키', true],
     ['pkg', '패키지 (내보내기/가져오기)', true],
     ['migrate', '원본 Confluence에서 가져오기', true],
@@ -402,6 +404,7 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate }) 
         <section className="hub-main">
           <h2>{TITLE[tab]}{(tab === 'pkg' || tab === 'notify') && spaceKey ? ` — ${spaceKey}` : ''}</h2>
           {tab === 'aiguide' && <AiGuideBody />}
+          {tab === 'profile' && <ProfileBody me={me} onChanged={onMeChanged} />}
           {tab === 'notify' && <NotifyRulesBody key={spaceKey} resourceKey={spaceKey} resourceLabel="스페이스" />}
           {tab === 'keys' && <ApiKeysBody />}
           {tab === 'pkg' && <SpacePackageBody spaceKey={spaceKey} spaceRole={spaceRole}

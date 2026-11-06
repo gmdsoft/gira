@@ -28,10 +28,7 @@ export function Prio({ p }) { return <PrioIcon p={p} />; }
 const PALETTE = ['#0052cc', '#00875a', '#ff8b00', '#de350b', '#5243aa', '#00a3bf', '#403294', '#e56910', '#216e4e', '#943d73'];
 export const hashColor = (s) => PALETTE[[...String(s ?? '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % PALETTE.length];
 
-export function Avatar({ name }) {
-  if (!name) return null;
-  return <span className="av" style={{ background: hashColor(name) }} title={name}>{String(name).trim()[0] ?? '?'}</span>;
-}
+export { Avatar } from '../avatar.jsx'; // 등록 이미지 → Entra 사진 → 이니셜 (GIRA-20)
 
 // 에픽 색: Jira 이슈 색 이름(green, dark_teal …) → Jira 화면과 같은 색. 'dark_*'는 진한 색, 미지정은 보라(Jira 기본)
 const EPIC_COLORS = {

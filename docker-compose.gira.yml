@@ -26,6 +26,9 @@ services:
     environment:
       GIRA_DATABASE_URL: postgres://${POSTGRES_USER:-rea}:${POSTGRES_PASSWORD}@postgres:5432/gira
       PG_POOL_MAX: ${PG_POOL_MAX:-20}
+      # 프로필 이미지 업로드 프록시(GIRA-20) — 관리 서비스와 세션 쿠키를 공유한다
+      COOKIE_SECRET: ${COOKIE_SECRET:-}
+      ORG_ADMIN_URL: ${ORG_ADMIN_URL:-http://admin:3003}
       ATLASSIAN_SITE: ${ATLASSIAN_SITE:-}
       ATLASSIAN_EMAIL: ${ATLASSIAN_EMAIL:-}
       ATLASSIAN_API_TOKEN: ${ATLASSIAN_API_TOKEN:-}

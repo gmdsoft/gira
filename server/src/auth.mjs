@@ -8,6 +8,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { query, DATA_DIR } from './db.mjs';
 import { getAccess } from './perm.mjs';
+import { withAvatar } from './avatar.mjs';
 
 const COOKIE = 'gmd_sid';
 // 개발 로그인 화면에 노출할 테스트 계정 (이관된 실제 사용자는 목록에서 숨긴다)
@@ -121,18 +122,20 @@ export async function registerAuth(app) {
       const userId = await apiKeyUser(bearer);
       if (!userId) return reply.code(401).send({ error: 'invalid api key' });
       const { rows } = await query(
-        `SELECT id, display_name, email, is_admin FROM users WHERE id = $1 AND active`, [userId]);
+        `SELECT id, display_name, email, is_admin, avatar_key, avatar_external_url
+           FROM users WHERE id = $1 AND active`, [userId]);
       if (!rows.length) return reply.code(401).send({ error: 'not logged in' });
       const access = await getAccess(userId);
-      return { ...rows[0], can_create: !!access?.canCreate };
+      return { ...withAvatar(rows[0]), can_create: !!access?.canCreate };
     }
     const signed = req.cookies?.[COOKIE];
     const unsigned = signed ? req.unsignCookie(signed) : { valid: false };
     if (!unsigned.valid) return reply.code(401).send({ error: 'not logged in' });
     const { rows } = await query(
-      `SELECT id, display_name, email, is_admin FROM users WHERE id = $1 AND active`, [Number(unsigned.value)]);
+      `SELECT id, display_name, email, is_admin, avatar_key, avatar_external_url
+         FROM users WHERE id = $1 AND active`, [Number(unsigned.value)]);
     if (!rows.length) return reply.code(401).send({ error: 'not logged in' });
     const access = await getAccess(Number(unsigned.value));
-    return { ...rows[0], can_create: !!access?.canCreate };
+    return { ...withAvatar(rows[0]), can_create: !!access?.canCreate };
   });
 }
