@@ -1,5 +1,5 @@
 <!-- spec-sync: 자동 생성 사본 — 직접 고치지 말고 Gonfluence 원본을 고친 뒤 'node scripts/spec-sync.mjs --pull' -->
-> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://localhost:3001/s/GIRA/p/1000000000009), 버전 5
+> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://localhost:3001/s/GIRA/p/1000000000009), 버전 6
 
 ## 개요
 
@@ -123,6 +123,7 @@ PM은 별도 직책이 아니라 'PM들' 그룹으로 다룬다 — 생성 권�
 - **설정 단위**: 프로젝트/스페이스별로 "어떤 이벤트를 어디로" 규칙을 리소스 관리자가 지정한다. 개인은 내 관련 이벤트(내 담당 이슈 등)의 수신 여부를 설정한다.
 - **구현**: 서버에서 이벤트 발생 시 규칙 매칭 → 발송 큐(실패 재시도). SMTP 주소와 Teams 웹훅은 관리 설정에 둔다. 알림 내용에는 제목·링크만 담고 본문은 담지 않는다(권한 밖 노출 방지).
 - 구현 순서상 4단계(품질·지원)에 포함한다.
+- **현재 구현(알파, GIRA-14)**: 이벤트는 이슈 생성·상태 변경·이슈 댓글(Gira), 문서 생성·수정·댓글(Gonfluence). 규칙은 프로젝트/스페이스 관리자가 설정 › 알림에서 정한다(이벤트 · Teams 채널 웹훅 또는 메일 · 받는 사람: 주소, @assignee·@reporter·@author). 발송 큐는 실패 시 최대 5회 재시도(점점 간격을 늘림), 최근 발송 결과를 같은 화면에서 본다. 인앱 알림은 상단 종 — 담당자·보고자(이슈), 작성자·소유자(문서)에게 가고 행동한 사람은 제외. Teams는 채널 웹훅(기본 `TEAMS_WEBHOOK_URL` 또는 규칙별 주소, Microsoft 웹훅 호스트만 허용), 메일은 Microsoft Graph 앱 토큰(`TEAMS_TENANT_ID`·`TEAMS_APP_CLIENT_ID`·`TEAMS_APP_CLIENT_SECRET`·`TEAMS_SENDER_EMAIL`) — 앱 등록에 Mail.Send(애플리케이션) 권한이 있어야 실제로 나간다. 개인별 수신 설정(끄기)은 아직 없다.
 
 ## 내보내기 / 가져오기
 
