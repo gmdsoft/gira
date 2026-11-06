@@ -1,3 +1,4 @@
+import { adfPageLink } from './adf-page-links.mjs';
 import { remoteLinkView } from './jira-remote-links.mjs';
 import { rankBetween, RANK_COLUMN } from './jira-rank.mjs';
 import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
@@ -426,6 +427,20 @@ app.get('/api/home', async (req) => {
     recent: recentKeys.map((k) => byKey.get(k)).filter(Boolean),
     boards: boards.rows,
   };
+});
+
+// Gonfluence에 사용자 인증을 전달한다. 권한이 없으면 제목을 노출하지 않는다.
+app.get('/api/adf/page-link', async (req, reply) => {
+  reply.header('Cache-Control', 'private, no-store');
+  const headers = {};
+  if (req.headers.authorization) headers.authorization = req.headers.authorization;
+  if (req.cookies?.gmd_sid) headers.cookie = `gmd_sid=${encodeURIComponent(req.cookies.gmd_sid)}`;
+  const link = await adfPageLink(req.query.url, {
+    publicBase: process.env.GONFLUENCE_PUBLIC_URL ?? `${req.protocol}://${String(req.hostname).replace(/:\d+$/, '')}:3001`,
+    internalBase: process.env.GONFLUENCE_URL ?? process.env.GONFLUENCE_PUBLIC_URL ?? 'http://localhost:3001',
+    headers,
+  });
+  return link ?? reply.code(400).send({ error: '잘못된 문서 주소' });
 });
 
 app.get('/api/issue/:key', async (req, reply) => {

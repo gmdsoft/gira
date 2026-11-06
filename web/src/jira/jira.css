@@ -1001,3 +1001,10 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .adf .adf-file-info { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
 .adf .adf-file-info strong { overflow-wrap: anywhere; }
 .adf .media-group { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.adf-inline-card { display: inline; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; overflow-wrap: anywhere; }
+.adf-link-card { display: block; border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+.adf-inline-card .status-lozenge, .adf-link-card .status-lozenge { margin-left: 6px; }
+.adf-embed { width: 100%; height: 450px; border: 1px solid var(--line); border-radius: 6px; }
+.adf-decisions { list-style: none; padding-left: 16px; }
+.adf-decisions > li { padding: 6px; border-left: 3px solid var(--line); }
