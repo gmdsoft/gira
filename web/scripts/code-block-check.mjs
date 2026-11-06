@@ -36,6 +36,15 @@ for (const [language, text] of [...samples, ...samples.map(([, text]) => [null, 
 }
 assert.deepEqual(codeTokens('const x = 42', 'unknown-imported-language'), []);
 assert.deepEqual(codeTokens('const x = 42', 'plaintext'), []);
+// 접기 설정은 저장·복원된다
+{
+  const doc = { type: 'doc', content: [{ type: 'codeBlock', attrs: { language: 'python', collapsed: true }, content: [{ type: 'text', text: 'x = 1' }] }] };
+  const html = generateHTML(doc, extensions);
+  assert.match(html, /data-collapsed="true"/);
+  assert.equal(generateJSON(html, extensions).content[0].attrs.collapsed, true);
+  const plain = generateHTML({ type: 'doc', content: [{ type: 'codeBlock', content: [{ type: 'text', text: 'x' }] }] }, extensions);
+  assert.ok(!plain.includes('data-collapsed'));
+}
 // 자동 감지
 const detect = (t) => codeTokens(t, null).map((k) => t.slice(k.from, k.to));
 assert.ok(detect('def f(x):\n    return x').includes('def'));
@@ -44,4 +53,4 @@ assert.ok(detect('using System;\nnamespace A { }').includes('namespace'));
 assert.ok(detect('#include <vector>\nstd::vector<int> v;').includes('#include'));
 assert.ok(detect('#include <stdio.h>\nint main(void) { return 0; }').includes('#include'));
 assert.doesNotThrow(() => generateHTML({ type: 'doc', content: [{ type: 'codeBlock' }] }, extensions));
-console.log('code-block-check: JS/Python/Rust/C/C++/C#/SQL/JSON/Bash, 자동 감지, 보기 HTML·편집 decorations, 언어·원문 왕복 통과');
+console.log('code-block-check: JS/Python/Rust/C/C++/C#/SQL/JSON/Bash, 접기 설정, 자동 감지, 보기 HTML·편집 decorations, 언어·원문 왕복 통과');
