@@ -32,3 +32,52 @@ test('이관 이미지 기존 속성과 기본 테두리를 유지한다', () =>
   assert.match(html, /alt="설명"/);
   assert.match(html, /캡션/);
 });
+
+test('서식 있는 캡션과 이미지 링크·빈 대체 텍스트가 게시와 HTML 왕복에서 유지된다', () => {
+  const { doc } = convertStorage('<p><ac:image><ri:url ri:value="/sample.png"/><ac:caption><p>샘플 <strong>굵게</strong> <em>기울임</em> <a href="https://example.org/caption">링크</a></p></ac:caption></ac:image></p>');
+  const media = doc.content[0].content[0];
+  media.attrs.href = 'https://example.org/image';
+  media.attrs.alt = '';
+  assert.equal(media.content[0].type, 'mediaCaption');
+  assert.ok(media.content[0].content.some(n => n.marks?.some(m => m.type === 'bold')));
+  getSchema(extensions).nodeFromJSON(doc).check();
+  const html = generateHTML(doc, extensions);
+  assert.match(html, /alt=""/);
+  assert.match(html, /href="https:\/\/example.org\/image"/);
+  assert.match(html, /<strong>굵게<\/strong>/);
+  const parsed = generateJSON(html, extensions);
+  const restored = parsed.content[0].content.find(n => n.type === 'media');
+  assert.equal(restored.attrs.href, media.attrs.href);
+  assert.equal(restored.content[0].type, 'mediaCaption');
+  assert.ok(restored.content[0].content.some(n => n.marks?.some(m => m.type === 'link')));
+});
+test('기존 문자열 캡션과 안전하지 않은 이미지 링크를 처리한다', () => {
+  const html = generateHTML(docFor({ src: '/sample.png', caption: '기존 캡션', href: 'javascript:alert(1)' }), extensions);
+  assert.match(html, /class="media-legacy-caption">기존 캡션<\/span>/);
+  assert.doesNotMatch(html, /<a /);
+});
+
+test('캡션 Enter는 이미지와 캡션을 보존하고 다음 문단으로 이동한다', async () => {
+  const { EditorState, TextSelection } = await import('@tiptap/pm/state');
+  const { MediaCaption } = await import('../src/image-caption.js');
+  const schema = getSchema(extensions);
+  const doc = schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'media', attrs: { src: '/a.png' }, content: [{ type: 'mediaCaption', content: [{ type: 'text', text: '캡션' }] }] }] }] });
+  let state = EditorState.create({ doc, selection: TextSelection.create(doc, 4) });
+  const editor = { get state() { return state; }, view: { dispatch(tr) { state = state.apply(tr); } } };
+  const shortcuts = MediaCaption.config.addKeyboardShortcuts.call({ editor, name: 'mediaCaption' });
+  assert.equal(shortcuts.Enter(), true);
+  assert.equal(state.doc.childCount, 2);
+  assert.equal(state.doc.firstChild.firstChild.firstChild.textContent, '캡션');
+  assert.equal(state.selection.$from.parent.type.name, 'paragraph');
+  assert.equal(state.selection.$from.index(0), 1);
+});
+test('캡션에서 문단 정렬과 제목 변경은 거부하고 글자 입력은 허용한다', async () => {
+  const { EditorState, TextSelection } = await import('@tiptap/pm/state');
+  const { MediaCaption } = await import('../src/image-caption.js');
+  const schema = getSchema(extensions);
+  const doc = schema.nodeFromJSON({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'media', attrs: { src: '/a.png' }, content: [{ type: 'mediaCaption', content: [{ type: 'text', text: '캡션' }] }] }] }] });
+  const state = EditorState.create({ doc, selection: TextSelection.create(doc, 4), plugins: MediaCaption.config.addProseMirrorPlugins() });
+  assert.equal(state.apply(state.tr.setNodeMarkup(0, schema.nodes.heading, { level: 2 })), state);
+  assert.equal(state.apply(state.tr.setNodeMarkup(0, undefined, { textAlign: 'right' })), state);
+  assert.match(state.apply(state.tr.insertText('추가')).doc.textContent, /추가/);
+});
