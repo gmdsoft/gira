@@ -5,10 +5,10 @@
 // 사용법: node scripts/jira-import-boards.mjs --project NEXT
 
 import { parseArgs } from 'node:util';
-import { query, closeDb } from '../server/src/db.mjs';
-import { parseJql, JqlError } from '../server/src/jql.mjs';
+import { query, closeDb, configureDb } from '../server/src/db.mjs';
 
 try { process.loadEnvFile('.env'); } catch { /* 환경변수 직접 지정 가능 */ }
+configureDb({ url: process.env.GIRA_DATABASE_URL ?? process.env.DATABASE_URL, schemas: ['schema-core.sql', 'schema-jira.sql'] });
 
 const { values: args } = parseArgs({ options: { project: { type: 'string' } } });
 if (!args.project) { console.error('사용법: node scripts/jira-import-boards.mjs --project <KEY>'); process.exit(1); }
@@ -25,9 +25,17 @@ const { rows: prow } = await query(`SELECT id FROM jira_projects WHERE key = $1`
 if (!prow.length) { console.error(`프로젝트 ${args.project}가 로컬 DB에 없습니다.`); process.exit(1); }
 const projectId = prow[0].id;
 
-const list = await get(`/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(args.project)}&maxResults=50`);
-const boards = (list.values ?? []).filter((b) => b.location?.projectKey === args.project);
-console.log(`보드 ${boards.length}개 (전체 연관 ${list.total}개 중 프로젝트 위치 보드만)`);
+const boards = [];
+let total = 0;
+for (let startAt = 0;;) {
+  const page = await get(`/rest/agile/1.0/board?projectKeyOrId=${encodeURIComponent(args.project)}&maxResults=50&startAt=${startAt}`);
+  const values = page.values ?? [];
+  boards.push(...values.filter(b => b.location?.projectKey === args.project));
+  total = page.total ?? total;
+  startAt += values.length;
+  if (!values.length || page.isLast || (page.total != null && startAt >= page.total)) break;
+}
+console.log(`보드 ${boards.length}개 (전체 연관 ${total}개 중 프로젝트 위치 보드만)`);
 
 let ok = 0;
 for (const b of boards) {
@@ -38,33 +46,30 @@ for (const b of boards) {
   let jql = null;
   if (conf.filter?.id) {
     try { jql = (await get(`/rest/api/3/filter/${conf.filter.id}`)).jql || null; }
-    catch (e) { console.warn(`  [${b.name}] 필터 ${conf.filter.id} 조회 실패: ${e.message}`); }
+    catch (e) { throw new Error(`[${b.name}] 필터 ${conf.filter.id} 조회 실패: ${e.message}`); }
   }
-  if (jql) {
-    try { parseJql(jql, { p: () => '$1', userId: 0 }); }
-    catch (e) {
-      if (!(e instanceof JqlError)) throw e;
-      console.warn(`  [${b.name}] 필터 JQL이 PoC 파서 미지원이라 비워둠: ${e.message}\n    JQL: ${jql}`);
-      jql = null;
-    }
-  }
-  // 칸반 하위 필터: 보드에 보이는 범위를 한 번 더 좁힌다 (지원하지 않는 JQL이면 비워 둔다)
-  let subJql = conf.subQuery?.query || null;
-  if (subJql) {
-    try { parseJql(subJql, { p: () => '$1', userId: 0 }); }
-    catch (e) {
-      if (!(e instanceof JqlError)) throw e;
-      console.warn(`  [${b.name}] 하위 필터 JQL 미지원이라 비워둠: ${e.message}\n    JQL: ${subJql}`);
-      subJql = null;
-    }
-  }
+  // 원본 JQL은 보존한다. 미지원 구문은 조회 시 오류로 알려 범위를 넓히지 않는다.
+  const subJql = conf.subQuery?.query || null;
   await query(
-    `INSERT INTO jira_boards (project_id, name, columns, type, jql, source_id, sub_jql)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO jira_boards (project_id, name, columns, type, jql, source_id, sub_jql, estimation)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (source_id) DO UPDATE SET
        name = EXCLUDED.name, columns = EXCLUDED.columns, type = EXCLUDED.type, jql = EXCLUDED.jql,
-       sub_jql = EXCLUDED.sub_jql`,
-    [projectId, b.name, JSON.stringify(columns), b.type ?? null, jql, b.id, subJql]);
+       sub_jql = EXCLUDED.sub_jql, estimation = EXCLUDED.estimation`,
+    [projectId, b.name, JSON.stringify(columns), b.type ?? null, jql, b.id, subJql, JSON.stringify(conf.estimation ?? null)]);
+  const { rows: [local] } = await query('SELECT id FROM jira_boards WHERE source_id = $1', [b.id]);
+  const quickfilters = [];
+  for (let startAt = 0;;) {
+    const page = await get(`/rest/agile/1.0/board/${b.id}/quickfilter?startAt=${startAt}&maxResults=50`);
+    const values = page.values ?? [];
+    quickfilters.push(...values); startAt += values.length;
+    if (!values.length || page.isLast || (page.total != null && startAt >= page.total)) break;
+  }
+  for (const [position, q] of quickfilters.entries()) await query(
+    `INSERT INTO jira_board_quickfilters(board_id,source_id,name,jql,description,position) VALUES($1,$2,$3,$4,$5,$6)
+     ON CONFLICT(source_id) DO UPDATE SET board_id=EXCLUDED.board_id,name=EXCLUDED.name,jql=EXCLUDED.jql,description=EXCLUDED.description,position=EXCLUDED.position`,
+    [local.id,q.id,q.name,q.jql,q.description ?? null,q.position ?? position]);
+  await query('DELETE FROM jira_board_quickfilters WHERE board_id=$1 AND NOT(source_id=ANY($2::bigint[]))', [local.id,quickfilters.map(q=>q.id)]);
   console.log(`  ✓ ${b.name} (${b.type}) — 컬럼 ${columns.length}개${jql ? `, 필터: ${jql}` : ''}${subJql ? `, 하위 필터: ${subJql}` : ''}`);
 
   // 스크럼 보드의 스프린트 표시 순서(백로그 정렬) 반영

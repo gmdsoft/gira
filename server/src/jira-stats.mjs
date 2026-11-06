@@ -19,6 +19,7 @@ function values(issue, field) {
 }
 export function aggregate(issues, options, now = new Date()) {
   const type = options.type ?? 'two';
+  if (type === 'results') return { type, total: issues.length, rows: issues.slice(0, 100).map(i => ({ issue_key: i.issue_key, summary: i.summary })) };
   if (type === 'createdvsresolved') {
     const days = Math.min(3660, Math.max(1, Number(options.days) || 30));
     const period = options.period ?? 'daily';

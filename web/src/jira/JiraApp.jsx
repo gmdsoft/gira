@@ -1,3 +1,5 @@
+import { quickFilterJql } from '../../../server/src/jira-collections.mjs';
+import Collections from './Collections.jsx';
 import { useMobile } from '../mobile.js';
 // Jira PoC SPA 셸: 인증 게이트 → 상단 바 + 좌측 사이드바 + 콘텐츠(브레드크럼·탭·필터바·뷰) + URL 라우팅
 import React, { useEffect, useRef, useState } from 'react';
@@ -17,7 +19,7 @@ const VIEWS = ['list', 'table', 'board', 'backlog'];
 const VIEW_NAMES = { list: '목록', table: '전체 목록', board: '보드', backlog: '백로그' };
 // xjql: 기본 모드에서 콤보로 표현할 수 없어 그대로 유지하는 잔여 JQL (기본 필터와 AND 결합)
 // who: 아바타 빠른 필터(담당자) — 기본/JQL 모드와 무관하게 AND 적용
-const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '', who: '' };
+const EMPTY_FILTERS = { status: '', type: '', assignee: '', priority: '', sprint: '', q: '', group: '', jql: '', xjql: '', who: '', qf: '', scope: '' };
 
 function parseRoute(projects) {
   const m1 = location.pathname.match(/^\/browse\/([A-Za-z][A-Za-z0-9]*-\d+)$/);
@@ -39,7 +41,7 @@ function parseRoute(projects) {
 // 주소에 남기는 보기 상태 (Jira의 ?groupBy=epic 처럼): 새로고침·링크 공유에도 유지
 const urlView = () => {
   const u = new URLSearchParams(location.search);
-  return { group: u.get('groupBy') ?? '', who: u.get('who') ?? '', jql: u.get('jql') ?? '', scope: u.get('scope') === 'all' ? 'all' : '' };
+  return { qf: u.get('qf') ?? '', group: u.get('groupBy') ?? '', who: u.get('who') ?? '', jql: u.get('jql') ?? '', scope: u.get('scope') === 'all' ? 'all' : '' };
 };
 
 const loadRecent = () => { try { return JSON.parse(localStorage.getItem('jira.recent')) ?? []; } catch { return []; } };
@@ -145,7 +147,7 @@ export default function JiraApp() {
   };
   const switchProject = (pkey) => {
     if (pkey === project) return;
-    setProject(pkey); setFilters((f) => ({ ...f, sprint: '', who: '', scope: '' })); setSavedSel(''); // 사람 목록이 프로젝트마다 다름
+    setProject(pkey); setFilters((f) => ({ ...f, sprint: '', who: '', qf: '', scope: '' })); setSavedSel(''); // 사람 목록이 프로젝트마다 다름
   };
   const gotoView = (v) => {
     const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
@@ -158,6 +160,7 @@ export default function JiraApp() {
     nav(`/projects/${encodeURIComponent(pkey)}/${v}`, `${pkey} ${VIEW_NAMES[v]} - Gira`);
   };
   const gotoBoard = (pkey, bid) => {
+    if (bid !== boardId || pkey !== project) setFilters(f=>({...f,qf:''}));
     switchProject(pkey);
     setView('board'); setSelKey(null); setBoardId(bid); setHome(false);
     nav(`/projects/${encodeURIComponent(pkey)}/board${bid ? '?b=' + bid : ''}`, `${pkey} 보드 - Gira`);
@@ -182,7 +185,7 @@ export default function JiraApp() {
       setHome(!route);
       if (route) { setProject(route.project); setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
       const uv = urlView();
-      setFilters((f) => (f.group === uv.group && f.who === uv.who ? f : { ...f, ...uv }));
+      setFilters((f) => (f.qf === uv.qf && f.group === uv.group && f.who === uv.who ? f : { ...f, ...uv }));
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
@@ -193,10 +196,10 @@ export default function JiraApp() {
     if (!location.pathname.startsWith('/projects/')) return;
     const u = new URLSearchParams(location.search);
     const before = u.toString();
-    for (const [k, v] of [['groupBy', filters.group], ['who', filters.who]]) { if (v) u.set(k, v); else u.delete(k); }
+    for (const [k, v] of [['groupBy', filters.group], ['who', filters.who], ['qf', filters.qf]]) { if (v) u.set(k, v); else u.delete(k); }
     const after = u.toString();
     if (after !== before) history.replaceState(history.state, '', location.pathname + (after ? '?' + after : ''));
-  }, [filters.group, filters.who, view, boardId, project, selKey]);
+  }, [filters.qf, filters.group, filters.who, view, boardId, project, selKey]);
 
   if (authed === false) return <LoginGate onLogin={() => { setAuthed(null); boot(); }} />;
   if (!authed || !meta) return <div className="placeholder" style={{ marginTop: 60, textAlign: 'center' }}>불러오는 중…</div>;
@@ -349,7 +352,10 @@ export default function JiraApp() {
     setSavedSel(id);
     const f = savedFilters.find((x) => String(x.id) === id);
     if (!f) return;
-    const next = { ...EMPTY_FILTERS };
+    const next = { ...EMPTY_FILTERS, ...(f.jql ? { jql: f.jql, scope: 'all' } : {}) };
+    gotoProjView(project, 'list');
+    setHome(false);
+    setBoardId('');
     // 구버전(vanilla) 저장 형식(#f-*)과 신버전(key) 모두 수용
     for (const [k, v] of Object.entries(f.params ?? {})) {
       const key = k.startsWith('#f-') ? k.slice(3) : k;
@@ -362,6 +368,10 @@ export default function JiraApp() {
     if (next.jql) setJqlInput(next.jql); // 기본형 저장 필터가 작성 중인 JQL을 지우지 않도록
     setJqlErr(null);
     setFilters(next);
+    const search = new URLSearchParams();
+    if (next.jql) search.set('jql', next.jql);
+    if (next.scope) search.set('scope', next.scope);
+    nav(`/projects/${encodeURIComponent(project)}/list?${search}`);
   };
   const saveFilter = async () => {
     const name = prompt('필터 이름'); if (!name?.trim()) return;
@@ -390,7 +400,7 @@ export default function JiraApp() {
   const curBoard = pdata.boards.find((b) => String(b.id) === boardId);
   const openSprints = pdata.sprints.filter((s) => s.state !== 'closed');
   const viewProps = {
-    project, meta, pdata, me, filters, bump,
+    project, meta, pdata, me, filters: { ...filters, quickJql: quickFilterJql(curBoard, filters.qf) }, bump,
     onOpen: openIssue, onChanged: refresh, onCount: setCount, reloadPdata,
     onTitle: (t) => { document.title = t; }, onSeen: noteSeen, onNew: () => setShowNew(true), onHome: gotoHome,
     boardJql: curBoard?.jql ?? null, // 보드 컨텍스트 필터 — 모든 뷰에 AND 적용
@@ -446,9 +456,9 @@ export default function JiraApp() {
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
           onDevFeedback={openDevChat} onCreateProject={!mobile && me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
         <div className="content">
-          {home ? <HomeView me={me} meta={meta} recent={recent} onIssue={openIssue}
+          {home ? <><Collections filters={savedFilters} onFilter={applySaved} onRefresh={async () => setSavedFilters(await api('/api/filters'))} /><HomeView me={me} meta={meta} recent={recent} onIssue={openIssue}
             onProjView={gotoProjView} onBoard={gotoBoard}
-            onMine={(pkey) => { gotoProjView(pkey, 'list'); setFilters((f) => ({ ...f, who: String(me.id) })); }} /> : <>
+            onMine={(pkey) => { gotoProjView(pkey, 'list'); setFilters((f) => ({ ...f, who: String(me.id) })); }} /></> : <>
           <div className="chead">
             <div className="chead-top">
               <div className="crumb"><a className="crumb-home" href="/for-you" title="홈" onClick={(e) => { e.preventDefault(); gotoHome(); }}>스페이스</a><span className="crumb-sep">/</span><span className="crumb-cur">{projName}</span></div>
@@ -520,6 +530,11 @@ export default function JiraApp() {
                 <span className="avmore" title={`관련 인물 ${pdata.people.length}명+`}>+{pdata.people.length - 6}</span>
               )}
             </span>
+            {(curBoard?.quickfilters ?? []).map(q => {
+              const selected = filters.qf?.split(',').includes(String(q.source_id));
+              return <button key={q.source_id} className={selected ? 'primary' : 'plain'} aria-pressed={selected} title={q.description ?? q.jql}
+                onClick={() => setF('qf', selected ? filters.qf.split(',').filter(id=>id!==String(q.source_id)).join(',') : [...(filters.qf?.split(',').filter(Boolean) ?? []),String(q.source_id)].join(','))}>{q.name}</button>;
+            })}
             <select className={`filter-select${filters.group ? ' active' : ''}`} value={filters.group} onChange={(e) => setF('group', e.target.value)} title="행을 묶어 보기">
               <option value="">그룹화: 없음</option>
               <option value="status">상태</option>
