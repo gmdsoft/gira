@@ -7,6 +7,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import { createReadStream } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
@@ -86,6 +87,24 @@ const textToAdf = (text) => ({
     type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [],
   })),
 });
+
+// 댓글 본문 = 글(문단) + 첨부 미디어(이미지면 인라인 표시). media.attrs.id에 Gira 첨부 id를 넣는다 (collection: 'gira').
+// 화면(adf.jsx)은 id로 먼저, 없으면 파일명(alt)으로 이슈 첨부를 찾는다 — 이관된 Jira 댓글은 파일명으로 찾는다.
+const mediaNode = (att) => ({
+  type: 'mediaSingle', attrs: { layout: 'align-start' },
+  content: [{ type: 'media', attrs: { type: 'file', collection: 'gira', id: String(att.id), alt: att.filename } }],
+});
+const isMediaBlock = (n) => n?.type === 'mediaSingle' || n?.type === 'mediaGroup';
+
+// 댓글에 붙일 첨부: 이 이슈의 첨부만 (다른 이슈 첨부 id를 끼워 넣지 못하게)
+async function commentAttachments(issueId, ids) {
+  const list = (Array.isArray(ids) ? ids : []).map(Number).filter(Number.isFinite).slice(0, 20);
+  if (!list.length) return [];
+  const { rows } = await query(
+    `SELECT id, filename FROM jira_attachments WHERE issue_id = $1 AND id = ANY($2::bigint[])`, [issueId, list]);
+  const byId = new Map(rows.map((r) => [Number(r.id), r]));
+  return list.map((id) => byId.get(id)).filter(Boolean);
+}
 
 async function issueByKey(key) {
   const { rows } = await query(`SELECT id, project_id, issue_key FROM jira_issues WHERE issue_key = $1`, [key]);
@@ -512,21 +531,23 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
   const issue = await issueByKey(req.params.key);
   if (!issue) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
-  const text = req.body?.text?.trim();
-  if (!text) return reply.code(400).send({ error: '내용을 입력하세요' });
+  const text = req.body?.text?.trim() ?? '';
+  const atts = await commentAttachments(issue.id, req.body?.attachmentIds);
+  if (!text && !atts.length) return reply.code(400).send({ error: '내용을 입력하거나 파일을 첨부하세요' });
+  const body = text ? textToAdf(text) : { type: 'doc', version: 1, content: [] };
+  body.content.push(...atts.map(mediaNode));
   const { rows } = await query(
     `INSERT INTO jira_comments (id, issue_id, body_adf, author_id, created_at, updated_at)
      VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, now(), now()) RETURNING id`,
-    [issue.id, JSON.stringify(textToAdf(text)), req.access.userId]);
+    [issue.id, JSON.stringify(body), req.access.userId]);
   await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [issue.id]);
   return { id: rows[0].id };
 });
 
 app.patch('/api/comments/:id', async (req, reply) => {
-  const text = req.body?.text?.trim();
-  if (!text) return reply.code(400).send({ error: '내용을 입력하세요' });
+  const text = req.body?.text?.trim() ?? '';
   const { rows: cm } = await query(
-    `SELECT c.author_id, i.project_id FROM jira_comments c JOIN jira_issues i ON i.id = c.issue_id
+    `SELECT c.author_id, c.body_adf, c.issue_id, i.project_id FROM jira_comments c JOIN jira_issues i ON i.id = c.issue_id
       WHERE c.id = $1`, [req.params.id]);
   if (!cm.length) return reply.code(404).send({ error: 'not found' });
   const proj = await requireProjectId(req, reply, cm[0].project_id, 'editor');
@@ -535,9 +556,15 @@ app.patch('/api/comments/:id', async (req, reply) => {
   if (Number(cm[0].author_id) !== req.access.userId && proj.role !== 'admin') {
     return reply.code(403).send({ error: '본인 댓글만 수정할 수 있습니다' });
   }
+  // 글만 고친다: 기존 이미지·첨부(미디어 블록)는 그대로 두고, 새로 첨부한 것은 뒤에 붙인다
+  const kept = (cm[0].body_adf?.content ?? []).filter(isMediaBlock);
+  const atts = await commentAttachments(cm[0].issue_id, req.body?.attachmentIds);
+  if (!text && !kept.length && !atts.length) return reply.code(400).send({ error: '내용을 입력하세요' });
+  const body = text ? textToAdf(text) : { type: 'doc', version: 1, content: [] };
+  body.content.push(...kept, ...atts.map(mediaNode));
   const { rowCount } = await query(
     `UPDATE jira_comments SET body_adf = $2, updated_at = now() WHERE id = $1`,
-    [req.params.id, JSON.stringify(textToAdf(text))]);
+    [req.params.id, JSON.stringify(body)]);
   if (!rowCount) return reply.code(404).send({ error: 'not found' });
   return { ok: true };
 });
@@ -554,14 +581,15 @@ app.post('/api/issue/:key/attachments', async (req, reply) => {
   const safe = file.filename.replace(/[^\w.\-]+/g, '_');
   const dir = path.join(DATA_DIR, 'jira-att', String(issue.id));
   await mkdir(dir, { recursive: true });
-  const localKey = path.join('jira-att', String(issue.id), safe);
+  // 같은 이름(클립보드 붙여넣기는 늘 image.png)이 덮어쓰지 않도록 저장 파일명은 고유하게
+  const localKey = path.join('jira-att', String(issue.id), `${Date.now()}-${randomBytes(4).toString('hex')}-${safe}`);
   await writeFile(path.join(DATA_DIR, localKey), buf);
   const { rows } = await query(
     `INSERT INTO jira_attachments (id, issue_id, filename, media_type, file_size, local_key, author_id, created_at)
      VALUES (nextval('jira_attachment_id_seq'), $1, $2, $3, $4, $5, $6, now()) RETURNING id`,
     [issue.id, file.filename, file.mimetype ?? null, buf.length, localKey, req.access.userId]);
   await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [issue.id]);
-  return { id: rows[0].id, filename: file.filename };
+  return { id: rows[0].id, filename: file.filename, media_type: file.mimetype ?? null };
 });
 
 // 첨부 서빙: 로컬 업로드는 파일에서, 이관분은 원본 Jira 읽기 전용 프록시
