@@ -1,4 +1,5 @@
 import { remoteLinkView } from './jira-remote-links.mjs';
+import { scheduleFields, parseDuration } from './jira-schedule.mjs';
 import { rankBetween, RANK_COLUMN } from './jira-rank.mjs';
 import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // Jira PoC 앱 서버. 이관된 jira_* 테이블 조회 + 기본 쓰기(이슈/댓글/첨부/스프린트/필터).
@@ -448,9 +449,11 @@ app.get('/api/issue/:key', async (req, reply) => {
   if (!proj) return;
   issue.project_role = proj.role;
   issue.customFields = normalizeCustomFields((await query('SELECT * FROM jira_fields WHERE custom')).rows, issue.fields_raw, issue.project_id, issue.issue_type_id);
+  // GIRA-71: 기한·시간 추적·영향 버전·환경 (원본 필드 그대로 fields_raw에 있다)
+  Object.assign(issue, scheduleFields(issue.fields_raw));
   delete issue.fields_raw;
 
-  const [comments, attachments, links, subtasks, history, weblinks] = await Promise.all([
+  const [comments, attachments, links, subtasks, history, weblinks, worklogs] = await Promise.all([
     query(`SELECT c.id, c.body_adf, c.created_at, u.display_name AS author_name
              FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
             WHERE c.issue_id = $1 ORDER BY c.created_at`, [issue.id]),
@@ -477,9 +480,13 @@ app.get('/api/issue/:key', async (req, reply) => {
     query(`SELECT w.*, u.display_name AS author_name
              FROM jira_web_links w LEFT JOIN users u ON u.id = w.author_id
             WHERE w.issue_id = $1 ORDER BY w.id`, [issue.id]),
+    query(`SELECT w.id, w.started_at, w.time_spent_seconds, w.comment_adf, w.created_at, u.display_name AS author_name
+             FROM jira_worklogs w LEFT JOIN users u ON u.id = w.author_id
+            WHERE w.issue_id = $1 ORDER BY w.started_at DESC`, [issue.id]),
   ]);
   return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
-           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)) };
+           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)),
+           worklogs: worklogs.rows };
 });
 
 // ---------- 이슈 생성/수정 ----------
@@ -528,6 +535,21 @@ app.post('/api/issues', async (req, reply) => {
                 WHERE id = $1 AND (SELECT category FROM jira_statuses WHERE id = status_id) = 'done'`, [rows[0].id]);
   notifyCreated(req, rows[0].id);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
+});
+
+// GIRA-71: 작업 로그 추가 (편집 권한자). timeSpent: '1h 30m' / '2d' / '45m' (1d = 8h, 1w = 5d — Jira 기본)
+app.post('/api/issue/:key/worklogs', async (req, reply) => {
+  const issue = await issueByKey(req.params.key);
+  if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
+  const seconds = parseDuration(req.body?.timeSpent);
+  if (!seconds) return reply.code(400).send({ error: "소요 시간 형식: 예) 1h 30m, 2d, 45m" });
+  const started = req.body?.started ? new Date(req.body.started) : new Date();
+  if (Number.isNaN(started.getTime())) return reply.code(400).send({ error: '시작 시각이 올바르지 않습니다' });
+  const comment = typeof req.body?.comment === 'string' && req.body.comment.trim() ? textToAdf(req.body.comment.trim()) : null;
+  const { rows } = await query(`INSERT INTO jira_worklogs (id, issue_id, author_id, started_at, time_spent_seconds, comment_adf)
+    VALUES (nextval('jira_worklog_id_seq'), $1, $2, $3, $4, $5) RETURNING id`, [issue.id, req.access.userId, started.toISOString(), seconds, comment ? JSON.stringify(comment) : null]);
+  return { id: rows[0].id };
 });
 
 app.patch('/api/issue/:key', async (req, reply) => {
@@ -586,6 +608,11 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if ('reporterId' in b && b.reporterId) sets.push(`reporter_id = ${p(b.reporterId)}`); // 보고자 변경 (Jira처럼)
   if ('priority' in b) sets.push(`priority = ${p(b.priority || null)}`);
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
+  // GIRA-71: 기한 (YYYY-MM-DD 또는 null)
+  if ('dueDate' in b) {
+    if (b.dueDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.dueDate))) return reply.code(400).send({ error: '기한은 YYYY-MM-DD 형식' });
+    sets.push(`due_date = ${p(b.dueDate)}::date`);
+  }
   if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
   if ('labels' in b) sets.push(`labels = ${p(Array.isArray(b.labels) ? b.labels : [])}`);
   if ('components' in b) sets.push(`components = ${p(Array.isArray(b.components) ? b.components : [])}`);

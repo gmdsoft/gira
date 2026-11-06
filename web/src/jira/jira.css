@@ -1001,3 +1001,10 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .adf .adf-file-info { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
 .adf .adf-file-info strong { overflow-wrap: anywhere; }
 .adf .media-group { display: flex; flex-wrap: wrap; gap: 8px; }
+/* GIRA-71: 시간 추적·작업 로그 */
+.timetrack-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 4px 0; min-width: 120px; }
+.timetrack-bar > div { height: 100%; background: var(--accent, #0c66e4); }
+.worklog-add { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+.worklog-add input { padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
+.worklog-row { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.worklog-comment { flex-basis: 100%; padding-left: 32px; }

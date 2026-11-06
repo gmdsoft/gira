@@ -8,6 +8,7 @@
 
 import { jiraGet } from './lib/jira-source-get.mjs';
 import { syncRemoteLinks } from './lib/jira-remote-links.mjs';
+import { syncWorklogs } from './lib/jira-worklogs.mjs';
 import { fillMediaIds } from './lib/jira-media.mjs';
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -278,14 +279,14 @@ for (;;) {
       `INSERT INTO jira_issues
          (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
           priority, resolution, assignee_id, reporter_id, sprint_id, labels, fix_versions, components,
-          created_at, updated_at, resolved_at, fields_raw, rank)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+          created_at, updated_at, resolved_at, fields_raw, rank, due_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::date)
        ON CONFLICT (id) DO UPDATE SET
          status_id = EXCLUDED.status_id, summary = EXCLUDED.summary,
          description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
          resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id, sprint_id = EXCLUDED.sprint_id,
          labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
-         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw, rank = EXCLUDED.rank
+         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw, rank = EXCLUDED.rank, due_date = EXCLUDED.due_date
        WHERE jira_issues.project_id = EXCLUDED.project_id`,
       [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
        f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
@@ -293,7 +294,7 @@ for (;;) {
        uid(f.assignee), uid(f.reporter), sprintId,
        f.labels ?? [], names(f.fixVersions), names(f.components),
        f.created ?? null, f.updated ?? null, f.resolutiondate ?? null,
-       JSON.stringify(rawRest), f.customfield_10019 ?? null]);
+       JSON.stringify(rawRest), f.customfield_10019 ?? null, /^\d{4}-\d{2}-\d{2}/.test(f.duedate ?? '') ? f.duedate.slice(0, 10) : null]);
     knownIds.add(Number(iss.id));
     if (f.parent?.id) parentPairs.push([Number(iss.id), Number(f.parent.id)]);
 
@@ -331,6 +332,7 @@ for (;;) {
   }
 
   await syncRemoteLinks(issues, { get, query });
+  await syncWorklogs(issues, { get, query, ensureUsers, uid }); // GIRA-71
 
   const pendingMedia = await query(`SELECT a.id FROM jira_attachments a
     WHERE a.issue_id = ANY($1::bigint[]) AND (a.media_id IS NULL OR a.media_id = '')`, [issues.map((i) => i.id)]);
