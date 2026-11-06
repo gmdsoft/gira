@@ -51,18 +51,20 @@ export function makeSlashItems({ openImageDialog }) {
     } },
     { label: '상태', kw: 'status lozenge', run: (e, r) => del(e, r).insertContent({
       type: 'status', attrs: { text: '진행 중', color: 'blue' } }).run() },
-    { label: '레이아웃 2단', kw: 'layout column 2단 다단', run: (e, r) => del(e, r).insertContent({
-      type: 'layout', content: [{ type: 'layoutSection', attrs: { kind: 'two_equal' },
-        content: [0, 1].map(() => ({ type: 'layoutColumn', content: [{ type: 'paragraph' }] })) }] }).run() },
-    { label: '레이아웃 3단', kw: 'layout column 3단 다단', run: (e, r) => del(e, r).insertContent({
-      type: 'layout', content: [{ type: 'layoutSection', attrs: { kind: 'three_equal' },
-        content: [0, 1, 2].map(() => ({ type: 'layoutColumn', content: [{ type: 'paragraph' }] })) }] }).run() },
+    ...Array.from({ length: 5 }, (_, i) => ({ label: `레이아웃 ${i + 1}단`, kw: 'layout column 다단',
+      run: (e, r) => del(e, r).insertContent({ type: 'layout', content: [{ type: 'layoutSection',
+        attrs: { kind: ['single', 'two_equal', 'three_equal', 'four_equal', 'five_equal'][i] },
+        content: Array.from({ length: i + 1 }, () => ({ type: 'layoutColumn', content: [{ type: 'paragraph' }] })) }] }).run() })),
+    ...[['note', '노트'], ['success', '성공'], ['error', '오류']].map(([panelType, name]) => ({
+      label: `${name} 패널`, kw: `${panelType} panel`, run: (e, r) => del(e, r).insertContent({
+        type: 'panel', attrs: { panelType }, content: [{ type: 'paragraph' }] }).run() })),
+    { label: '결정', kw: 'decision 결정 목록', run: (e, r) => del(e, r).insertContent(decisionBlock()).run() },
     { label: '링크', kw: 'link url', run: (e, r) => {
       const url = window.prompt('링크 URL');
       if (!url) { del(e, r).run(); return; }
       del(e, r).insertContent([{ type: 'text', text: url, marks: [{ type: 'link', attrs: { href: url } }] }, { type: 'text', text: ' ' }]).run();
     } },
-  ];
+  ].map(item => ({ ...item, category: item.label.includes('패널') ? '패널' : item.label.startsWith('레이아웃') ? '레이아웃' : /날짜|상태|링크|이슈/.test(item.label) ? '인라인' : '기본 블록' }));
 }
 
 export function slashMenu(items) {
@@ -76,7 +78,7 @@ export function slashMenu(items) {
           allowSpaces: false,
           command: ({ editor, range, props }) => props.run(editor, range),
           items: ({ query }) =>
-            items.filter((i) => (i.label + ' ' + i.kw).toLowerCase().includes(query.toLowerCase())).slice(0, 12),
+            items.filter((i) => (i.label + ' ' + i.kw).toLowerCase().includes(query.toLowerCase())),
           render: () => {
             let el = null;
             let selected = 0;
@@ -136,4 +138,10 @@ export function slashMenu(items) {
       ];
     },
   });
+}
+
+export function decisionBlock(content = [{ type: 'paragraph' }]) {
+  return { type: 'adfNode', attrs: { adfType: 'decision-list' }, content: [
+    { type: 'adfNode', attrs: { adfType: 'decision-item' }, content },
+  ] };
 }

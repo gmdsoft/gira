@@ -1,9 +1,11 @@
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
+import { inlineElementView } from './inline-element-view.js';
+import { decisionBlock } from './slash-menu.js';
 import { hydrateIssueCard } from './issue-card.js';
 import { hydrateLinkCard } from './link-card.js';
-import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
+import { Extension, Node, Mark, mergeAttributes, wrappingInputRule, InputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { HighlightedCodeBlock } from './code-block.js';
@@ -463,6 +465,7 @@ const CfMacro = Node.create({
 
 const AdfNode = Node.create({
   name: 'adfNode', group: 'block', content: 'block*',
+  parseHTML: () => ['decision-list', 'decision-item'].map(adfType => ({ tag: `div.${adfType}`, getAttrs: () => ({ adfType }) })),
   addAttributes: () => ({ adfType: { default: '' }, attrs: { default: {} } }),
   renderHTML: ({ node }) => {
     const t = node.attrs.adfType;
@@ -528,6 +531,7 @@ const Emoji = Node.create({
 
 const DateNode = Node.create({
   name: 'date', ...inlineAtom,
+  addNodeView: () => inlineElementView('date'),
   addAttributes: () => ({ date: { default: '' } }),
   parseHTML: () => [{ tag: 'span.date-lozenge', getAttrs: (el) => ({ date: el.textContent || '' }) }],
   renderHTML: ({ node }) => ['span', { class: 'date-lozenge' }, node.attrs.date],
@@ -535,6 +539,7 @@ const DateNode = Node.create({
 
 const Status = Node.create({
   name: 'status', ...inlineAtom,
+  addNodeView: () => inlineElementView('status'),
   addAttributes: () => ({ text: { default: '' }, color: { default: 'neutral' } }),
   parseHTML: () => [{
     tag: 'span.status',
@@ -944,6 +949,25 @@ export const RowResize = Extension.create({
   },
 });
 
+export const ElementInputRules = Extension.create({
+  name: 'elementInputRules',
+  addInputRules() {
+    return [
+      ...[[/->$/, '→'], [/:\)$/, '🙂']].map(([find, text]) => new InputRule({ find,
+        handler: ({ state, range }) => { state.tr.insertText(text, range.from, range.to); },
+      })),
+      new InputRule({ find: /^<>\s?$/,
+        handler: ({ state, range }) => {
+          const block = state.schema.nodeFromJSON(decisionBlock());
+          const start = state.doc.resolve(range.from).before();
+          state.tr.replaceWith(start, start + state.doc.resolve(range.from).parent.nodeSize, block);
+          state.tr.setSelection(TextSelection.create(state.tr.doc, start + 3));
+        },
+      }),
+    ];
+  },
+});
+
 const custom = [
   Underline, Subscript, Superscript, LinkMark, TextColor, SmallText, Highlight, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
@@ -960,5 +984,5 @@ export const extensions = [StarterKit.configure({ history: false, codeBlock: fal
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
   StarterKit.configure({ codeBlock: false }), HighlightedCodeBlock, ...custom,
-  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize,
+  ElementInputRules, ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize,
 ];

@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import { EditorContent, useEditor } from '@tiptap/react';
 import { internalLink } from './internal-links.js';
 import { editExtensions } from './extensions.js';
+import { InsertMenu, EmojiButton } from './element-picker.jsx';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
@@ -437,6 +438,8 @@ function Toolbar({ editor, onImage }) {
           </span>
         )}
       </span>
+      <InsertMenu editor={editor} onImage={onImage} />
+      <EmojiButton editor={editor} />
       <ToolbarOverflow compact={compact}>
       <span className="tb-sep" />
       <B title="왼쪽 정렬" active={!editor.getAttributes('paragraph').textAlign && !editor.getAttributes('heading').textAlign}
