@@ -922,3 +922,8 @@ span.cf-macro-slot { display: inline; margin: 0; }
   background: var(--panel); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 18px rgba(9,30,66,.2); }
 .link-choice .btn { font-size: 12.5px; padding: 4px 10px; }
 .link-choice-err { color: #c9372c; font-size: 12px; }
+
+/* 댓글 안 이미지·첨부 (공용 댓글 입력창으로 올린 것) */
+.comment-body img { max-width: 100%; max-height: 480px; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; }
+.comment-form.composer .actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+.comment-form.composer textarea { width: 100%; }

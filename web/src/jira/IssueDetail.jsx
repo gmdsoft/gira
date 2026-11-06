@@ -5,7 +5,7 @@ import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from '.
 import { TypeIcon } from './icons.jsx';
 import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
 import AdfView from './adf.jsx';
-import CommentComposer from './CommentComposer.jsx';
+import CommentComposer from '../comment-composer.jsx';
 import DescEditor from './DescEditor.jsx';
 import { tiptapToAdf, hasRichContent, adfPlain } from './adf-convert.js';
 
@@ -199,8 +199,13 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     await api('/api/issue/' + encodeURIComponent(issueKey), { method: 'PATCH', json });
     if (reload) { load(); onChanged?.(); }
   };
-  const addComment = async (text, attachmentIds) => {
-    await api(`/api/issue/${encodeURIComponent(issueKey)}/comments`, { method: 'POST', json: { text, attachmentIds } });
+  // 댓글 첨부: 이슈 첨부로 올리고, 댓글에는 그 첨부 id를 넘긴다
+  const uploadFile = async (file) => {
+    const fd = new FormData(); fd.append('file', file, file.name);
+    return api(`/api/issue/${encodeURIComponent(issueKey)}/attachments`, { method: 'POST', body: fd, quiet: true });
+  };
+  const addComment = async (text, uploaded) => {
+    await api(`/api/issue/${encodeURIComponent(issueKey)}/comments`, { method: 'POST', json: { text, attachmentIds: uploaded.map((u) => u.id) } });
     load();
   };
   const upload = async () => {
@@ -217,8 +222,8 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
     setDescEditing(false);
     await patch({ descriptionAdf });
   };
-  const saveComment = async (text, attachmentIds) => {
-    await api('/api/comments/' + editingComment.id, { method: 'PATCH', json: { text, attachmentIds } });
+  const saveComment = async (text, uploaded) => {
+    await api('/api/comments/' + editingComment.id, { method: 'PATCH', json: { text, attachmentIds: uploaded.map((u) => u.id) } });
     setEditingComment(null); load();
   };
 
@@ -264,7 +269,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
         <div className="comment-time">{relTime(c.created_at)}</div>
         {!mobile && editingComment?.id === c.id
           ? <>
-              <CommentComposer key={'e' + c.id} issueKey={issueKey} initialText={editingComment.text} autoFocus mini
+              <CommentComposer key={'e' + c.id} upload={uploadFile} initialText={editingComment.text} autoFocus mini
                 submitLabel="저장" onSubmit={saveComment} onCancel={() => setEditingComment(null)} />
               {(c.body_adf?.content ?? []).some((n) => n.type === 'mediaSingle' || n.type === 'mediaGroup') &&
                 <div className="dim composer-keep">기존 이미지·첨부는 그대로 유지됩니다.</div>}
@@ -444,7 +449,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
             {/* 활동은 최신순이라 Jira처럼 댓글 입력창을 목록 위에 둔다 */}
             {actTab !== 'history' && actTab !== 'worklog' && (
               <div className="composer-top">
-                <CommentComposer key={'new-' + issueKey} issueKey={issueKey} onSubmit={addComment} />
+                <CommentComposer key={'new-' + issueKey} upload={uploadFile} onSubmit={addComment} />
               </div>)}
             {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
             {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
