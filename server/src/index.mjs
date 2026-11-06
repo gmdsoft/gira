@@ -22,6 +22,7 @@ import { exportSpace, importSpace } from './gonf-package.mjs';
 import { bodyDoc } from './markdown-doc.mjs';
 import { registerGiraCards } from './gira-cards.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
+import { registerAiAssist } from './ai-assist.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -1124,6 +1125,9 @@ app.get('/healthz', async () => {
 });
 
 const port = Number(process.env.PORT ?? 3001);
+// AI 도움말 (GIRA-15) — 사용법만, 문서 내용은 보내지 않는다
+registerAiAssist(app, { query, appName: 'Gonfluence', dataDir: DATA_DIR });
+
 // 알림 규칙(스페이스 관리자)·인앱 알림 API, 발송 작업
 notifier.registerRoutes(app, {
   resourceType: 'space',

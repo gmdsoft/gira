@@ -152,3 +152,15 @@ CREATE TABLE IF NOT EXISTS notifications (
   read_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at DESC);
+
+-- AI 도움말·AI 검색 (GIRA-15·17) 사용량: 기능별 호출과 토큰 — 비용 확인과 사용자별 하루 상한에 쓴다
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id bigserial PRIMARY KEY,
+  user_id bigint REFERENCES users(id) ON DELETE SET NULL,
+  feature text NOT NULL,           -- 'help' | 'jql'
+  model text,
+  input_tokens int, output_tokens int, cache_read_tokens int, cache_write_tokens int,
+  ok boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_usage_user_day ON ai_usage(user_id, feature, created_at);
