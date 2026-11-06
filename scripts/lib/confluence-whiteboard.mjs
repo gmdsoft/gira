@@ -14,13 +14,18 @@ export function canvasText(v) {
   if (typeof v === 'string') return v;
   const b = bytes(v); if (!b) return '';
   const runs = [];
+  let lastEnd = -1;
   for (let i = 0; i < b.length; i++) {
     if (b[i] !== 4) continue;
     let length = 0, shift = 0, p = i + 1;
     while (p < b.length && shift < 35) { const n = b[p++]; length += (n & 127) * 2 ** shift; shift += 7; if (!(n & 128)) break; }
     if (!length || p + length > b.length) continue;
     try { const s = new TextDecoder('utf-8', { fatal: true }).decode(b.slice(p, p + length));
-      if (!/[\x00-\x08\x0b-\x1f]/.test(s)) { runs.push(s); i = p + length - 1; }
+      if (!/[\x00-\x08\x0b-\x1f]/.test(s)) {
+        // 앞 조각과의 사이에 블록 끝 표시(0 또는 1)가 있으면 다른 문단·목록 항목 → 줄바꿈 (같은 문단 안 서식 바뀜은 그냥 이어 붙임)
+        if (runs.length && b.subarray(lastEnd, i).some((x) => x === 0 || x === 1)) runs.push('\n');
+        runs.push(s); i = p + length - 1; lastEnd = p + length;
+      }
     } catch { /* not a text run */ }
   }
   return runs.join('');
@@ -52,6 +57,8 @@ export function normalizeWhiteboard(source) {
     // bp/bs are the computed world bounds, p/s may still hold the original default size.
     let p = pair(dims.get('bp#' + id)) ?? pair(dims.get('p#' + id)) ?? [0, 0];
     let s = pair(dims.get('bs#' + id)) ?? pair(dims.get('s#' + id)) ?? [40, 40];
+    // 텍스트 상자: s#는 글자 배율(fs#) 적용 전 크기다 — 실제 크기는 s# × fs#. bs#(경계)는 더 작아 큰 글자가 잘린다
+    if (e.t === 'text' && pair(dims.get('s#' + id))) { const fs = Number(dims.get('fs#' + id)) || 1; s = pair(dims.get('s#' + id)).map((v) => v * fs); }
     const points = (e.pt ?? []).map(pair).filter(Boolean);
     if (points.length) { const xs = points.map(p => p[0]), ys = points.map(p => p[1]); p = [Math.min(...xs), Math.min(...ys)]; s = [Math.max(...xs) - p[0], Math.max(...ys) - p[1]]; }
     elements.push({ id, type: e.t, x: p[0], y: p[1], w: Math.max(1, s[0]), h: Math.max(1, s[1]), rotation: Number(dims.get('r#' + id)) || 0,

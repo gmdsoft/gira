@@ -11,7 +11,8 @@ export function whiteboardBounds(data) {
 }
 export function whiteboardSvg(data) {
   const bounds = whiteboardBounds(data), elements = new Map((data.elements ?? []).map(e => [e.id, e])), connectors = new Map((data.connectors ?? []).map(e => [e.id, e]));
-  const label = (e, text = e.text) => text ? `<foreignObject x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"><div xmlns="http://www.w3.org/1999/xhtml" style="display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;overflow-wrap:anywhere;width:100%;height:100%;padding:4px;box-sizing:border-box;font:${14 * (e.fontScale || 1)}px sans-serif;color:${esc(e.textColor ?? "#172b4d")}">${esc(text)}</div></foreignObject>` : '';
+  // 텍스트 요소는 원본처럼 왼쪽 위 정렬·줄바꿈 없이 내용 크기만큼 (상자 밖으로 넘쳐도 보이게)
+  const label = (e, text = e.text) => text ? `<foreignObject x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.type === 'text' ? ' style="overflow:visible"' : ''}><div xmlns="http://www.w3.org/1999/xhtml" style="${e.type === 'text' ? 'display:block;text-align:left;white-space:pre;' : 'display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;'}overflow-wrap:anywhere;width:100%;height:100%;padding:4px;box-sizing:border-box;font:${14 * (e.fontScale || 1)}px sans-serif;color:${esc(e.textColor ?? "#172b4d")}">${esc(text)}</div></foreignObject>` : '';
   const parts = [];
   for (const id of data.order ?? [...elements.keys(), ...connectors.keys()]) {
     const c = connectors.get(id);
