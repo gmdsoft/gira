@@ -487,6 +487,7 @@ const JiraTable = Node.create({
 
 // 보기 화면에서 web/src/macros.js가 실데이터로 채우는 매크로들
 export const HYDRATED_MACROS = new Set([
+  'create-from-template',
   'toc', 'children', 'pagetree', 'view-file', 'viewdoc', 'viewpdf', 'viewppt', 'viewxls',
   'widget', 'profile', 'contributors', 'recently-updated', 'contentbylabel',
   'include', 'excerpt-include', 'drawio', 'pagetreesearch', 'livesearch', 'jirachart',

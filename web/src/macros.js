@@ -1,3 +1,4 @@
+import { templateId } from '../../shared/templates.mjs';
 import { chartQuery, renderChart } from './jira-chart.js';
 import { hydrateMermaid } from './mermaid-view.js';
 import { hydrateIssueCard } from './issue-card.js';
@@ -79,6 +80,33 @@ function fileCard(info, { open = false } = {}) {
 }
 
 const HANDLERS = {
+  async 'create-from-template'(el, params, ctx) {
+    const button = document.createElement('button');
+    button.className = 'btn btn-sm';
+    button.textContent = params.buttonLabel ?? params.createButtonLabel ?? '만들기';
+    button.disabled = true;
+    button.title = '템플릿 확인 중';
+    swap(el, button);
+    const key = macroSpaceKey(params) ?? ctx.page.spaceKey;
+    const base = `/api/spaces/${encodeURIComponent(key)}/templates`;
+    let templates;
+    try { templates = await api(base); }
+    catch { button.title = '템플릿을 조회할 수 없습니다'; return; }
+    const id = templateId(params, new Set(templates.map((t) => String(t.id))));
+    if (!id) {
+      button.title = '원본 템플릿이 이관되지 않음'; return;
+    }
+    button.disabled = false;
+    button.title = '';
+    button.onclick = async () => {
+      button.disabled = true;
+      try {
+        const result = await api(`${base}/${encodeURIComponent(id)}/create`, { method: 'POST',
+          json: { parentId: ctx.page.id, title: params.title } });
+        ctx.navigate(`/s/${encodeURIComponent(key)}/p/${result.id}/edit`);
+      } catch (e) { alert(e.message); button.disabled = false; }
+    };
+  },
   async jirachart(el, params) {
     const box = document.createElement('div');
     box.className = 'macro-jirachart';
