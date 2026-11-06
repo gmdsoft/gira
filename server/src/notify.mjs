@@ -10,6 +10,7 @@
 
 export const EVENT_LABELS = {
   'issue.created': '이슈 생성',
+  'issue.assigned': '담당자 지정',
   'issue.status': '상태 변경',
   'issue.done': '처리 완료',   // 상태가 '완료' 분류로 바뀐 때만 (상태 변경보다 좁다)
   'issue.comment': '이슈 댓글',
@@ -100,7 +101,9 @@ export function createNotifier({ query, app, env = process.env, log = console, f
         if (r.channel === 'teams') target = r.target || env.TEAMS_WEBHOOK_URL || '';
         else {
           const { emails, roles } = parseEmailTarget(r.target);
-          const ids = roles.map((k) => ev.people?.[k]).filter(Boolean).map(Number).filter((id) => id !== Number(ev.actorId));
+          // 행동한 사람에게는 보내지 않는다 — 단 '이슈 생성'은 등록 확인 안내라 보고자 본인이 등록해도 보낸다
+          const selfOk = ev.event === 'issue.created';
+          const ids = roles.map((k) => ev.people?.[k]).filter(Boolean).map(Number).filter((id) => selfOk || id !== Number(ev.actorId));
           if (ids.length) {
             const { rows } = await query(`SELECT email FROM users WHERE id = ANY($1::bigint[]) AND email IS NOT NULL AND active`, [ids]);
             emails.push(...rows.map((x) => x.email));

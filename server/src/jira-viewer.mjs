@@ -115,6 +115,13 @@ async function commentAttachments(issueId, ids) {
 // ---------- 알림 (GIRA-14) ----------
 const notifier = createNotifier({ query, app: 'gira' });
 // 이슈 이벤트 → 알림. 제목은 '키 요약'(상태 변경이면 '이전 → 이후' 덧붙임) — 본문은 담지 않는다
+// 새 이슈: '이슈 등록' + 담당자가 정해져 있으면 '담당자 지정'
+function notifyCreated(req, issueId) {
+  notifyIssue(req, issueId, 'issue.created');
+  query(`SELECT assignee_id FROM jira_issues WHERE id = $1`, [issueId])
+    .then(({ rows }) => { if (rows[0]?.assignee_id) notifyIssue(req, issueId, 'issue.assigned'); })
+    .catch((e) => console.error('[notify]', e.message));
+}
 function notifyIssue(req, issueId, event, extra) {
   (async () => {
     const { rows } = await query(
@@ -467,7 +474,7 @@ app.post('/api/issues', async (req, reply) => {
   // 완료 컬럼에서 바로 만든 경우 해결 시각도 기록
   await query(`UPDATE jira_issues SET resolved_at = now()
                 WHERE id = $1 AND (SELECT category FROM jira_statuses WHERE id = status_id) = 'done'`, [rows[0].id]);
-  notifyIssue(req, rows[0].id, 'issue.created');
+  notifyCreated(req, rows[0].id);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
 });
 
@@ -497,6 +504,7 @@ app.patch('/api/issue/:key', async (req, reply) => {
     }
   }
   if ('assigneeId' in b) sets.push(`assignee_id = ${p(b.assigneeId || null)}`);
+  if ('reporterId' in b && b.reporterId) sets.push(`reporter_id = ${p(b.reporterId)}`); // 보고자 변경 (Jira처럼)
   if ('priority' in b) sets.push(`priority = ${p(b.priority || null)}`);
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
   if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
@@ -527,6 +535,8 @@ app.patch('/api/issue/:key', async (req, reply) => {
   }
   if (before.desc_md5 !== after.desc_md5) items.push({ field: 'description', fromString: null, toString: null });
   if (before.status !== after.status) notifyIssue(req, issue.id, 'issue.status', `${before.status ?? '?'} → ${after.status ?? '?'}`);
+  // 담당자가 바뀌어 누군가에게 지정된 때 → 새 담당자에게 (담당자를 비운 경우는 알리지 않음)
+  if (before.assignee !== after.assignee && after.assignee) notifyIssue(req, issue.id, 'issue.assigned', after.assignee);
   // 처리 완료: '완료' 분류가 아니던 이슈가 완료로 바뀐 때 (완료 안에서 상태만 바뀐 건 제외)
   if ('statusId' in b && catBefore !== 'done' && await categoryOf() === 'done') notifyIssue(req, issue.id, 'issue.done', after.status ?? '완료');
   if (items.length) {
@@ -934,7 +944,8 @@ app.post('/api/dev-feedback', async (req, reply) => {
 });
 
 // 개발참여 챗봇 (자연어 요청·첨부 → 답변 + GIRA 이슈 등록까지) — dev-chat.mjs
-registerDevChat(app, { textToAdf });
+// 챗봇이 만든 이슈도 등록·담당자 지정 알림을 보낸다
+registerDevChat(app, { textToAdf, onIssueCreated: (req, id) => notifyCreated(req, id) });
 
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
 
