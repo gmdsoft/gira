@@ -550,7 +550,8 @@ export function CreateSpaceDialog({ me, onClose, onCreated }) {
             <div className="space-icon-pick">
               {iconPreview && <img className="space-icon-preview" src={iconPreview} alt="" />}
               <div className="space-icon-pick-body">
-                <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pickIcon} />
+                <input key={iconFile ? 'picked' : 'empty'} type="file" accept="image/png,image/jpeg,image/webp"
+                  disabled={busy} onChange={pickIcon} />
                 <span className="muted">PNG·JPG·WebP, 1MB 이하 · 정사각형으로 표시됩니다.
                   올리지 않으면 이름 첫 글자로 표시합니다.</span>
                 {iconFile && <button type="button" className="btn btn-xs" onClick={() => setIconFile(null)}>선택 해제</button>}
