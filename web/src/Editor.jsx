@@ -316,6 +316,17 @@ function FormatMenu({ label, children }) {
   </details>;
 }
 
+// 문단 정렬 아이콘: 가로줄 4개(긴 줄·짧은 줄 번갈아), 짧은 줄의 위치로 왼쪽·가운데·오른쪽을 나타낸다
+function AlignIcon({ dir }) {
+  const x = (w) => (dir === 'left' ? 2 : dir === 'right' ? 14 - w : 8 - w / 2);
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style={{ display: 'block' }}>
+      {[[3, 12], [6.33, 8], [9.67, 12], [13, 8]].map(([y, w]) => (
+        <rect key={y} x={x(w)} y={y - 0.75} width={w} height="1.5" rx="0.75" fill="currentColor" />))}
+    </svg>
+  );
+}
+
 function ToolbarOverflow({ compact, children }) {
   return compact ? <FormatMenu label="도구 더 보기">{children}</FormatMenu> : <>{children}</>;
 }
@@ -456,11 +467,11 @@ function Toolbar({ editor, onImage }) {
       <ToolbarOverflow compact={compact}>
       <span className="tb-sep" />
       <B title="왼쪽 정렬" active={!editor.getAttributes('paragraph').textAlign && !editor.getAttributes('heading').textAlign}
-        onClick={() => chain().setTextAlign(null).run()}>⇤</B>
+        onClick={() => chain().setTextAlign(null).run()}><AlignIcon dir="left" /></B>
       <B title="가운데 정렬" active={editor.isActive({ textAlign: 'center' })}
-        onClick={() => chain().setTextAlign('center').run()}>⇹</B>
+        onClick={() => chain().setTextAlign('center').run()}><AlignIcon dir="center" /></B>
       <B title="오른쪽 정렬" active={editor.isActive({ textAlign: 'right' })}
-        onClick={() => chain().setTextAlign('right').run()}>⇥</B>
+        onClick={() => chain().setTextAlign('right').run()}><AlignIcon dir="right" /></B>
       <span className="tb-sep" />
       <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}>{ '{ }' }</B>
       <span className="tb-sep" />
