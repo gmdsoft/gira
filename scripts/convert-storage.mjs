@@ -18,7 +18,7 @@ const DYNAMIC_MACROS = new Set([
   'viewdoc', 'viewxls', 'viewppt', 'multimedia', 'drawio', 'gliffy', 'plantuml', 'chart', 'vote', 'survey',
   'excerpt', 'scroll-pagebreak', 'iframe', 'html',
 ]);
-const PANEL_TYPES = { info: 'info', note: 'note', tip: 'success', warning: 'warning', panel: 'custom' };
+const PANEL_TYPES = { info: 'info', note: 'note', tip: 'success', success: 'success', warning: 'warning', error: 'error', panel: 'custom' };
 
 const dec = (s) => decodeHTML(s ?? '');
 const isEl = (n) => n.type === 'tag';
@@ -80,10 +80,16 @@ export function convertStorage(xhtml) {
         case 'sup': withMark({ type: 'superscript' }); break;
         case 'a': withMark({ type: 'link', attrs: { href: dec(n.attribs.href ?? '') } }); break;
         case 'br': out.push({ type: 'hardBreak' }); break;
+        case 'small': withMark({ type: 'smallText' }); break;
+        case 'mark':
         case 'span': {
-          const color = /color:\s*([^;]+)/.exec(n.attribs.style ?? '')?.[1];
-          if (color) withMark({ type: 'textColor', attrs: { color: color.trim() } });
-          else out.push(...inline(n.children, marks));
+          const style = n.attribs.style ?? '';
+          const next = [...marks];
+          const color = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style)?.[1];
+          const background = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(style)?.[1];
+          if (color) next.push({ type: 'textColor', attrs: { color: color.trim() } });
+          if (background || n.name === 'mark') next.push({ type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
+          out.push(...inline(n.children, next));
           break;
         }
         case 'time':
@@ -164,7 +170,7 @@ export function convertStorage(xhtml) {
         return { type: 'codeBlock', attrs: { language: params.language ?? null },
           ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
       }
-      case 'info': case 'note': case 'tip': case 'warning': case 'panel':
+      case 'info': case 'note': case 'tip': case 'success': case 'warning': case 'error': case 'panel':
         return { type: 'panel', attrs: {
           panelType: PANEL_TYPES[name], title: params.title ?? null, bgColor: params.bgColor ?? null,
           panelIcon: params.panelIconText ?? params.panelIcon ?? null,
@@ -352,6 +358,9 @@ export function convertStorage(xhtml) {
         }
         case 'div': case 'section': case 'article': case 'center': case 'colgroup': case 'ac:rich-text-body':
           items.push(...blocks(n.children).map((node) => ({ node })));
+          break;
+        case 'ac:adf-node':
+          items.push({ node: adfNode(n) });
           break;
         case 'ac:adf-extension': {
           // 신 편집기 ADF 노드. 대부분 서드파티 Forge 앱 임베드(extension)이고,

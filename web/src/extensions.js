@@ -1,9 +1,11 @@
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
+import { inlineElementView } from './inline-element-view.js';
+import { decisionBlock } from './slash-menu.js';
 import { hydrateIssueCard } from './issue-card.js';
 import { hydrateLinkCard } from './link-card.js';
-import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
+import { Extension, Node, Mark, mergeAttributes, wrappingInputRule, InputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
 import { HighlightedCodeBlock } from './code-block.js';
@@ -18,11 +20,12 @@ import { updateColumnsOnResize, TableMap } from 'prosemirror-tables';
 
 const Underline = Mark.create({
   name: 'underline',
+  parseHTML: () => [{ tag: 'u' }],
   renderHTML: () => ['u', 0],
 });
 
-const Subscript = Mark.create({ name: 'subscript', renderHTML: () => ['sub', 0] });
-const Superscript = Mark.create({ name: 'superscript', renderHTML: () => ['sup', 0] });
+const Subscript = Mark.create({ name: 'subscript', excludes: 'superscript', parseHTML: () => [{ tag: 'sub' }], renderHTML: () => ['sub', 0] });
+const Superscript = Mark.create({ name: 'superscript', excludes: 'subscript', parseHTML: () => [{ tag: 'sup' }], renderHTML: () => ['sup', 0] });
 
 const LinkMark = Mark.create({
   name: 'link',
@@ -36,7 +39,20 @@ const LinkMark = Mark.create({
 const TextColor = Mark.create({
   name: 'textColor',
   addAttributes: () => ({ color: { default: null } }),
-  renderHTML: ({ node, HTMLAttributes }) => ['span', { style: `color: ${HTMLAttributes.color}` }, 0],
+  parseHTML: () => [{ style: 'color', getAttrs: color => ({ color }) }],
+  renderHTML: ({ HTMLAttributes }) => ['span', { style: `color: ${HTMLAttributes.color}` }, 0],
+});
+
+const SmallText = Mark.create({
+  name: 'smallText',
+  parseHTML: () => [{ tag: 'small' }],
+  renderHTML: () => ['small', 0],
+});
+const Highlight = Mark.create({
+  name: 'highlight',
+  addAttributes: () => ({ color: { default: null, parseHTML: el => el.style.backgroundColor || null } }),
+  parseHTML: () => [{ tag: 'mark' }, { style: 'background-color', getAttrs: color => ({ color }) }],
+  renderHTML: ({ HTMLAttributes }) => ['mark', { style: `background-color: ${HTMLAttributes.color}; color: inherit` }, 0],
 });
 
 const CommentMark = Mark.create({
@@ -247,13 +263,16 @@ const TableCell = TableCellExt.extend({ addAttributes() { return { ...this.paren
 
 const TaskList = Node.create({
   name: 'taskList',
-  group: 'block',
+  group: 'block list',
   content: 'taskItem+',
   renderHTML: () => ['ul', { class: 'task-list' }, 0],
 });
 const TaskItem = Node.create({
   name: 'taskItem',
   content: 'block*',
+  addKeyboardShortcuts() {
+    return { Enter: () => this.editor.commands.splitListItem('taskItem') };
+  },
   addAttributes: () => ({ checked: { default: false } }),
   renderHTML: ({ node }) => ['li', { class: 'task-item', 'data-checked': String(node.attrs.checked) },
     ['span', { class: 'task-check' }, node.attrs.checked ? '☑' : '☐'],
@@ -498,6 +517,7 @@ const CfMacro = Node.create({
 
 const AdfNode = Node.create({
   name: 'adfNode', group: 'block', content: 'block*',
+  parseHTML: () => ['decision-list', 'decision-item'].map(adfType => ({ tag: `div.${adfType}`, getAttrs: () => ({ adfType }) })),
   addAttributes: () => ({ adfType: { default: '' }, attrs: { default: {} } }),
   renderHTML: ({ node }) => {
     const t = node.attrs.adfType;
@@ -563,6 +583,7 @@ const Emoji = Node.create({
 
 const DateNode = Node.create({
   name: 'date', ...inlineAtom,
+  addNodeView: () => inlineElementView('date'),
   addAttributes: () => ({ date: { default: '' } }),
   parseHTML: () => [{ tag: 'span.date-lozenge', getAttrs: (el) => ({ date: el.textContent || '' }) }],
   renderHTML: ({ node }) => ['span', { class: 'date-lozenge' }, node.attrs.date],
@@ -570,6 +591,7 @@ const DateNode = Node.create({
 
 const Status = Node.create({
   name: 'status', ...inlineAtom,
+  addNodeView: () => inlineElementView('status'),
   addAttributes: () => ({ text: { default: '' }, color: { default: 'neutral' } }),
   parseHTML: () => [{
     tag: 'span.status',
@@ -717,8 +739,10 @@ export const ConfluenceShortcuts = Extension.create({
     const ed = () => this.editor;
     return {
       'Mod-Shift-m': () => ed().commands.toggleCode(),
-      'Mod-\\': () => ed().chain().focus().unsetAllMarks().run(),
-      'Mod-Alt-0': () => ed().commands.setParagraph(),
+      'Mod-\\': () => ed().chain().focus().unsetAllMarks().clearNodes().run(),
+      Tab: () => ed().commands.sinkListItem(ed().isActive('taskItem') ? 'taskItem' : 'listItem'),
+      'Shift-Tab': () => ed().commands.liftListItem(ed().isActive('taskItem') ? 'taskItem' : 'listItem'),
+      'Mod-Alt-0': () => ed().chain().unsetMark('smallText').setParagraph().run(),
       'Mod-Shift-9': () => ed().commands.toggleBlockquote(),
       'Mod-Shift-,': () => ed().commands.toggleMark('subscript'),
       'Mod-Shift-.': () => ed().commands.toggleMark('superscript'),
@@ -1197,8 +1221,27 @@ export const RowResize = Extension.create({
   },
 });
 
+export const ElementInputRules = Extension.create({
+  name: 'elementInputRules',
+  addInputRules() {
+    return [
+      ...[[/->$/, '→'], [/:\)$/, '🙂']].map(([find, text]) => new InputRule({ find,
+        handler: ({ state, range }) => { state.tr.insertText(text, range.from, range.to); },
+      })),
+      new InputRule({ find: /^<>\s?$/,
+        handler: ({ state, range }) => {
+          const block = state.schema.nodeFromJSON(decisionBlock());
+          const start = state.doc.resolve(range.from).before();
+          state.tr.replaceWith(start, start + state.doc.resolve(range.from).parent.nodeSize, block);
+          state.tr.setSelection(TextSelection.create(state.tr.doc, start + 3));
+        },
+      }),
+    ];
+  },
+});
+
 const custom = [
-  Underline, Subscript, Superscript, LinkMark, TextColor, CommentMark, TextAlign,
+  Underline, Subscript, Superscript, LinkMark, TextColor, SmallText, Highlight, CommentMark, TextAlign,
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
   Panel, Expand, Layout, LayoutSection, LayoutColumn,
@@ -1213,5 +1256,5 @@ export const extensions = [StarterKit.configure({ history: false, codeBlock: fal
 // 편집기 용 (undo/redo 포함)
 export const editExtensions = [
   StarterKit.configure({ codeBlock: false }), HighlightedCodeBlock, ...custom,
-  ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize, TableShortcuts, TableColumnResize,
+  ElementInputRules, ConfluenceShortcuts, BlockBackspace, TrailingNode, BlockHandle, RowResize, TableShortcuts, TableColumnResize,
 ];

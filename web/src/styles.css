@@ -1005,3 +1005,30 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .tbl-width-h { position: fixed; z-index: 38; width: 8px; padding: 0; border: 1px solid var(--border); border-radius: 4px;
   background: var(--bg-subtle); cursor: col-resize; }
 .tbl-width-h:hover { background: var(--accent); border-color: var(--accent); }
+
+/* 서식 툴바는 한 줄로 유지하고 보조 도구를 메뉴에 접는다. */
+.toolbar { flex-wrap: nowrap; min-width: 0; }
+.toolbar > * { flex-shrink: 0; }
+.toolbar > .tb-select { min-width: 0; max-width: 210px; flex-shrink: 1; }
+.tb-menu { position: relative; }
+.tb-menu > summary { list-style: none; cursor: pointer; white-space: nowrap; }
+.tb-menu > summary::-webkit-details-marker { display: none; }
+.tb-menu-items { display: flex; flex-direction: column; align-items: stretch; min-width: 180px; max-height: 65vh; overflow: auto; }
+.tb-menu-items .tb { text-align: left; white-space: nowrap; }
+.tb-menu-items .tb-hint { white-space: normal; }
+.tb-palette { flex-direction: column; width: 296px; gap: 8px; }
+.tb-palette strong { font-size: 12px; }
+.tb-color-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
+.tb-color-grid .tb-swatch-none { grid-column: 1 / -1; width: auto; }
+@media (max-width: 700px) {
+  .toolbar { padding-inline: 6px; gap: 0; }
+  .toolbar > .tb-select { max-width: 105px; }
+  .tb-menu > summary { max-width: 80px; overflow: hidden; text-overflow: ellipsis; }
+  .tb-palette { position: fixed; top: auto; left: max(8px, calc(50vw - 156px)); }
+}
+
+/* GIRA-35: 상태 색은 편집/게시 보기에서 동일하게 사용한다. */
+.status-teal { background: #c6edfb; color: #206a83; }
+.status-orange { background: #ffe2bd; color: #9e4c00; }
+.status-pink { background: #fdd0ec; color: #943d73; }
+.status-lime { background: #d3f1a7; color: #4c6b1f; }
