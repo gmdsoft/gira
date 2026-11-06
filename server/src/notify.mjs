@@ -10,6 +10,7 @@
 export const EVENT_LABELS = {
   'issue.created': '이슈 생성',
   'issue.status': '상태 변경',
+  'issue.done': '처리 완료',   // 상태가 '완료' 분류로 바뀐 때만 (상태 변경보다 좁다)
   'issue.comment': '이슈 댓글',
   'page.created': '문서 생성',
   'page.updated': '문서 수정',
