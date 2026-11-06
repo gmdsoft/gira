@@ -3,7 +3,7 @@ import { isMobile, useMobile } from '../mobile.js';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, hashColor, epicColor, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
-import { IconCheck, IconMore, IconChevronRight, IconChevronDown } from './icons.jsx';
+import { IconCheck, IconMore, IconChevronRight, IconChevronDown, IconClose, IconExpand, IconLock, IconEye, IconShare } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
 import { BoardModal } from './modals.jsx';
 import { ParentChip } from './ParentMenu.jsx';
@@ -293,6 +293,9 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   const allOn = rows.length > 0 && rows.every((r) => selected.has(r.id));
   const toggleAll = () => setSelected(() => allOn ? new Set() : new Set(rows.map((r) => r.id)));
 
+  const modalRow = rows.find((r) => r.issue_key === modalKey);
+  const modalProj = meta.projects.find((p) => p.key === project);
+
   return (
     <div className="view on" id="view-table">
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
@@ -335,12 +338,19 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
     {modalKey && <div className="overlay on issue-overlay" onClick={(e) => { if (e.target === e.currentTarget) setIssue(null); }}>
       <section className="issue-modal" role="dialog" aria-modal="true" aria-label={`${modalKey} 이슈 상세`} tabIndex={-1} ref={modalRef}>
         <div className="issue-modal-head">
-          <span>{modalKey}</span>
-          <a href={`/browse/${encodeURIComponent(modalKey)}`} onClick={(e) => {
-            if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
-            e.preventDefault(); onOpen(modalKey);
-          }}>전체 화면으로 열기</a>
-          <button className="iconbtn" aria-label="이슈 상세 닫기" title="닫기 (Esc)" onClick={() => setIssue(null)}>✕</button>
+          <div className="issue-modal-crumb">
+            <span>스페이스</span><span className="crumb-sep">/</span>
+            <span className="crumb-cur">{modalProj?.name ?? project}</span><span className="crumb-sep">/</span>
+            {modalRow && <TypeIcon name={modalRow.type_name} />}
+            <span className="crumb-key">{modalKey}</span>
+          </div>
+          <div className="issue-modal-actions">
+            <span className="issue-meta-pill" title="제한됨"><IconLock size={14} /></span>
+            <span className="issue-meta-pill"><IconEye size={14} /> 1</span>
+            <button className="iconbtn" title="공유 (PoC 미지원)"><IconShare size={16} /></button>
+            <button className="iconbtn" title="전체 화면으로 열기" onClick={() => onOpen(modalKey)}><IconExpand size={16} /></button>
+            <button className="iconbtn" aria-label="이슈 상세 닫기" title="닫기 (Esc)" onClick={() => setIssue(null)}><IconClose size={16} /></button>
+          </div>
         </div>
         <div id="detail" className="issue-modal-body">
           <IssueDetail key={modalKey} issueKey={modalKey} meta={meta} pdata={pdata} me={me}

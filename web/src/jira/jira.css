@@ -936,10 +936,19 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .comment-body .adf-img { max-height: 480px; object-fit: contain; border: 1px solid var(--line-soft); border-radius: 4px; }
 
 /* 전체 목록은 마운트한 채 상세만 덮어 필터·표 스크롤을 유지한다. */
-.issue-overlay { padding: 4vh 24px; }
-.issue-modal { width: min(1180px, 94vw); height: 92vh; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); }
-.issue-modal-head { display: flex; align-items: center; gap: 20px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
-.issue-modal-head > a { margin-left: auto; }
+.issue-overlay { padding: 5.5vh 24px; }
+.issue-modal { width: min(1264px, 94vw); height: 87.5vh; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border-radius: 12px; box-shadow: var(--shadow-pop); }
+.issue-modal-head { display: flex; align-items: center; gap: 20px; padding: 14px 24px; border-bottom: 1px solid var(--line-soft); }
+.issue-modal-crumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--dim); min-width: 0; }
+.issue-modal-crumb .crumb-key { color: #44546f; }
+.issue-modal-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+.issue-modal-actions .issue-meta-pill { height: 24px; }
+/* 팝업에서는 헤더로 옮긴 정보를 본문에서 숨긴다 */
+.issue-modal .issue-crumb, .issue-modal .issue-meta-row { display: none; }
+.issue-modal .issue-view { padding-top: 18px; }
+.issue-modal .issue-title-row { display: block; }
+.issue-modal .issue-title-row h1, .issue-modal .issue-title-row h1.inline-edit { margin-bottom: 4px; }
+.issue-modal .issue-actions { margin: 0 0 12px; }
 .issue-modal-body { overscroll-behavior: contain; }
 /* 팝업 폭에 내용을 맞춘다 (전체 화면 상세의 최대 폭 제한은 팝업에서는 쓰지 않음) */
 .issue-modal .issue-view { max-width: none; }
