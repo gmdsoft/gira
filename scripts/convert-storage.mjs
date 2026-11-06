@@ -262,6 +262,8 @@ export function convertStorage(xhtml) {
           content: [{ type: 'layoutColumn', content: ensureBlocks(rich ? blocks(rich.children) : []) }] }] };
       default: {
         if (!BODY_ONLY_MACROS.has(name)) countMacro(name, DYNAMIC_MACROS.has(name) ? stats.dynamicMacros : stats.unsupportedMacros);
+        // 옮길 수 없는 앱 매크로도 본문 글(투표 선택지·설문 문항)은 안내와 함께 보여 줄 수 있게 보존 (GIRA-57)
+        if (NOTICE_MACROS.has(name)) { const pb = plainBody(n); if (pb?.trim()) params.__body = pb.trim().slice(0, 4000); }
         return cfMacro(name, params, rich, inlineCtx);
       }
     }

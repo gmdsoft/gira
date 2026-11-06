@@ -19,7 +19,7 @@ import { BlockResize, widthAttrs } from './block-resize.js';
 import { HighlightedCodeBlock } from './code-block.js';
 import { createToc } from './toc.js';
 import { roadmapSpec } from './roadmap.js';
-import { HIDDEN_MACROS, BODY_ONLY_MACROS, NOTICE_MACROS, noticeText } from '../../server/src/macro-kinds.mjs';
+import { HIDDEN_MACROS, BODY_ONLY_MACROS, NOTICE_MACROS, noticeText, noticeDetail } from '../../server/src/macro-kinds.mjs';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
 import TableCellExt from '@tiptap/extension-table-cell';
@@ -538,7 +538,15 @@ const CfMacro = Node.create({
     // 내보내기 앱 표시(쪽 나눔 등): 보기에서 숨김, 편집기에서는 얇은 표시만 (styles.css)
     if (HIDDEN_MACROS.has(name)) return ['div', { class: 'cf-macro-hidden', 'data-macro': name }, ['div', { style: 'display: none' }, 0]];
     if (BODY_ONLY_MACROS.has(name)) return ['div', { class: 'macro-body-only', 'data-macro': name }, 0];
-    if (NOTICE_MACROS.has(name)) return ['div', { class: 'cf-macro-notice', 'data-macro': name }, noticeText(name), ['div', { style: 'display: none' }, 0]];
+    if (NOTICE_MACROS.has(name)) {
+      const d = noticeDetail(name, params);
+      const extra = d ? [
+        ...(d.title ? [['div', { class: 'cf-macro-notice-title' }, d.title]] : []),
+        ...(d.items.length ? [['ul', {}, ...d.items.map((t) => ['li', {}, t])]] : []),
+        ['div', { class: 'cf-macro-notice-sub' }, d.note],
+      ] : [];
+      return ['div', { class: 'cf-macro-notice', 'data-macro': name }, ['div', {}, noticeText(name)], ...extra, ['div', { style: 'display: none' }, 0]];
+    }
     if (name === 'details') {
       return params?.hidden === 'true'
         ? ['div', { style: 'display: none' }, 0]

@@ -15,5 +15,22 @@ export const BODY_ONLY_MACROS = new Set(['scroll-content-block']);
 export const NOTICE_MACROS = new Map([
   ['adf-ext:smart-button', '스마트 버튼'],
   ['adf-ext:project-linker', '프로젝트 링커'],
+  // GIRA-57: 데이터가 외부 앱에 있어 옮길 수 없는 매크로
+  ['TEST_RESULTS_ADVANCED', '테스트 관리 — 테스트 결과 보고서'],
+  ['ISSUES_REPORTED_LIST', '테스트 관리 — 보고된 이슈 목록'],
+  ['calendar', '팀 캘린더'],
+  ['gadget', 'Jira 가젯'],
+  ['vote', '투표'],
+  ['survey', '설문'],
+  ['vbcp-macro', 'BPMN 다이어그램'],
+  ['vdcp-macro', 'DMN 결정표'],
 ]);
 export const noticeText = (name) => `원본 Confluence 앱 기능(${NOTICE_MACROS.get(name) ?? name}) — 이관되지 않음`;
+
+// 안내와 함께 읽기 전용으로 보여 줄 내용: 투표·설문은 질문과 선택지 (결과는 원본 앱에 있어 옮기지 못함)
+export function noticeDetail(name, params = {}) {
+  const lines = (s) => String(s ?? '').split(/\r?\n|,(?=\s*\d+\.)/).map((x) => x.trim()).filter(Boolean);
+  if (name === 'vote') return { title: params.title || null, items: lines(params.__body), note: '투표 결과는 이관되지 않음' };
+  if (name === 'survey') return { title: params.title || null, items: [...lines(params.__body), ...(params.choices ? [`선택지: ${params.choices}`] : [])], note: '설문 응답은 이관되지 않음' };
+  return null;
+}

@@ -1126,3 +1126,7 @@ a.roadmap-bar:hover { filter: brightness(1.1); }
 .roadmap-marker-label { position: absolute; top: 6px; font-size: 11px; color: #de350b; padding-left: 4px; white-space: nowrap; }
 .roadmap-empty { padding: 8px 12px; color: var(--muted); }
 .roadmap-head .roadmap-year { font-weight: 400; color: var(--muted); font-size: 11px; }
+/* GIRA-57: 옮길 수 없는 앱 안내 — 투표·설문 질문·선택지 */
+.cf-macro-notice-title { margin-top: 6px; font-weight: 600; color: var(--text); font-size: 13px; }
+.cf-macro-notice ul { margin: 4px 0; padding-left: 20px; color: var(--text); font-size: 13px; }
+.cf-macro-notice-sub { margin-top: 2px; font-size: 11px; }
