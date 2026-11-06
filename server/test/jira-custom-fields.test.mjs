@@ -12,7 +12,7 @@ test('형식별 표시값과 검색값: 숫자 0과 false 보존, 빈 값 제외
     ['labels', ['고객사', '담당자'], '고객사, 담당자'], ['textfield', '본문', '본문'], ['url', 'https://example.org', 'https://example.org'],
     ['textarea', {type:'doc', content:[{type:'paragraph', content:[{type:'text', text:'첫 줄'}]}, {type:'paragraph', content:[{type:'text', text:'다음 줄'}]}]}, '첫 줄\n다음 줄'],
     ['float', 0, '0'], ['datepicker', '2026-11-06', '2026-11-06'], ['userpicker', {accountId:'u1',displayName:'사용자'}, '사용자'],
-    ['people', [{accountId:'u1',displayName:'사용자'}], '사용자'], ['interval', {start:'2026-01-01',end:'2026-02-01'}, '2026-01-01, 2026-02-01'],
+    ['people', [{accountId:'u1',displayName:'사용자'}], '사용자'], ['interval', {start:'2026-01-01',end:'2026-02-01'}, '2026-01-01 ~ 2026-02-01'],
     ['atlassian-team', {name:'개발팀'}, '개발팀'], ['rating', 3, '3'], ['slider', 4, '4'], ['boolean', false, 'false'],
   ];
   for (const [type, value, display] of cases) {
@@ -70,4 +70,11 @@ test('JQL 이름·id·다중값·부정·EMPTY·텍스트 검색과 기존 조�
   assert.throws(() => parse('"OS" ~ EMPTY'), JqlError);
   const attack = parse('"OS" = "x\'); DROP TABLE jira_issues; --"');
   assert.ok(!attack.where.includes('DROP TABLE')); assert.ok(attack.params.includes("x'); DROP TABLE jira_issues; --"));
+});
+
+test('제품 발견 기간 필드(JSON 문자열·객체)는 시작 ~ 끝으로 (GIRA-72)', async () => {
+  const { displayValue } = await import('../src/jira-custom-fields.mjs');
+  assert.equal(displayValue('{"start":"2026-08-01","end":"2026-08-31"}'), '2026-08-01 ~ 2026-08-31');
+  assert.equal(displayValue({ start: '2026-01-01', end: '2026-03-31' }), '2026-01-01 ~ 2026-03-31');
+  assert.equal(displayValue('{"start":"2026-08-01"}'), '2026-08-01');
 });
