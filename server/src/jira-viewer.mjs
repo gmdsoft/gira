@@ -1,4 +1,4 @@
-import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue } from './jira-custom-fields.mjs';
+import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // Jira PoC 앱 서버. 이관된 jira_* 테이블 조회 + 기본 쓰기(이슈/댓글/첨부/스프린트/필터).
 // 원본 Jira Cloud API는 읽기 전용(GET, 첨부 프록시)으로만 쓴다 — 쓰기는 전부 로컬 DB.
 // 인증은 Confluence 앱과 동일(auth.mjs, 테스트 계정 로그인) — 같은 DB 세션 쿠키를 공유한다.
@@ -268,6 +268,16 @@ const STATS_JOINS = `
        LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
        LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
 
+// JQL용 사용자 정의 필드 목록 (숨김 필드 제외) — 1분 캐시. 필드 id를 미리 풀어 행마다 jira_fields를 찾지 않게 한다 (GIRA-65)
+let customFieldCache = { at: 0, rows: null };
+async function jqlCustomFields() {
+  if (customFieldCache.rows && Date.now() - customFieldCache.at < 60000) return customFieldCache.rows;
+  const { rows } = await query(`SELECT id, name, schema_type FROM jira_fields
+    WHERE custom AND NOT (id = ANY($1::text[])) AND COALESCE(schema_custom, '') !~ $2`, [HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES.join('|')]);
+  customFieldCache = { at: Date.now(), rows };
+  return rows;
+}
+
 app.get('/api/stats', async (req, reply) => {
   reply.header('Cache-Control', 'private, no-store');
   try {
@@ -276,7 +286,7 @@ app.get('/api/stats', async (req, reply) => {
     const p = v => { params.push(v); return `$${params.length}`; };
     const roles = await projectRoles(req.access);
     const scope = `i.project_id = ANY(${p([...roles.keys()])}::bigint[])`;
-    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId }).where : 'TRUE';
+    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields() }).where : 'TRUE';
     const { rows } = await query(`SELECT i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
       pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
       ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
@@ -303,7 +313,7 @@ app.get('/api/issues', async (req, reply) => {
   for (const one of [].concat(req.query.jql ?? [])) {
     if (!String(one).trim()) continue;
     try {
-      const r = parseJql(String(one), { p, userId: req.access.userId });
+      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields() });
       cond.push(r.where);
       if (r.order) jqlOrder = r.order;
     } catch (e) {

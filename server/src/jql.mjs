@@ -77,11 +77,13 @@ const REL_MS = { m: 60e3, h: 3600e3, d: 86400e3, w: 604800e3 };
 
 // ---------- 파서 ----------
 class Parser {
-  constructor(src, { p, userId }) {
+  constructor(src, { p, userId, customFields = null }) {
     this.toks = tokenize(src);
     this.i = 0;
     this.p = p;           // 값 → $n 자리표시자 (호출자 params 배열에 push)
     this.userId = userId; // currentUser()
+    // 사용자 정의 필드 목록 [{id, name, schema_type}] — 주면 필드 id를 미리 풀어 SQL에 바로 넣는다(빠름). 없으면 jira_fields를 행마다 조회
+    this.customFields = customFields;
   }
   peek() { return this.toks[this.i]; }
   next() { return this.toks[this.i++]; }
@@ -283,6 +285,19 @@ class Parser {
   }
 
   customSql(field, ft, condition) {
+    if (this.customFields) {
+      const hits = this.customFields.filter((f) => (field.id ? f.id === field.id : f.name.toLowerCase() === String(ft.value).toLowerCase()));
+      if (!hits.length) this.fail(ft, `알 수 없는 사용자 정의 필드 '${ft.value}'`);
+      // 같은 이름 필드가 여럿이면(예: Story Points 두 종류) 어느 하나라도 맞으면 참
+      // 자리표시자는 실제로 쓰일 때만 만든다 — 쓰이지 않는 $n이 있으면 PostgreSQL이 형식을 정하지 못한다
+      const sub = (c, f) => {
+        let out = c;
+        if (out.includes('i.fields_raw -> cf.id')) { const ph = `${this.p(f.id)}::text`; out = out.replaceAll('i.fields_raw -> cf.id', `i.fields_raw -> ${ph}`); }
+        if (out.includes('cf.schema_type')) { const ph = `${this.p(f.schema_type ?? '')}::text`; out = out.replaceAll('cf.schema_type', ph); }
+        return out;
+      };
+      return `(${hits.map((f) => `(${sub(condition, f)})`).join(' OR ')})`;
+    }
     const lookup = field.id ? `cf.id = ${this.p(field.id)}` : `lower(cf.name) = lower(${this.p(ft.value)})`;
     return `EXISTS (SELECT 1 FROM jira_fields cf WHERE cf.custom AND ${lookup}
       AND NOT (cf.id = ANY(${this.p(HIDDEN_CUSTOM_FIELDS)}::text[]))
@@ -313,7 +328,7 @@ class Parser {
 }
 
 // 반환: { where, order }  — where는 괄호로 감싼 SQL 조각, order는 sort 키('-updated' 등) 또는 null
-export function parseJql(src, { p, userId }) {
-  const parser = new Parser(src, { p, userId });
+export function parseJql(src, { p, userId, customFields }) {
+  const parser = new Parser(src, { p, userId, customFields });
   return parser.parse();
 }
