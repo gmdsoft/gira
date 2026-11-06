@@ -1074,6 +1074,9 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 
 .doc .mermaid-view { margin: 12px 0; min-width: 0; max-width: 100%; }
 .doc .mermaid-output { overflow-x: auto; padding: 8px; text-align: center; }
+/* Confluence처럼: 블록은 본문 폭 전체에 옅은 배경을 깔고, 다이어그램은 실제 크기로 가운데 */
+.doc .mermaid-view .mermaid-output { background: var(--code-block-bg, rgba(5, 21, 36, .06)); border-radius: 4px; padding: 16px; }
+.doc .mermaid-image { background: var(--code-block-bg, rgba(5, 21, 36, .06)); border-radius: 4px; padding: 16px; }
 /* 크기: Confluence처럼 다이어그램은 자연 크기(Mermaid가 넣는 max-width)로, 본문보다 크면 본문 폭에 맞춰 줄인다 — 확대하지 않는다.
    원본이 미리 그린 PNG(고해상도)는 size 설정 폭으로 줄여 보인다 (Confluence 보통 ≈ 400px) */
 .doc .mermaid-output svg { height: auto; }
