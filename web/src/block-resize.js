@@ -82,13 +82,16 @@ export const BlockResize = Extension.create({
           if (node.type.name !== 'layout') return;
           node.forEach((section, offset) => {
             const sectionPos = blockPos + 1 + offset;
-            const sectionDOM = view.nodeDOM(sectionPos);
-            if (!sectionDOM) return;
-            const columns = [...sectionDOM.children];
+            // 열 DOM은 섹션 요소의 자식 목록으로 짐작하지 않고 열마다 위치로 찾는다 (엇갈리면 비율이 깨진 채 저장됐다)
+            const columns = [];
+            let colPos = sectionPos + 1;
+            section.forEach((col) => { columns.push(view.nodeDOM(colPos)); colPos += col.nodeSize; });
+            if (columns.length < 2 || columns.some((c) => !(c instanceof HTMLElement))) return;
             const widths = columns.map(c => c.getBoundingClientRect().width);
             const total = widths.reduce((a, b) => a + b, 0);
             let colOffset = 0;
-            section.forEach((col, i) => {
+            // Fragment.forEach(노드, 위치, 순번) — 두 번째 인자는 위치(offset)라 순번으로 쓰면 안 된다
+            section.forEach((col, _off, i) => {
               colOffset += col.nodeSize;
               if (i === columns.length - 1) return;
               const r = columns[i].getBoundingClientRect(), next = columns[i + 1].getBoundingClientRect();
@@ -108,7 +111,7 @@ export const BlockResize = Extension.create({
                   overlay.classList.remove('dragging-column');
                   if (!ev) return;
                   let tr = view.state.tr, off = 0;
-                  section.forEach((c, j) => { tr = tr.setNodeAttribute(sectionPos + 1 + off, 'width', ratios[j]); off += c.nodeSize; });
+                  section.forEach((c, _o, j) => { tr = tr.setNodeAttribute(sectionPos + 1 + off, 'width', ratios[j]); off += c.nodeSize; });
                   view.dispatch(tr);
                 });
               });
