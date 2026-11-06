@@ -507,6 +507,9 @@ app.patch('/api/issue/:key', async (req, reply) => {
   if (!sets.length) return reply.code(400).send({ error: '변경할 필드가 없습니다' });
   sets.push(`updated_at = now()`);
   const before = await issueSnapshot(issue.id);
+  const categoryOf = async () => (await query(
+    `SELECT s.category FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id WHERE i.id = $1`, [issue.id])).rows[0]?.category;
+  const catBefore = 'statusId' in b ? await categoryOf() : null;
   await query(`UPDATE jira_issues SET ${sets.join(', ')} WHERE id = $1`, params);
   // 로컬 수정도 Jira처럼 기록(changelog)에 남긴다
   const after = await issueSnapshot(issue.id);
@@ -516,6 +519,8 @@ app.patch('/api/issue/:key', async (req, reply) => {
   }
   if (before.desc_md5 !== after.desc_md5) items.push({ field: 'description', fromString: null, toString: null });
   if (before.status !== after.status) notifyIssue(req, issue.id, 'issue.status', `${before.status ?? '?'} → ${after.status ?? '?'}`);
+  // 처리 완료: '완료' 분류가 아니던 이슈가 완료로 바뀐 때 (완료 안에서 상태만 바뀐 건 제외)
+  if ('statusId' in b && catBefore !== 'done' && await categoryOf() === 'done') notifyIssue(req, issue.id, 'issue.done', after.status ?? '완료');
   if (items.length) {
     await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
       [issue.id, req.access.userId, JSON.stringify(items)]);
