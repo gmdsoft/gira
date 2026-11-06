@@ -407,7 +407,7 @@ function Toolbar({ editor, onImage }) {
   return (
     <div className="toolbar" ref={toolbarRef}>
       <select className="tb-select"
-        aria-label="텍스트 스타일"
+        aria-label="텍스트 스타일" title="텍스트 스타일 (일반 Ctrl+Alt+0, 머릿글 Ctrl+Alt+1~6)"
         value={editor.isActive('blockquote') ? 'quote' : editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : editor.isActive('smallText') ? 'small' : 'p'}
         onChange={(e) => {
           const v = e.target.value;
@@ -420,15 +420,15 @@ function Toolbar({ editor, onImage }) {
             c.run();
           }
         }}>
-        <option value="p">일반 텍스트 (Ctrl+Alt+0)</option>
+        <option value="p" title="Ctrl+Alt+0">일반 텍스트</option>
         <option value="small">작은 텍스트</option>
         <option value="quote">인용</option>
-        <option value="h1">머릿글 1 (Ctrl+Alt+1)</option>
-        <option value="h2">머릿글 2 (Ctrl+Alt+2)</option>
-        <option value="h3">머릿글 3 (Ctrl+Alt+3)</option>
-        <option value="h4">머릿글 4 (Ctrl+Alt+4)</option>
-        <option value="h5">머릿글 5 (Ctrl+Alt+5)</option>
-        <option value="h6">머릿글 6 (Ctrl+Alt+6)</option>
+        <option value="h1" title="Ctrl+Alt+1">머릿글 1</option>
+        <option value="h2" title="Ctrl+Alt+2">머릿글 2</option>
+        <option value="h3" title="Ctrl+Alt+3">머릿글 3</option>
+        <option value="h4" title="Ctrl+Alt+4">머릿글 4</option>
+        <option value="h5" title="Ctrl+Alt+5">머릿글 5</option>
+        <option value="h6" title="Ctrl+Alt+6">머릿글 6</option>
       </select>
       <span className="tb-sep" />
       <B title="굵게 (Ctrl+B)" active={editor.isActive('bold')} onClick={() => chain().toggleBold().run()}><b>B</b></B>
