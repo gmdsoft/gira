@@ -3,6 +3,7 @@
 import { generateHTML } from '@tiptap/html';
 import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
+import { createToc } from './toc.js';
 
 export function hydrateMacros(root, ctx) {
   if (!root) return;
@@ -71,20 +72,11 @@ const HANDLERS = {
     if (!doc) return;
     const heads = [...doc.querySelectorAll('h1, h2, h3, h4, h5, h6')];
     if (!heads.length) { el.remove(); return; }
-    const nav = document.createElement('nav');
-    nav.className = 'macro-toc';
-    const ul = document.createElement('ul');
-    heads.forEach((h, i) => {
+    const nav = createToc(heads.map((h, i) => {
       if (!h.id) h.id = `h-${i}-${(h.textContent ?? '').trim().slice(0, 24).replace(/\s+/g, '-')}`;
-      const li = document.createElement('li');
-      li.style.marginLeft = `${(Number(h.tagName[1]) - 1) * 16}px`;
-      const a = document.createElement('a');
-      a.href = `#${h.id}`;
-      a.textContent = h.textContent;
-      a.addEventListener('click', (e) => { e.preventDefault(); h.scrollIntoView({ behavior: 'smooth', block: 'start' }); });
-      li.append(a); ul.append(li);
-    });
-    nav.append(ul);
+      return { level: Number(h.tagName[1]), text: h.textContent, href: `#${h.id}`,
+        scroll: () => h.scrollIntoView({ behavior: 'smooth', block: 'start' }) };
+    }));
     swap(el, nav);
   },
 
