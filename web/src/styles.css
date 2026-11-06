@@ -842,3 +842,35 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .jira-issue { display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; vertical-align: baseline; }
 .jira-issue-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 32em; }
 .jira-issue .status { flex-shrink: 0; }
+/* 알파 모바일: 메뉴는 접어서 열고 콘텐츠는 한 열로 읽는다. */
+.mobile-notice, .mobile-shade { display: none; }
+@media (max-width: 600px) {
+  .mobile-notice { display: block; padding: 8px 12px; background: var(--bg-subtle); color: var(--muted); font-size: 12px; }
+  .gtb { height: auto; min-height: 48px; flex-wrap: wrap; padding: 6px 10px; }
+  .gtb-left { min-width: 0; }
+  .gtb-word { font-size: 16px; }
+  .gtb-center { position: static; transform: none; order: 3; width: 100%; }
+  .gtb-search { width: 100%; }
+  .gtb-search input, .search-input { font-size: 16px; }
+  .gtb-sep, .gtb-av, .gtb .poc-badge, .gtb-create, .setwrap { display: none; }
+  .mobile-shade { display: block; position: fixed; inset: 90px 0 0; z-index: 31; border: 0; border-radius: 0; background: #0006; }
+  .gs-side { position: fixed; top: 90px; bottom: 0; left: 0; width: min(300px, 85vw); height: auto; z-index: 32; }
+  .gs-plus-wrap, .tree-menu-wrap { display: none; }
+  .page, .page.page-full { padding: 20px 16px 48px; width: 100%; }
+  .page h1 { font-size: 24px; overflow-wrap: anywhere; }
+  .page-meta { flex-wrap: wrap; gap: 8px; }
+  .page-actions, .status-banner button, .label-x, .label-add, .label-input,
+  .inline-comment-item > button.btn, .comment-form, .sel-comment-btn, .sel-comment-form { display: none; }
+  .doc, .comment-body, .search-result { overflow-wrap: anywhere; min-width: 0; }
+  .page:not(.page-full) .doc > .ProseMirror > .breakout { width: 100%; margin-left: 0; transform: none; }
+  .doc .media.media-breakout { width: 100%; max-width: 100%; margin-left: 0; transform: none; }
+  .doc table { table-layout: fixed; min-width: 0 !important; width: 100% !important; }
+  .doc col { width: auto !important; }
+  .doc td, .doc th { min-width: 0; overflow-wrap: anywhere; }
+  .doc pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .doc iframe { max-width: 100%; }
+  .search-page { margin: 20px auto; padding: 0 16px 48px; }
+  .search-form { flex-wrap: wrap; }
+  .search-input { flex-basis: 100%; min-width: 0; }
+  .search-form select { min-width: 0; max-width: 75%; }
+}
