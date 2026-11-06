@@ -21,6 +21,7 @@ import { exportProject, importProject } from './jira-package.mjs';
 import { registerDevChat } from './dev-chat.mjs';
 import { textToAdf } from './linkify.mjs';
 import { registerProjectCreate } from './jira-project-create.mjs';
+import { aggregate, decodeJql, requestedProjects } from './jira-stats.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
 import { registerAiAssist } from './ai-assist.mjs';
@@ -251,6 +252,39 @@ const ISSUE_SORT_COLS = {
   created: 'i.created_at',
   updated: 'i.updated_at',
 };
+
+const STATS_JOINS = `
+       FROM jira_issues i
+       JOIN jira_projects pr ON pr.id = i.project_id
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN jira_statuses s ON s.id = i.status_id
+       LEFT JOIN users u ON u.id = i.assignee_id
+       LEFT JOIN users ur ON ur.id = i.reporter_id
+       LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
+       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
+       LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
+       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
+       LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
+
+app.get('/api/stats', async (req, reply) => {
+  reply.header('Cache-Control', 'private, no-store');
+  try {
+    const jql = decodeJql(String(req.query.jql ?? ''));
+    const params = [];
+    const p = v => { params.push(v); return `$${params.length}`; };
+    const roles = await projectRoles(req.access);
+    const scope = `i.project_id = ANY(${p([...roles.keys()])}::bigint[])`;
+    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId }).where : 'TRUE';
+    const { rows } = await query(`SELECT i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
+      pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
+      ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
+    const projects = (await query('SELECT key FROM jira_projects')).rows.map(r => r.key.toUpperCase());
+    return { ...aggregate(rows, req.query), missingProjects: [...new Set(requestedProjects(jql).filter(k => !projects.includes(k.toUpperCase())))], project: rows[0]?.project ?? null };
+  } catch (e) {
+    if (e instanceof JqlError || /지원하지 않는|잘못된 JQL/.test(e.message)) return reply.code(400).send({ error: e.message });
+    throw e;
+  }
+});
 
 app.get('/api/issues', async (req, reply) => {
   const { project, status, type, assignee, priority, sprint, q } = req.query;

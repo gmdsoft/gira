@@ -39,7 +39,7 @@ function parseRoute(projects) {
 // 주소에 남기는 보기 상태 (Jira의 ?groupBy=epic 처럼): 새로고침·링크 공유에도 유지
 const urlView = () => {
   const u = new URLSearchParams(location.search);
-  return { group: u.get('groupBy') ?? '', who: u.get('who') ?? '' };
+  return { group: u.get('groupBy') ?? '', who: u.get('who') ?? '', jql: u.get('jql') ?? '', scope: u.get('scope') === 'all' ? 'all' : '' };
 };
 
 const loadRecent = () => { try { return JSON.parse(localStorage.getItem('jira.recent')) ?? []; } catch { return []; } };
@@ -71,9 +71,9 @@ export default function JiraApp() {
   const [recent, setRecent] = useState(loadRecent);
   const qTimer = useRef(null);
   const [qInput, setQInput] = useState('');
-  const [fmode, setFmode] = useState(() => { try { return localStorage.getItem('jira.fmode') === 'jql' ? 'jql' : 'basic'; } catch { return 'basic'; } });
+  const [fmode, setFmode] = useState(() => { try { if (new URLSearchParams(location.search).has('jql')) return 'jql'; return localStorage.getItem('jira.fmode') === 'jql' ? 'jql' : 'basic'; } catch { return 'basic'; } });
   // JQL 입력은 새로고침·모드 전환에도 유지 (localStorage)
-  const [jqlInput, setJqlInputRaw] = useState(() => { try { return localStorage.getItem('jira.jql') ?? ''; } catch { return ''; } });
+  const [jqlInput, setJqlInputRaw] = useState(() => { try { return new URLSearchParams(location.search).get('jql') ?? localStorage.getItem('jira.jql') ?? ''; } catch { return ''; } });
   const setJqlInput = (v) => { setJqlInputRaw(v); try { localStorage.setItem('jira.jql', v); } catch { /* 무시 */ } };
   const [jqlErr, setJqlErr] = useState(null);
   const [showHelp, setShowHelp] = useState(false); // AI 도움말 패널 (GIRA-15)
@@ -145,7 +145,7 @@ export default function JiraApp() {
   };
   const switchProject = (pkey) => {
     if (pkey === project) return;
-    setProject(pkey); setFilters((f) => ({ ...f, sprint: '', who: '' })); setSavedSel(''); // 사람 목록이 프로젝트마다 다름
+    setProject(pkey); setFilters((f) => ({ ...f, sprint: '', who: '', scope: '' })); setSavedSel(''); // 사람 목록이 프로젝트마다 다름
   };
   const gotoView = (v) => {
     const q = boardId ? '?b=' + boardId : ''; // 보드 컨텍스트는 뷰를 바꿔도 유지
