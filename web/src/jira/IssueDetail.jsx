@@ -3,7 +3,7 @@ import { useMobile, isMobile } from '../mobile.js';
 import React, { useEffect, useRef, useState } from 'react';
 import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
-import { IconChevronDown, IconChevronRight, IconPlus, IconMore, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
+import { IconChevronDown, IconChevronRight, IconPlus, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
 import AdfView from './adf.jsx';
 import CommentComposer from '../comment-composer.jsx';
 import DescEditor from './DescEditor.jsx';
@@ -344,7 +344,6 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
           onSave={(v) => patch({ summary: v })} />
         <div className="issue-actions">
           <button className="iconbtn" title="하위 작업 만들기" onClick={() => onNew?.()}><IconPlus size={17} /></button>
-          <button className="iconbtn" title="더 보기"><IconMore size={17} /></button>
         </div>
       </div>
       <div className="issue-meta-row">
