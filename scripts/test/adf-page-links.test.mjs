@@ -22,3 +22,10 @@ test('권한 없음/미이관/연결 실패는 제목 없이 Gonfluence 리디�
   }
   assert.equal(await adfPageLink('https://example.org/wiki/x/abc', { ...options, fetchImpl: () => assert.fail('외부 주소 조회 금지') }), null);
 });
+
+test('화이트보드·데이터베이스·임베드·편집 주소도 문서 id로 (GIRA-70)', async () => {
+  const { sourceLink } = await import('../../server/src/adf-source-links.mjs');
+  for (const [u, id] of [['https://gmdsoft.atlassian.net/wiki/spaces/MDX/whiteboard/315883918', '315883918'], ['https://gmdsoft.atlassian.net/wiki/spaces/MDX/database/943521921', '943521921'], ['https://gmdsoft.atlassian.net/wiki/spaces/X/pages/edit-v2/777', '777']]) {
+    assert.equal(sourceLink(u)?.id, id);
+  }
+});

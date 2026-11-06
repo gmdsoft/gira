@@ -66,7 +66,9 @@ function Card({ n }) {
   const embed = n.type === 'embedCard' && embedUrl(raw);
   if (embed) return <iframe className="adf-embed" src={embed} title={n.attrs?.title || 'Figma'} sandbox="allow-scripts allow-same-origin" loading="lazy" referrerPolicy="no-referrer" />;
   const href = link?.kind === 'issue' ? link.href : page?.href ?? safeUrl(raw);
-  const label = link?.kind === 'issue' ? `${link.key}${issue?.summary ? ': ' + issue.summary : ''}` : page?.title || n.attrs?.title || raw || '링크';
+  // 원본 카드 제목이 사이트 주소뿐이면(예: https://gmdsoft.atlassian.net/) 의미가 없으니 원래 주소 전체를 보여 준다
+  const cardTitle = /^https?:\/\/[^/]+\/?$/.test(n.attrs?.title ?? '') ? null : n.attrs?.title;
+  const label = link?.kind === 'issue' ? `${link.key}${issue?.summary ? ': ' + issue.summary : ''}` : page?.title || cardTitle || raw || '링크';
   return <span className={n.type === 'inlineCard' ? 'adf-inline-card' : 'adf-link-card'}>
     {href ? <a href={href} title={raw} target="_blank" rel="noopener noreferrer">{label}</a> : label}
     {issue?.status_name && <span className={`status-lozenge cat-${issue.status_category || 'new'}`}>{issue.status_name}</span>}
