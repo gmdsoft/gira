@@ -20,7 +20,10 @@ function Cell({ field, value, users, spaceKey }) {
   if (field.type === 'h') return list(value).map((v, i) => <a key={i} href={safeUrl(v.u ?? v)} target="_blank" rel="noreferrer">{v.u ?? plain(v)}</a>);
   if (field.type === 'pl') return list(value).map((v, i) => <a key={i} href={`/s/${encodeURIComponent(spaceKey)}/p/${encodeURIComponent(v.c ?? v.p ?? v.id ?? v.i ?? v)}`}>{v.title ?? v.n ?? plain(v)}</a>);
   if (field.type === 'u') return list(value).map((v, i) => { const name = users[v.a ?? v.id ?? v]?.display_name ?? v.d ?? plain(v); return <span key={i}><span className="database-avatar">{name.slice(0, 1)}</span>{name} </span>; });
-  if (field.type === 'i') return list(value).map((v, i) => <span className="database-file" key={i} title="원본 파일 — 다운로드 이관 대기">📎 {v.name ?? v.n ?? v.f ?? plain(v)}</span>);
+  // 파일 칸: 1차는 파일을 내려받지 않는다 — 내부 파일 id 대신 안내만 (이름이 있으면 이름)
+  if (field.type === 'i') return list(value).map((v, i) => <span className="database-file" key={i} title="원본 파일 — 다운로드 이관 대기">📎 {v.name ?? v.n ?? '원본 첨부 (이관 대기)'}</span>);
+  // Jira 필드: 연결 이슈가 Gira에 없으면(이관 안 된 프로젝트) 빈칸 대신 표시
+  if (field.type === 'jid' && !list(value).length) return <span className="muted" title="연결된 Jira 이슈가 Gira에 없음(이관되지 않은 프로젝트) 또는 불러오는 중">—</span>;
   return cellText(field, value);
 }
 export default function DatabaseView({ page }) {
