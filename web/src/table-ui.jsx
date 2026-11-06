@@ -1,9 +1,11 @@
 // 표 편집 UI (GIRA-31): Confluence처럼
 //  - 셀에 커서가 있으면 표 아래 가운데에 '표 도구 모음' (표 옵션 · 정렬 · 열 균등 맞춤 · 콘텐츠에 맞춤 · ⋯)
 //  - 커서가 있는 셀 오른쪽 위 '∨' 셀 옵션 (Shift+F10): 배경색 › · 정렬 › · 셀 병합/나누기 · 행/열 추가 · 셀 지우기 · 행/열 삭제
+//  - (GIRA-32) 행 왼쪽·열 위쪽 핸들 → 행/열 전체 선택 + 메뉴(추가·이동·정렬·배경색·삭제), 경계의 '+' 삽입 점
 // 문서 모델: 셀 background·valign, 표 numberedRows·displayMode·layout (extensions.js)
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CellSelection, TableMap, isInTable, selectedRect, selectionCell } from 'prosemirror-tables';
+import { CellSelection, TableMap, isInTable, selectedRect, selectionCell, moveTableRow, moveTableColumn } from 'prosemirror-tables';
+import { Fragment } from '@tiptap/pm/model';
 
 // 셀·패널 배경 팔레트 30색 (연한 / 기본 / 진한 × 10색 계열). 첫 칸 흰색 = 기본(칠하지 않음)
 export const CELL_COLORS = [
@@ -116,6 +118,96 @@ const firstColHeader = (table) => {
   return all;
 };
 
+// ---- GIRA-32: 행·열 조작 도우미 (단축키에서도 쓰므로 editor만 받는다) ----
+// 표의 셀들(행 → 셀 두 단계만 본다. descendants에서 false를 돌려주면 셀까지 내려가지 않으므로 직접 돈다)
+const eachCell = (table, fn) => table.forEach((row) => row.forEach((cell) => fn(cell)));
+const hasColwidths = (table) => {
+  let any = false;
+  eachCell(table, (c) => { if (c.attrs?.colwidth?.some((w) => w)) any = true; });
+  return any;
+};
+// 열 index 앞에 새 열을 넣는다(0 = 맨 왼쪽, width = 맨 오른쪽). 열 너비가 기록된 표는 전체 폭을 유지하고 다시 나눈다
+export function insertColumnAt(editor, index) {
+  const { state, view } = editor;
+  if (!isInTable(state)) return false;
+  const rect = selectedRect(state);
+  const { map, tableStart, table } = rect;
+  const keep = hasColwidths(table) ? currentColWidths(view, rect) : null;
+  const col = Math.min(Math.max(index, 0), map.width);
+  const ref = col === 0 ? 0 : col - 1;
+  const $cell = state.doc.resolve(tableStart + map.map[ref]);
+  let ok = editor.chain().focus().setTextSelection($cell.pos + 2)[col === 0 ? 'addColumnBefore' : 'addColumnAfter']().run();
+  if (ok && keep) {
+    const total = keep.reduce((a, b) => a + b, 0);
+    const n = keep.length + 1;
+    const scaled = keep.map((w) => Math.max(MIN_COL, (w * (n - 1)) / n));
+    scaled.splice(col, 0, Math.max(MIN_COL, total / n));
+    const r2 = selectedRect(editor.state);
+    editor.view.dispatch(setColWidths(editor.state.tr, r2, scaled));
+  }
+  return ok;
+}
+export function insertRowAt(editor, index) {
+  const { state } = editor;
+  if (!isInTable(state)) return false;
+  const { map, tableStart } = selectedRect(state);
+  const row = Math.min(Math.max(index, 0), map.height);
+  const ref = row === 0 ? 0 : row - 1;
+  const $cell = state.doc.resolve(tableStart + map.map[ref * map.width]);
+  return editor.chain().focus().setTextSelection($cell.pos + 2)[row === 0 ? 'addRowBefore' : 'addRowAfter']().run();
+}
+// 지금 선택 기준 행/열 번호
+function currentIndex(state) {
+  const r = selectedRect(state);
+  return { row: r.top, col: r.left, rect: r };
+}
+export function moveRow(editor, delta) {
+  const { state, view } = editor;
+  if (!isInTable(state)) return false;
+  const { row, rect } = currentIndex(state);
+  const to = row + delta;
+  if (to < 0 || to >= rect.map.height) return false;
+  return moveTableRow({ from: row, to, select: true })(state, view.dispatch);
+}
+export function moveColumn(editor, delta) {
+  const { state, view } = editor;
+  if (!isInTable(state)) return false;
+  const { col, rect } = currentIndex(state);
+  const to = col + delta;
+  if (to < 0 || to >= rect.map.width) return false;
+  return moveTableColumn({ from: col, to, select: true })(state, view.dispatch);
+}
+// 열 정렬: 헤더 행은 그대로 두고 본문 행을 그 열의 글자 기준으로(숫자는 숫자 순). 병합된 셀이 있으면 하지 않는다
+function sortByColumn(editor, col, dir) {
+  const { state, view } = editor;
+  const rect = selectedRect(state);
+  const { table, tableStart } = rect;
+  let merged = false;
+  eachCell(table, (n) => { if ((n.attrs?.colspan ?? 1) > 1 || (n.attrs?.rowspan ?? 1) > 1) merged = true; });
+  if (merged) { alert('병합된 셀이 있는 표는 정렬할 수 없습니다.'); return false; }
+  const rows = [];
+  table.forEach((r) => rows.push(r));
+  const isHeaderRow = (r) => { let all = true; r.forEach((c) => { if (c.type.name !== 'tableHeader') all = false; }); return all; };
+  const head = rows.length && isHeaderRow(rows[0]) ? [rows[0]] : [];
+  const body = rows.slice(head.length);
+  const coll = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' });
+  const key = (r) => (r.childCount > col ? r.child(col).textContent.trim() : '');
+  body.sort((a, b) => {
+    const ka = key(a); const kb = key(b);
+    if (!ka && kb) return 1; if (ka && !kb) return -1; // 빈 칸은 항상 아래로
+    return dir * coll.compare(ka, kb);
+  });
+  const next = table.copy(Fragment.from([...head, ...body]));
+  const tr = state.tr.replaceWith(tableStart - 1, tableStart - 1 + table.nodeSize, next);
+  // 표를 통째로 바꾸면 선택이 표 밖으로 나가므로, 정렬한 열을 다시 선택해 둔다
+  const m = TableMap.get(next);
+  const $a = tr.doc.resolve(tableStart + m.map[col]);
+  const $b = tr.doc.resolve(tableStart + m.map[(m.height - 1) * m.width + col]);
+  tr.setSelection(CellSelection.colSelection($a, $b));
+  view.dispatch(tr);
+  return true;
+}
+
 function MenuItem({ children, kbd, onPick, check, disabled, sub, danger }) {
   return (
     <button type="button" role="menuitem" className={`tbl-mi${danger ? ' danger' : ''}`} disabled={disabled}
@@ -145,6 +237,7 @@ export function TableMenus({ editor }) {
   const [, setTick] = useState(0);
   const [open, setOpen] = useState(null); // 'opts' | 'align' | 'more' | 'cell'
   const [sub, setSub] = useState(null); // 셀 메뉴 하위: 'bg' | 'valign'
+  const [lineIdx, setLineIdx] = useState(null); // 행/열 메뉴 대상 번호
   const rootRef = useRef(null);
   const raf = useRef(0);
   const rerender = useCallback(() => {
@@ -162,11 +255,21 @@ export function TableMenus({ editor }) {
     window.addEventListener('resize', rerender);
     const onCellMenu = () => { setOpen('cell'); setSub(null); };
     window.addEventListener('gonf-cell-menu', onCellMenu);
+    // 단축키(extensions.js TableShortcuts)가 보내는 행·열 이동
+    const onCmd = (e) => {
+      const d = e.detail;
+      if (d === 'rowUp') moveRow(editor, -1); else if (d === 'rowDown') moveRow(editor, 1);
+      else if (d === 'colLeft') moveColumn(editor, -1); else if (d === 'colRight') moveColumn(editor, 1);
+      else if (d === 'colBefore') { const { col } = currentIndex(editor.state); insertColumnAt(editor, col); }
+      else if (d === 'colAfter') { const r = selectedRect(editor.state); insertColumnAt(editor, r.right); }
+    };
+    window.addEventListener('gonf-table-cmd', onCmd);
     return () => {
       editor.off('transaction', onTx); editor.off('selectionUpdate', onTx); editor.off('blur', onTx);
       window.removeEventListener('scroll', rerender, true);
       window.removeEventListener('resize', rerender);
       window.removeEventListener('gonf-cell-menu', onCellMenu);
+      window.removeEventListener('gonf-table-cmd', onCmd);
       cancelAnimationFrame(raf.current);
     };
   }, [editor, rerender]);
@@ -221,9 +324,7 @@ export function TableMenus({ editor }) {
     // 고정하려는데 열 너비가 기록돼 있지 않으면 지금 보이는 폭을 기록해 둔다
     if (!fixed) {
       const r = selectedRect(editor.state);
-      let hasWidths = false;
-      r.table.descendants((n) => { if (n.attrs?.colwidth?.some((w) => w)) hasWidths = true; return false; });
-      if (!hasWidths) tr = setColWidths(tr, r, currentColWidths(view, r));
+      if (!hasColwidths(r.table)) tr = setColWidths(tr, r, currentColWidths(view, r));
     }
     tr.setNodeMarkup(tablePos, null, { ...table.attrs, displayMode: fixed ? null : 'fixed' });
     view.dispatch(tr); editor.commands.focus(); close();
@@ -267,9 +368,44 @@ export function TableMenus({ editor }) {
   const canMerge = editor.can().mergeCells();
   const canSplit = editor.can().splitCell();
 
+  // ---- GIRA-32: 행·열 핸들과 삽입 점 위치 ----
+  const { map, tableStart } = rect;
+  const domRows = tableEl ? [...tableEl.rows] : [];
+  const rowBox = domRows.map((r) => r.getBoundingClientRect());
+  const xs = [];
+  for (let c = 0; c < map.width; c += 1) {
+    let x = null;
+    for (let r = 0; r < map.height && x == null; r += 1) {
+      const pos = map.map[r * map.width + c];
+      if (map.findCell(pos).left !== c) continue;
+      const dom = view.nodeDOM(tableStart + pos);
+      if (dom instanceof HTMLElement) x = dom.getBoundingClientRect().left;
+    }
+    xs.push(x ?? (xs.length ? xs[xs.length - 1] : tr.left));
+  }
+  xs.push(tr.right);
+  const gutterL = tr.left - (table.attrs.numberedRows ? 42 : 0);
+  const showHandles = wr.bottom > 120 && wr.top < window.innerHeight - 20 && !!tableEl;
+  const selRow = (r) => {
+    const $a = editor.state.doc.resolve(tableStart + map.map[r * map.width]);
+    const $b = editor.state.doc.resolve(tableStart + map.map[r * map.width + map.width - 1]);
+    view.dispatch(editor.state.tr.setSelection(CellSelection.rowSelection($a, $b)));
+  };
+  const selCol = (c) => {
+    const $a = editor.state.doc.resolve(tableStart + map.map[c]);
+    const $b = editor.state.doc.resolve(tableStart + map.map[(map.height - 1) * map.width + c]);
+    view.dispatch(editor.state.tr.setSelection(CellSelection.colSelection($a, $b)));
+  };
+  const openLine = (kind, i) => {
+    if (kind === 'row') selRow(i); else selCol(i);
+    setLineIdx(i); setOpen(kind); setSub(null);
+  };
+  const lineRun = (fn) => { fn(); editor.commands.focus(); close(); };
+  const curTable = () => selectedRect(editor.state);
+
   return (
     <div ref={rootRef} className="tbl-ui" onMouseDown={(e) => { if (e.target === e.currentTarget) e.preventDefault(); }}>
-      {showCellBtn && (
+      {showCellBtn && open !== 'row' && open !== 'col' && (
         <span className="tbl-cellbtn-wrap" style={{ left: cr.right - 24, top: cr.top + 4 }}>
           <button type="button" className={`tbl-cellbtn${open === 'cell' ? ' on' : ''}`} title="셀 옵션 (Shift+F10)" aria-haspopup="menu"
             aria-expanded={open === 'cell'} onMouseDown={(e) => e.preventDefault()} onClick={() => { toggle('cell'); setSub(null); }}>▾</button>
@@ -294,7 +430,7 @@ export function TableMenus({ editor }) {
               <div className="tbl-sep" />
               {canMerge && <MenuItem onPick={() => chainRun((ch) => ch.mergeCells())}>셀 병합</MenuItem>}
               {canSplit && !multi && <MenuItem onPick={() => chainRun((ch) => ch.splitCell())}>셀 나누기</MenuItem>}
-              <MenuItem kbd="Ctrl+Alt+→" onPick={() => chainRun((ch) => ch.addColumnAfter())}>오른쪽에 열 추가</MenuItem>
+              <MenuItem kbd="Ctrl+Alt+→" onPick={() => lineRun(() => insertColumnAt(editor, rect.right))}>오른쪽에 열 추가</MenuItem>
               <MenuItem kbd="Ctrl+Alt+↓" onPick={() => chainRun((ch) => ch.addRowAfter())}>아래에 행 추가</MenuItem>
               {multi && rect.right - rect.left > 1 && <MenuItem onPick={() => equalize(true)}>열 균등 맞춤</MenuItem>}
               <div className="tbl-sep" />
@@ -304,6 +440,62 @@ export function TableMenus({ editor }) {
             </div>)}
         </span>
       )}
+
+      {showHandles && <>
+        {/* 행 핸들 + 행 사이 삽입 점 */}
+        {rowBox.map((b, r) => (
+          <button type="button" key={`rh${r}`} className={`tbl-rowh${open === 'row' && lineIdx === r ? ' on' : ''}`} title="행 옵션"
+            style={{ left: gutterL - 14, top: b.top + 1, height: b.height - 2 }}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => openLine('row', r)} />))}
+        {rowBox.length > 0 && [...rowBox.map((b) => b.top), rowBox[rowBox.length - 1].bottom].map((y, i) => (
+          <button type="button" key={`ri${i}`} className="tbl-ins tbl-ins-row" title="행 삽입 (Ctrl+Alt+↓)"
+            style={{ left: gutterL - 30, top: y - 8, '--len': `${tr.right - gutterL + 30}px` }}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => { insertRowAt(editor, i); close(); }}>+</button>))}
+        {/* 열 핸들 + 열 사이 삽입 점 */}
+        {xs.slice(0, -1).map((x, c) => (
+          <button type="button" key={`ch${c}`} className={`tbl-colh${open === 'col' && lineIdx === c ? ' on' : ''}`} title="열 옵션"
+            style={{ left: x + 1, top: tr.top - 14, width: xs[c + 1] - x - 2 }}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => openLine('col', c)} />))}
+        {xs.map((x, i) => (
+          <button type="button" key={`ci${i}`} className="tbl-ins tbl-ins-col" title="열 삽입 (Ctrl+Alt+→)"
+            style={{ left: x - 8, top: tr.top - 32, '--len': `${tr.bottom - tr.top + 32}px` }}
+            onMouseDown={(e) => e.preventDefault()} onClick={() => { insertColumnAt(editor, i); close(); }}>+</button>))}
+        {open === 'row' && lineIdx != null && rowBox[lineIdx] && (
+          <div className="tbl-menu tbl-linemenu" role="menu" aria-label="행 옵션"
+            style={{ left: gutterL - 14, top: Math.min(rowBox[lineIdx].top, window.innerHeight - 360) }}>
+            <MenuItem check={!!table.attrs.numberedRows} onPick={() => setTableAttrs({ numberedRows: !table.attrs.numberedRows })}>번호가 매겨진 행</MenuItem>
+            <div className="tbl-mi-wrap">
+              <MenuItem sub onPick={() => setSub((x) => (x === 'bg' ? null : 'bg'))}>배경색</MenuItem>
+              {sub === 'bg' && <div className="tbl-submenu"><Palette current={null} onPick={(c) => chainRun((ch) => ch.setCellAttribute('background', c))} /></div>}
+            </div>
+            <div className="tbl-sep" />
+            <MenuItem kbd="Ctrl+Alt+↑" onPick={() => lineRun(() => insertRowAt(editor, lineIdx))}>위에 행 추가</MenuItem>
+            <MenuItem kbd="Ctrl+Alt+↓" onPick={() => lineRun(() => insertRowAt(editor, lineIdx + 1))}>아래에 행 추가</MenuItem>
+            <MenuItem kbd="Ctrl+Alt+Shift+[" disabled={lineIdx === 0} onPick={() => lineRun(() => moveRow(editor, -1))}>행을 위로 이동</MenuItem>
+            <MenuItem kbd="Ctrl+Alt+Shift+]" disabled={lineIdx >= map.height - 1} onPick={() => lineRun(() => moveRow(editor, 1))}>행을 아래로 이동</MenuItem>
+            <div className="tbl-sep" />
+            <MenuItem onPick={clearCells}>셀 지우기</MenuItem>
+            <MenuItem danger kbd="Ctrl+⌫" onPick={() => chainRun((ch) => ch.deleteRow())}>행 삭제</MenuItem>
+          </div>)}
+        {open === 'col' && lineIdx != null && xs[lineIdx] != null && (
+          <div className="tbl-menu tbl-linemenu" role="menu" aria-label="열 옵션"
+            style={{ left: Math.min(xs[lineIdx], window.innerWidth - 300), top: tr.top - 2 }}>
+            <div className="tbl-mi-wrap">
+              <MenuItem sub onPick={() => setSub((x) => (x === 'bg' ? null : 'bg'))}>배경색</MenuItem>
+              {sub === 'bg' && <div className="tbl-submenu"><Palette current={null} onPick={(c) => chainRun((ch) => ch.setCellAttribute('background', c))} /></div>}
+            </div>
+            <MenuItem onPick={() => lineRun(() => sortByColumn(editor, lineIdx, 1))}>오름차순으로 정렬</MenuItem>
+            <MenuItem onPick={() => lineRun(() => sortByColumn(editor, lineIdx, -1))}>내림차순으로 정렬</MenuItem>
+            <div className="tbl-sep" />
+            <MenuItem kbd="Ctrl+Alt+←" onPick={() => lineRun(() => insertColumnAt(editor, lineIdx))}>왼쪽에 열 추가</MenuItem>
+            <MenuItem kbd="Ctrl+Alt+→" onPick={() => lineRun(() => insertColumnAt(editor, lineIdx + 1))}>오른쪽에 열 추가</MenuItem>
+            <MenuItem kbd="Ctrl+Alt+Shift+-" disabled={lineIdx === 0} onPick={() => lineRun(() => moveColumn(editor, -1))}>열을 왼쪽으로 이동</MenuItem>
+            <MenuItem kbd="Ctrl+Alt+Shift+=" disabled={lineIdx >= map.width - 1} onPick={() => lineRun(() => moveColumn(editor, 1))}>열을 오른쪽으로 이동</MenuItem>
+            <div className="tbl-sep" />
+            <MenuItem onPick={clearCells}>셀 지우기</MenuItem>
+            <MenuItem danger kbd="Ctrl+⌫" onPick={() => chainRun((ch) => ch.deleteColumn())}>열 삭제</MenuItem>
+          </div>)}
+      </>}
 
       {showBar && (
         <div className="tbl-bar" role="toolbar" aria-label="표 도구 모음" style={{ left: barLeft, top: barTop }}

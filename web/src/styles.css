@@ -980,3 +980,19 @@ span.cf-macro-slot { display: inline; margin: 0; }
   background: var(--panel); color: var(--muted); font-size: 11px; cursor: pointer; padding: 0; box-shadow: 0 1px 3px rgba(9,30,66,.15); }
 .tbl-cellbtn:hover, .tbl-cellbtn.on { color: var(--accent); border-color: var(--accent); }
 .tbl-cellmenu { left: 0; }
+
+/* ---------- 표 행·열 핸들, 삽입 점 (GIRA-32) ---------- */
+.tbl-rowh, .tbl-colh { position: fixed; z-index: 38; padding: 0; border: 1px solid var(--border); background: var(--bg-subtle); border-radius: 3px; cursor: pointer; }
+.tbl-rowh { width: 10px; }
+.tbl-colh { height: 10px; }
+.tbl-rowh:hover, .tbl-colh:hover, .tbl-rowh.on, .tbl-colh.on { background: var(--accent); border-color: var(--accent); }
+.tbl-ins { position: fixed; z-index: 39; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: transparent;
+  color: transparent; font-size: 13px; font-weight: 700; line-height: 16px; cursor: pointer; }
+.tbl-ins::before { content: ''; position: absolute; left: 6px; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: var(--border); }
+.tbl-ins:hover { background: var(--accent); color: #fff; }
+.tbl-ins:hover::before { display: none; }
+/* 마우스를 올리면 그 경계를 따라 파란 안내선 */
+.tbl-ins:hover::after { content: ''; position: absolute; background: var(--accent); pointer-events: none; }
+.tbl-ins-col:hover::after { left: 7px; top: 16px; width: 2px; height: var(--len); }
+.tbl-ins-row:hover::after { top: 7px; left: 16px; height: 2px; width: var(--len); }
+.tbl-linemenu { position: fixed; }

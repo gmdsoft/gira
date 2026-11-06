@@ -881,14 +881,36 @@ export const BlockHandle = Extension.create({
 
 // 표 행 높이(세로) 조절: 행의 아래 경계에 마우스를 대면 가로 핸들이 뜨고, 드래그로 rowHeight를 바꾼다.
 // prosemirror-tables에 행 리사이즈는 없어 직접 구현한다 (열은 columnResizing이 담당).
-// 표 단축키 (Confluence): Ctrl+Alt+→ 오른쪽에 열, Ctrl+Alt+↓ 아래에 행, Shift+F10 셀 옵션 메뉴(table-ui.jsx가 받음)
+// 표 단축키 (Confluence): Ctrl+Alt+화살표 행·열 추가, Ctrl+Alt+Shift+[ ] - = 행·열 이동, Ctrl+⌫ 선택한 행·열 삭제,
+// Shift+F10 셀 옵션 메뉴 (메뉴·이동은 table-ui.jsx가 이벤트로 받음)
 export const TableShortcuts = Extension.create({
   name: 'tableShortcuts',
   addKeyboardShortcuts() {
     const inTable = () => this.editor.isActive('table');
+    // 행·열 이동·삽입(열 폭 유지)은 table-ui.jsx가 처리한다 — 여기서는 신호만
+    const cmd = (name) => {
+      if (!inTable()) return false;
+      window.dispatchEvent(new CustomEvent('gonf-table-cmd', { detail: name }));
+      return true;
+    };
     return {
-      'Mod-Alt-ArrowRight': () => inTable() && this.editor.commands.addColumnAfter(),
+      'Mod-Alt-ArrowRight': () => cmd('colAfter'),
+      'Mod-Alt-ArrowLeft': () => cmd('colBefore'),
       'Mod-Alt-ArrowDown': () => inTable() && this.editor.commands.addRowAfter(),
+      'Mod-Alt-ArrowUp': () => inTable() && this.editor.commands.addRowBefore(),
+      // 행·열 이동 (Confluence: Ctrl+Alt+Shift+[ ] 행, - = 열)
+      'Mod-Alt-Shift-[': () => cmd('rowUp'),
+      'Mod-Alt-Shift-]': () => cmd('rowDown'),
+      'Mod-Alt-Shift--': () => cmd('colLeft'),
+      'Mod-Alt-Shift-=': () => cmd('colRight'),
+      // 행/열 전체를 고른 상태에서 Ctrl+Backspace = 그 행/열 삭제
+      'Mod-Backspace': () => {
+        const sel = this.editor.state.selection;
+        if (!inTable() || !sel.isRowSelection) return false;
+        if (sel.isRowSelection()) return this.editor.commands.deleteRow();
+        if (sel.isColSelection()) return this.editor.commands.deleteColumn();
+        return false;
+      },
       'Shift-F10': () => {
         if (!inTable()) return false;
         window.dispatchEvent(new CustomEvent('gonf-cell-menu'));
