@@ -1,3 +1,4 @@
+import { selectAttachments } from '../../shared/macro-attachments.mjs';
 import { templateId } from '../../shared/templates.mjs';
 import { chartQuery, renderChart } from './jira-chart.js';
 import { hydrateMermaid } from './mermaid-view.js';
@@ -79,7 +80,99 @@ function fileCard(info, { open = false } = {}) {
   return a;
 }
 
+function tableWidget(headers, rows) {
+  const table = document.createElement('table');
+  const head = table.createTHead().insertRow();
+  for (const title of headers) { const th = document.createElement('th'); th.textContent = title; head.append(th); }
+  const body = table.createTBody();
+  for (const row of rows) {
+    const tr = body.insertRow();
+    for (const value of row) { const td = tr.insertCell(); if (value instanceof Node) td.append(value); else td.textContent = value ?? ''; }
+  }
+  return table;
+}
+function emptyWidget(text) { const div = document.createElement('div'); div.className = 'muted'; div.textContent = text; return div; }
+async function report(kind, params, ctx) {
+  return api(`/api/macro-report/${kind}?space=${encodeURIComponent(ctx.page.spaceKey)}&params=${encodeURIComponent(JSON.stringify(params))}`);
+}
+function fieldWidget(content, ctx) {
+  const div = document.createElement('div'); div.className = 'doc';
+  div.innerHTML = generateHTML(hydrateDoc({ type: 'doc', content: structuredClone(content ?? []) }, ctx.page.id), extensions);
+  hydrateMacros(div, ctx);
+  return div;
+}
 const HANDLERS = {
+  async 'content-report-table'(el, params, ctx) {
+    const rows = await report('content', params, ctx);
+    swap(el, rows.length ? tableWidget(['제목', '작성자', '수정됨'], rows.map(r => [navLink(ctx, r.space_key, r.id, r.title), r.author_name, fmtDate(r.updated_at)])) : emptyWidget(params.blankDescription || '문서 없음'));
+  },
+  async 'tasks-report-macro'(el, params, ctx) {
+    const rows = await report('tasks', params, ctx);
+    swap(el, rows.length ? tableWidget(['작업', '문서', '담당', '기한'], rows.map(r => [r.text, navLink(ctx, r.space_key, r.id, r.title), r.assignees.join(', '), r.due])) : emptyWidget('완료되지 않은 작업을 찾을 수 없음'));
+  },
+  async decisionreport(el, params, ctx) {
+    const rows = await report('decisions', params, ctx);
+    swap(el, rows.length ? tableWidget(['결정', '문서'], rows.map(r => [r.text, navLink(ctx, r.space_key, r.id, r.title)])) : emptyWidget('결정 항목 없음'));
+  },
+  async detailssummary(el, params, ctx) {
+    const data = await report('details', params, ctx);
+    swap(el, tableWidget([params.firstcolumn || '제목', ...data.headings], data.rows.map(r => [navLink(ctx, r.space_key, r.id, r.title), ...data.headings.map(h => fieldWidget(r.fields[h], { ...ctx, page: { ...ctx.page, id: r.id, spaceKey: r.space_key } }))])));
+  },
+  async 'change-history'(el, params, ctx) {
+    const rows = await api(`/api/content/${ctx.page.id}/versions`);
+    swap(el, tableWidget(['버전', '작성자', '날짜', '변경 내용'], rows.slice(0, Math.max(1, Number(params.limit) || 3)).map(r => [String(r.version), r.author_name, fmtDate(r.created_at), r.message])));
+  },
+  async 'profile-picture'(el, params) {
+    const user = params.User ?? params.user ?? {};
+    const id = user['ri:account-id'] ?? user['ri:userkey'];
+    if (!id) { swap(el, emptyWidget('사용자 없음')); return; }
+    const u = await api(`/api/users/${encodeURIComponent(id)}`);
+    const size = params.Size === 'extra large' ? 96 : 40;
+    const avatar = document.createElement(u.avatar_url ? 'img' : 'span');
+    avatar.title = u.display_name;
+    avatar.style.cssText = `display:inline-flex;border-radius:50%;width:${size}px;height:${size}px;align-items:center;justify-content:center;background:#e9f2ff;object-fit:cover`;
+    if (u.avatar_url) { avatar.src = u.avatar_url; avatar.alt = u.display_name; } else avatar.textContent = (u.display_name || '?').slice(0, 1);
+    swap(el, avatar);
+  },
+  async 'popular-labels'(el, params, ctx) { await renderLabels(el, params, ctx, true); },
+  async listlabels(el, params, ctx) { await renderLabels(el, params, ctx, false); },
+  async 'blog-posts'(el, params, ctx) {
+    const rows = await report('blog', params, ctx);
+    swap(el, rows.length ? listWidget('macro-blog', rows.map(r => navLink(ctx, r.space_key, r.id, r.title))) : emptyWidget('블로그 글 없음'));
+  },
+  attachments(el, params, ctx) {
+    let rows;
+    try { rows = selectAttachments(ctx.page.attachments ?? [], params); }
+    catch { swap(el, emptyWidget('첨부 패턴이 올바르지 않습니다')); return; }
+    swap(el, rows.length ? tableWidget(['파일', '크기'], rows.map(r => [fileCard({ filename: r.filename, meta: r, url: `/api/att/${ctx.page.id}/${encodeURIComponent(r.filename)}` }), fmtSize(r.file_size)])) : emptyWidget('첨부 파일 없음'));
+  },
+  'toc-zone'(el, params, ctx) {
+    const body = el.querySelector(':scope > div[style]');
+    if (!body) return;
+    body.style.display = '';
+    const heads = [...body.querySelectorAll('h1,h2,h3,h4,h5,h6')].filter(h => Number(h.tagName[1]) >= (Number(params.minLevel) || 1) && Number(h.tagName[1]) <= (Number(params.maxLevel) || 6));
+    const nav = createToc(heads.map((h, i) => {
+      if (!h.id) h.id = `zone-${ctx.page.id}-${Math.random().toString(36).slice(2)}-${i}`;
+      return { level: Number(h.tagName[1]), text: h.textContent, href: `#${h.id}`, scroll: () => h.scrollIntoView({ behavior: 'smooth' }) };
+    }));
+    swap(el, nav);
+    if (params.location === 'bottom') el.append(nav);
+    else if (params.location === 'both') el.append(nav.cloneNode(true));
+  },
+  async 'native-embed:page'(el, params, ctx) {
+    const url = typeof params.url === 'object' ? params.url['ri:value'] : params.url;
+    const id = /\/pages\/(\d+)/.exec(url ?? '')?.[1] ?? /[?&]pageId=(\d+)/.exec(url ?? '')?.[1];
+    if (!id) { swap(el, emptyWidget('대상 문서를 찾을 수 없습니다')); return; }
+    await includePage(el, { ...params, targetId: id }, ctx, false);
+  },
+  async 'recently-updated-dashboard'(el, params, ctx) {
+    const rows = await report('recent', { ...params, max: params.max || 10 }, ctx);
+    swap(el, listWidget('macro-recent', rows.map(r => [navLink(ctx, r.space_key, r.id, r.title), ` — ${r.author_name ?? ''} ${fmtDate(r.updated_at)}`])));
+  },
+  async index(el, params, ctx) {
+    const rows = await report('index', params, ctx);
+    swap(el, listWidget('macro-index', rows.map(r => navLink(ctx, r.space_key, r.id, r.title))));
+  },
   async 'create-from-template'(el, params, ctx) {
     const button = document.createElement('button');
     button.className = 'btn btn-sm';
@@ -336,9 +429,11 @@ function highlightOnly(html) {
 async function includePage(el, params, ctx, excerptOnly) {
   const ref = params[''] ?? params.page ?? {};
   const title = ref['ri:content-title'];
-  if (!title) return;
+  if (!title && !params.targetId) return;
   const spaceKey = ref['ri:space-key'] ?? ctx.page.spaceKey;
-  const { id, spaceKey: realKey } = await api(`/api/resolve?title=${encodeURIComponent(title)}&spaceKey=${encodeURIComponent(spaceKey)}`);
+  const { id, spaceKey: realKey } = params.targetId ? { id: params.targetId, spaceKey } : await api(`/api/resolve?title=${encodeURIComponent(title)}&spaceKey=${encodeURIComponent(spaceKey)}`);
+  const ancestors = ctx.includeAncestors ?? [String(ctx.page.id)];
+  if (ancestors.includes(String(id)) || ancestors.length >= 8) { swap(el, emptyWidget('순환 문서 포함')); return; }
   const target = await api(`/api/content/${id}`);
   let doc = target.version?.doc;
   if (!doc) return;
@@ -352,7 +447,7 @@ async function includePage(el, params, ctx, excerptOnly) {
   if (!excerptOnly || params.nopanel !== 'true') {
     const head = document.createElement('div');
     head.className = 'macro-include-head';
-    head.append('📄 ', navLink(ctx, realKey, id, target.title));
+    head.append('📄 ', navLink(ctx, target.spaceKey ?? realKey, id, target.title));
     box.append(head);
   }
   const body = document.createElement('div');
@@ -361,11 +456,32 @@ async function includePage(el, params, ctx, excerptOnly) {
   box.append(body);
   swap(el, box);
   // 포함된 본문 속 매크로도 대상 페이지 컨텍스트로 채운다
-  hydrateMacros(body, { ...ctx, page: target });
+  hydrateMacros(body, { ...ctx, page: target, includeAncestors: [...ancestors, String(id)] });
 }
 
 function findNode(node, pred) {
   if (pred(node)) return node;
   for (const c of node.content ?? []) { const r = findNode(c, pred); if (r) return r; }
   return null;
+}
+
+async function renderLabels(el, params, ctx, popular) {
+  let rows = await report('labels', params, ctx);
+  rows.sort((a, b) => popular ? b.count - a.count || a.name.localeCompare(b.name, 'ko') : a.name.localeCompare(b.name, 'ko'));
+  if (popular) rows = rows.slice(0, Math.max(1, Number(params.count) || 10));
+  const box = document.createElement('div');
+  const input = document.createElement('select');
+  input.setAttribute('aria-label', '레이블');
+  input.append(new Option('레이블 선택', ''));
+  for (const r of rows) input.append(new Option(`${r.name} (${r.count})`, r.name));
+  const results = document.createElement('div');
+  input.onchange = async () => {
+    const pages = input.value ? await report('content', { ...params, labels: input.value }, ctx) : [];
+    results.replaceChildren(listWidget('macro-labelled', pages.map(r => navLink(ctx, r.space_key, r.id, r.title))));
+  };
+  box.append(listWidget('macro-labels', rows.map(r => {
+    const button = document.createElement('button'); button.className = 'btn btn-sm'; button.textContent = `${r.name} (${r.count})`;
+    button.onclick = () => { input.value = r.name; input.onchange(); }; return button;
+  })), input, results);
+  swap(el, box);
 }

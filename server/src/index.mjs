@@ -1,3 +1,5 @@
+import { reportScope, reportNodes, mergeDetails, labelCounts, walk } from './macro-reports.mjs';
+import { resolveAvatar } from './avatar.mjs';
 // API 서버 (PoC).
 // - /api/* : 스페이스, 콘텐츠 트리, 본문(ProseMirror JSON), 댓글, 첨부 프록시
 // - /wiki/* : 기존 Confluence URL 호환 리다이렉트 (docs/architecture.md)
@@ -822,12 +824,52 @@ app.post('/api/content/:id/labels', async (req, reply) => {
 
 // ---------- 매크로 렌더링용 조회 ----------
 
+// 현재 본문만 조회하며 권한 필터 뒤에 추출·집계한다.
+app.get('/api/macro-report/:kind', async (req, reply) => {
+  const { kind } = req.params;
+  if (!['content', 'details', 'tasks', 'decisions', 'labels', 'blog', 'index', 'recent'].includes(kind)) return reply.code(400).send({ error: 'unknown report' });
+  let params, scope;
+  try { params = JSON.parse(req.query.params || '{}'); scope = reportScope(params, req.query.space); }
+  catch (e) { return reply.code(400).send({ error: e.message }); }
+  const { rows } = await query(
+    `SELECT c.id, c.title, c.type, c.updated_at, s.key AS space_key,
+            u.display_name AS author_name, CASE WHEN $3::boolean THEN v.doc ELSE NULL END AS doc,
+            ARRAY(SELECT l.name FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = c.id) AS labels
+       FROM content c JOIN spaces s ON s.id = c.space_id
+       LEFT JOIN content_versions v ON v.content_id = c.id AND v.version = c.current_version
+       LEFT JOIN users u ON u.id = c.author_id
+      WHERE c.status = 'current' AND ($1::text[] = '{}' OR s.key = ANY($1::text[]))
+        AND ($2::text[] = '{}' OR EXISTS (SELECT 1 FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = c.id AND l.name = ANY($2::text[])))
+      ORDER BY c.updated_at DESC NULLS LAST`, [scope.spaces, scope.labels, ['details', 'tasks', 'decisions'].includes(kind)]);
+  const allowed = await filterViewable(req.access, rows.map(r => r.id));
+  let visible = rows.filter(r => allowed.has(String(r.id)));
+  if (kind === 'labels') return labelCounts(visible, params.excludedLabels);
+  if (kind === 'blog') visible = visible.filter(r => r.type === 'blogpost');
+  else visible = visible.filter(r => ['page', 'live'].includes(r.type));
+  if (kind === 'index') visible.sort((a, b) => a.title.localeCompare(b.title, 'ko'));
+  if (['details', 'tasks', 'decisions'].includes(kind)) {
+    const mentions = [];
+    for (const row of visible) walk(row.doc, n => { if (n.type === 'mention' && n.attrs?.accountId && !n.attrs.text) mentions.push(n); });
+    if (mentions.length) {
+      const { rows: users } = await query('SELECT confluence_account_id, display_name FROM users WHERE confluence_account_id = ANY($1::text[])', [[...new Set(mentions.map(n => n.attrs.accountId))]]);
+      const names = new Map(users.map(u => [u.confluence_account_id, u.display_name]));
+      for (const mention of mentions) mention.attrs.text = names.get(mention.attrs.accountId) || '알 수 없는 사용자';
+    }
+  }
+  if (kind === 'details') {
+    const merged = mergeDetails(visible, params.headings);
+    return { headings: merged.headings, rows: merged.records.map(r => ({ ...visible.find(p => p.id === r.id), doc: undefined, fields: r.fields })) };
+  }
+  if (kind === 'tasks' || kind === 'decisions') return visible.flatMap(r => reportNodes(r.doc, kind).map(item => ({ ...r, doc: undefined, ...item }))).slice(0, Math.min(500, Math.max(1, Number(params.pageSize) || 100)));
+  return visible.slice(0, kind === 'index' ? 500 : Math.min(500, Math.max(1, Number(params.max) || 100))).map(({ doc, ...r }) => r);
+});
+
 // profile 매크로: accountId → 사용자 표시 이름
 app.get('/api/users/:accountId', async (req, reply) => {
   const { rows } = await query(
-    `SELECT display_name, email FROM users WHERE confluence_account_id = $1`, [req.params.accountId]);
+    `SELECT id, display_name, email, avatar_key, avatar_external_url FROM users WHERE confluence_account_id = $1`, [req.params.accountId]);
   if (!rows.length) return reply.code(404).send({ error: 'user not found' });
-  return rows[0];
+  return { display_name: rows[0].display_name, email: rows[0].email, avatar_url: resolveAvatar(rows[0]) };
 });
 
 // recently-updated 매크로: 스페이스 최근 변경 페이지
