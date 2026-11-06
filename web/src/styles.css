@@ -253,7 +253,10 @@ details.expand[open] { border: 1px solid var(--border); border-radius: 8px; padd
 .page-title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .page-title-row h1 { flex: 1; min-width: 0; }
 
-.editor { min-height: 100vh; display: flex; flex-direction: column; }
+.editor { min-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+/* 편집 머리(제목·버튼 줄 + 툴바)는 상단 바 아래에 붙어 있게 */
+.editor-head { position: sticky; top: 48px; z-index: 6; background: var(--panel); }
+.editor-head .toolbar { position: static; }
 .editor-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--panel); }
 .editor-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .editor-actions { display: flex; align-items: center; gap: 8px; flex: none; }

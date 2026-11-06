@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { internalLink } from './internal-links.js';
 import { editExtensions } from './extensions.js';
@@ -215,6 +215,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
       const r = await send(`/api/content/${page.id}/publish`, 'POST', {
         doc: editor.getJSON(), title: titleRef.current, baseVersion: baseVersion.current,
       });
+      dirty.current = false;
       reloadSpace?.(); // 제목이 바뀌었을 수 있으니 트리 갱신
       navigate(`/s/${page.spaceKey}/p/${page.id}`);
     } catch (e) {
@@ -230,6 +231,13 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
 
   publishRef.current = publish;
 
+  // 사이드바 등으로 편집 화면을 떠날 때: 아직 저장 안 한 변경은 초안으로 저장 (편집기가 없어지기 전에 — layout 정리 단계)
+  useLayoutEffect(() => () => {
+    clearTimeout(timer.current);
+    const ed = editorRef.current;
+    if (dirty.current && ed && !ed.isDestroyed) saveDraft(ed);
+  }, [saveDraft]);
+
   const close = async () => {
     clearTimeout(timer.current);
     if (editor && dirty.current) await saveDraft(editor);
@@ -240,6 +248,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
     const neverPublished = !page.version;
     if (!confirm(neverPublished ? '이 문서를 게시하지 않고 버릴까요? (휴지통으로 이동)' : '초안을 버리고 게시된 버전으로 돌아갈까요?')) return;
     clearTimeout(timer.current);
+    dirty.current = false;
     await send(`/api/content/${page.id}/draft`, 'DELETE');
     if (neverPublished) {
       await send(`/api/content/${page.id}/status`, 'POST', { status: 'trashed' });
@@ -251,6 +260,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
 
   return (
     <div className="editor">
+      <div className="editor-head">
       <div className="editor-top">
         <div className="editor-title">
           <strong>{title.trim() || '제목 없는 문서'}</strong>
@@ -270,6 +280,11 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         </div>
       </div>
       <EditingWarning editors={editors} />
+      {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
+      {editor && mode === 'notion' && (
+        <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>
+      )}
+      </div>
       {linkChoice && <div className="link-choice" role="dialog" aria-label="붙여넣은 링크"
         style={{ left: Math.max(8, Math.min(linkChoice.x, window.innerWidth - 320)), top: linkChoice.y + 6 }}
         onKeyDown={(e) => { if (e.key === 'Escape') { setLinkChoice(null); editor?.commands.focus(); } }}>
@@ -298,10 +313,6 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         {linkError && <span role="alert" className="link-choice-err">{linkError}</span>}
       </div>}
 
-      {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
-      {editor && mode === 'notion' && (
-        <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>
-      )}
       {editor && bubble && mode === 'notion' && (
         <div className="bubble-menu bubble-floating"
           style={{ left: bubble.x, top: Math.max(8, bubble.y - 44) }}
