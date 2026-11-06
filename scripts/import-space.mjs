@@ -2,7 +2,8 @@
 // Confluence Cloud → 새 서비스 DB 임포터 (PoC: 스페이스 단위, 최신 버전만).
 // 읽기 전용 GET 요청만 사용한다. 전체 버전 이력 이관은 파이프라인 단계에서 확장한다.
 //
-// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>]
+// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>] [--pages <id,id,...>]
+//   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
@@ -15,10 +16,11 @@ const { values: args } = parseArgs({
     space: { type: 'string' },
     wipe: { type: 'boolean', default: false },
     since: { type: 'string' }, // 증분 동기화 (ISO 시각): 이후 수정·신규 페이지만 본문까지 받는다
+    pages: { type: 'string' }, // 지정 페이지만 (쉼표 구분 id)
   },
 });
 if (!args.space) {
-  console.error('사용법: node scripts/import-space.mjs --space <KEY> [--wipe] [--since <ISO 시각>]');
+  console.error('사용법: node scripts/import-space.mjs --space <KEY> [--wipe] [--since <ISO 시각>] [--pages <id,...>]');
   process.exit(1);
 }
 
@@ -80,7 +82,14 @@ if (!space) { console.error('스페이스를 찾을 수 없습니다.'); process
 console.log(`  ${space.id} ${space.key} "${space.name}" (${space.type})`);
 
 let pages;
-if (!args.since) {
+if (args.pages) {
+  if (args.wipe) { console.error('--pages와 --wipe는 같이 쓸 수 없습니다.'); process.exit(1); }
+  const ids = args.pages.split(',').map((x) => x.trim()).filter(Boolean);
+  console.log(`지정 페이지 ${ids.length}건 수집 (본문 포함)...`);
+  pages = (await mapLimit(ids, 6, (id) => get(`/wiki/api/v2/pages/${id}?body-format=storage`)))
+    .filter((p) => { const ok = String(p.spaceId) === String(space.id); if (!ok) console.log(`  ⚠ ${p.id} "${p.title}"는 ${args.space} 스페이스가 아니라 건너뜀`); return ok; });
+  console.log(`  페이지 ${pages.length}건`);
+} else if (!args.since) {
   console.log('페이지 수집 (본문 포함)...');
   pages = await getAll(`/wiki/api/v2/spaces/${space.id}/pages?body-format=storage&limit=100`);
   console.log(`  페이지 ${pages.length}건`);
@@ -280,7 +289,7 @@ for (const p of pages) {
 }
 if (await linkable(space.homepageId)) {
   await query(`UPDATE spaces SET homepage_id = $2 WHERE id = $1`, [space.id, space.homepageId]);
-} else if (!args.since) {
+} else if (!args.since && !args.pages) {
   await query(`UPDATE spaces SET homepage_id = NULL WHERE id = $1`, [space.id]);
 }
 
