@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS teams (
 -- 개발용 로그인 허용(Entra 전): 팀/파트 단위 허용 — 소속원(팀 허용 시 하위 파트 포함)이 로그인 가능
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS dev_login boolean NOT NULL DEFAULT false;
 
+-- 프로필 이미지 (GIRA-20): 직접 등록한 이미지는 관리 서비스만 쓰고(조직 테이블 원칙)
+-- ORG_MIRROR_DATABASE_URL 로 각 앱 DB에 복제된다. users.avatar_key 가 버전 키(캐시 무효화)다.
+CREATE TABLE IF NOT EXISTS user_avatars (
+  user_id bigint PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  mime text NOT NULL,
+  bytes bytea NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+-- Entra 연동(알파 5단계) 시 MS 계정 사진 주소를 여기에 동기화한다 — 직접 등록 이미지가 없을 때 대체 표시.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_external_url text;
+
 -- 사용자 조직 속성: 주 소속(team_id: 파트 또는 팀 직속), 직책(duty: 권한 판정), 직급(rank: 표시용)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS team_id bigint REFERENCES teams(id);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS duty text NOT NULL DEFAULT 'member';
@@ -152,3 +163,15 @@ CREATE TABLE IF NOT EXISTS notifications (
   read_at timestamptz
 );
 CREATE INDEX IF NOT EXISTS notifications_user ON notifications(user_id, created_at DESC);
+
+-- AI 도움말·AI 검색 (GIRA-15·17) 사용량: 기능별 호출과 토큰 — 비용 확인과 사용자별 하루 상한에 쓴다
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id bigserial PRIMARY KEY,
+  user_id bigint REFERENCES users(id) ON DELETE SET NULL,
+  feature text NOT NULL,           -- 'help' | 'jql'
+  model text,
+  input_tokens int, output_tokens int, cache_read_tokens int, cache_write_tokens int,
+  ok boolean NOT NULL DEFAULT true,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_usage_user_day ON ai_usage(user_id, feature, created_at);

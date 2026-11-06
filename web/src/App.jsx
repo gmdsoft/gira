@@ -1,7 +1,7 @@
 import { useMobile, isMobile } from './mobile.js';
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from './api.js';
-import GonfShell, { spaceColor } from './GonfShell.jsx';
+import GonfShell, { spaceColor, SpaceAvatar } from './GonfShell.jsx';
 import PageView from './PageView.jsx';
 import MoveDialog from './MoveDialog.jsx';
 import Editor from './Editor.jsx';
@@ -81,6 +81,10 @@ export default function App() {
   const logout = useCallback(async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     setMe(null);
+  }, []);
+
+  const refreshMe = useCallback(async () => {
+    setMe(await api('/api/auth/me'));
   }, []);
 
   const navigate = useCallback((path) => {
@@ -183,7 +187,7 @@ export default function App() {
   // 공통 틀(상단 바 + 사이드바) — 편집기·버전 기록·관리 화면은 전체 화면으로 둔다
   const shell = (children, extra = {}) => (
     <GonfShell me={me} route={route} space={space} navigate={navigate} reloadSpace={reloadSpace} logout={logout}
-      theme={theme} setTheme={setTheme} onContentClick={onContentClick} {...extra}>{children}</GonfShell>
+      theme={theme} setTheme={setTheme} onContentClick={onContentClick} onMeChanged={refreshMe} {...extra}>{children}</GonfShell>
   );
 
   if (route.view === 'home') return shell(<Home navigate={navigate} me={me} />);
@@ -346,7 +350,7 @@ function Home({ navigate, me }) {
               {spaces.map((s) => (
                 <li key={s.id}>
                   <a href={`/s/${s.key}`} onClick={go(`/s/${s.key}`)} title={s.description || undefined}>
-                    <span className="space-ic" style={{ background: spaceColor(s.key) }}>{s.name.trim()[0]}</span>
+                    <SpaceAvatar space={s} className="space-ic" />
                     <span className="space-nm"><strong>{s.name}</strong><span className="muted">{s.key} · {s.type}</span></span>
                   </a>
                 </li>))}

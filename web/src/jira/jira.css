@@ -246,7 +246,13 @@ a.sitem:hover { text-decoration: none; }
 .badge.cat-done { border-color: var(--done-b); }
 .ticon, .picon { vertical-align: -2px; flex: none; }
 .type-cell { display: inline-flex; align-items: center; gap: 6px; }
-.av { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700; vertical-align: middle; flex: none; }
+.av { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; color: #fff; font-size: 10px; font-weight: 700; vertical-align: middle; flex: none; overflow: hidden; }
+.av img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.profile-row { display: flex; align-items: center; gap: 16px; }
+.profile-avatar { width: 64px; height: 64px; font-size: 24px; }
+.profile-name { font-weight: 600; font-size: 15px; margin-bottom: 2px; }
+.profile-actions { display: flex; gap: 8px; margin-top: 10px; }
+.profile-pane { display: flex; flex-direction: column; gap: 14px; }
 .chip { display: inline-block; border: 1px solid var(--line); border-radius: 3px; padding: 0 5px; font-size: 11px; color: var(--dim); background: var(--panel2); white-space: nowrap; margin-right: 2px; }
 .epicbar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; border-radius: 4px 0 0 4px; }
 .tstatus { height: 24px; border: 1px solid transparent; border-radius: 4px; padding: 0 20px 0 4px; font-size: 13.3333px; font-weight: 400; line-height: 18px; cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 5px center; }
@@ -933,3 +939,14 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .composer-hint { font-size: 12px; margin-right: auto; margin-left: -4px; }
 .composer-keep { font-size: 12px; margin-top: 4px; }
 .comment-body .adf-img { max-height: 480px; object-fit: contain; border: 1px solid var(--line-soft); border-radius: 4px; }
+
+/* 전체 목록은 마운트한 채 상세만 덮어 필터·표 스크롤을 유지한다. */
+.issue-overlay { padding: 4vh 24px; }
+.issue-modal { width: min(1180px, 94vw); height: 92vh; display: flex; flex-direction: column; overflow: hidden; background: var(--panel); border-radius: var(--radius-lg); box-shadow: var(--shadow-pop); }
+.issue-modal-head { display: flex; align-items: center; gap: 20px; padding: 12px 20px; border-bottom: 1px solid var(--line); }
+.issue-modal-head > a { margin-left: auto; }
+.issue-modal-body { overscroll-behavior: contain; }
+/* 팝업 폭에 내용을 맞춘다 (전체 화면 상세의 최대 폭 제한은 팝업에서는 쓰지 않음) */
+.issue-modal .issue-view { max-width: none; }
+.issues a.cell-sum { color: inherit; text-decoration: none; }
+.issues a.cell-sum:hover { text-decoration: underline; }

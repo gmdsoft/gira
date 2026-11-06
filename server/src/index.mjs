@@ -7,7 +7,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import * as searchSvc from './search.mjs';
 import { createReadStream } from 'node:fs';
-import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { query, getDb, DATA_DIR, closeDb } from './db.mjs';
@@ -16,12 +16,14 @@ import { randomBytes } from 'node:crypto';
 import { registerAuth, hashToken } from './auth.mjs';
 import { spaceRole, contentAccess, filterViewable, visibleTreeSet } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
+import { registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportSpace, importSpace } from './gonf-package.mjs';
 import { bodyDoc } from './markdown-doc.mjs';
 import { registerGiraCards } from './gira-cards.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
+import { registerAiAssist } from './ai-assist.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -63,6 +65,7 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
 registerSourceSync(app, { appName: 'gonfluence' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'conf' }); // 팀장 셀프 이관 (원본 Confluence → 이 인스턴스)
 
@@ -100,7 +103,7 @@ async function reindex(contentId) {
 
 app.get('/api/spaces', async (req) => {
   const { rows } = await query(
-    `SELECT id, key, name, type, status, homepage_id, description FROM spaces ORDER BY name`);
+    `SELECT id, key, name, type, status, homepage_id, description, icon_key FROM spaces ORDER BY name`);
   const out = [];
   for (const s of rows) {
     const role = await spaceRole(req.access, s.id);
@@ -215,7 +218,7 @@ app.get('/api/home/recent', async (req) => {
 });
 
 app.get('/api/spaces/:key', async (req, reply) => {
-  const { rows } = await query(`SELECT id, key, name, type, status, homepage_id, description FROM spaces WHERE key = $1`, [req.params.key]);
+  const { rows } = await query(`SELECT id, key, name, type, status, homepage_id, description, icon_key FROM spaces WHERE key = $1`, [req.params.key]);
   if (!rows.length) return reply.code(404).send({ error: 'space not found' });
   const space = rows[0];
   const role = await spaceRole(req.access, space.id);
@@ -226,6 +229,90 @@ app.get('/api/spaces/:key', async (req, reply) => {
       ORDER BY position NULLS LAST, created_at NULLS LAST, title`, [space.id]);
   const visible = await visibleTreeSet(req.access, space.id, role, tree);
   return { ...space, role, tree: visible ? tree.filter((n) => visible.has(String(n.id))) : tree };
+});
+
+// 스페이스 대표 이미지: 생성·설정 화면에서 올리는 정사각형 아이콘. 파일은 DATA_DIR/space-icons 에 두고
+// spaces.icon_key 에 파일명을 기록한다. 올리지 않으면(icon_key null) 화면은 기존 색상 상자 + 첫 글자를 쓴다.
+const SPACE_ICON_MAX = 1024 * 1024;
+const SPACE_ICON_DIR = path.join(DATA_DIR, 'space-icons');
+const SPACE_ICON_MEDIA = { png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp' };
+
+// 파일 내용으로 형식을 판별한다 — 확장자·Content-Type만 믿지 않는다.
+function detectSpaceIcon(buf) {
+  if (buf.length >= 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+      && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return 'png';
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'jpg';
+  if (buf.length >= 12 && buf.subarray(0, 4).toString('latin1') === 'RIFF'
+      && buf.subarray(8, 12).toString('latin1') === 'WEBP') return 'webp';
+  return null;
+}
+
+async function spaceForIcon(req, reply, need = 'view') {
+  const { rows } = await query(`SELECT id, icon_key FROM spaces WHERE key = $1`, [req.params.key]);
+  if (!rows.length) { reply.code(404).send({ error: 'space not found' }); return null; }
+  const role = await spaceRole(req.access, rows[0].id);
+  if (!role) { reply.code(403).send({ error: '이 스페이스를 볼 수 있는 권한이 없습니다' }); return null; }
+  if (need === 'admin' && role !== 'admin') {
+    reply.code(403).send({ error: '스페이스 이미지는 스페이스 관리자만 바꿀 수 있습니다' });
+    return null;
+  }
+  return { ...rows[0], role };
+}
+
+app.get('/api/spaces/:key/icon', async (req, reply) => {
+  const space = await spaceForIcon(req, reply);
+  if (!space) return;
+  const fileName = path.basename(space.icon_key ?? '');
+  const media = SPACE_ICON_MEDIA[path.extname(fileName).slice(1).toLowerCase()];
+  if (!space.icon_key || fileName !== space.icon_key || !media) return reply.code(404).send({ error: 'no icon' });
+  const filePath = path.join(SPACE_ICON_DIR, fileName);
+  if (!await stat(filePath).catch(() => null)) return reply.code(404).send({ error: 'no icon' });
+  reply.header('cache-control', 'private, max-age=86400');
+  reply.type(media);
+  return reply.send(createReadStream(filePath));
+});
+
+app.post('/api/spaces/:key/icon', async (req, reply) => {
+  const space = await spaceForIcon(req, reply, 'admin');
+  if (!space) return;
+  if (!req.isMultipart()) return reply.code(400).send({ error: 'multipart/form-data 로 이미지를 올려 주세요' });
+  let file;
+  try {
+    file = await req.file({ limits: { fileSize: SPACE_ICON_MAX } });
+  } catch {
+    return reply.code(413).send({ error: '이미지는 1MB 이하만 올릴 수 있습니다' });
+  }
+  if (!file) return reply.code(400).send({ error: 'file required' });
+  let buf;
+  try {
+    buf = await file.toBuffer();
+  } catch {
+    return reply.code(413).send({ error: '이미지는 1MB 이하만 올릴 수 있습니다' });
+  }
+  if (buf.length > SPACE_ICON_MAX) return reply.code(413).send({ error: '이미지는 1MB 이하만 올릴 수 있습니다' });
+  const ext = detectSpaceIcon(buf);
+  if (!ext) return reply.code(415).send({ error: 'PNG·JPG·WebP 이미지만 올릴 수 있습니다' });
+
+  const fileName = `${space.id}-${randomBytes(8).toString('hex')}.${ext}`;
+  await mkdir(SPACE_ICON_DIR, { recursive: true });
+  await writeFile(path.join(SPACE_ICON_DIR, fileName), buf);
+  await query(`UPDATE spaces SET icon_key = $2 WHERE id = $1`, [space.id, fileName]);
+  const old = path.basename(space.icon_key ?? '');
+  if (old && old !== fileName) await unlink(path.join(SPACE_ICON_DIR, old)).catch(() => {});
+  return {
+    ok: true,
+    icon_key: fileName,
+    url: `/api/spaces/${encodeURIComponent(req.params.key)}/icon?v=${encodeURIComponent(fileName)}`,
+  };
+});
+
+app.delete('/api/spaces/:key/icon', async (req, reply) => {
+  const space = await spaceForIcon(req, reply, 'admin');
+  if (!space) return;
+  await query(`UPDATE spaces SET icon_key = NULL WHERE id = $1`, [space.id]);
+  const old = path.basename(space.icon_key ?? '');
+  if (old) await unlink(path.join(SPACE_ICON_DIR, old)).catch(() => {});
+  return { ok: true };
 });
 
 app.get('/api/content/:id', async (req, reply) => {
@@ -1124,6 +1211,9 @@ app.get('/healthz', async () => {
 });
 
 const port = Number(process.env.PORT ?? 3001);
+// AI 도움말 (GIRA-15) — 사용법만, 문서 내용은 보내지 않는다
+registerAiAssist(app, { query, appName: 'Gonfluence', dataDir: DATA_DIR });
+
 // 알림 규칙(스페이스 관리자)·인앱 알림 API, 발송 작업
 notifier.registerRoutes(app, {
   resourceType: 'space',

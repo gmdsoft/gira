@@ -14,6 +14,7 @@ import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
+import { registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
@@ -21,6 +22,7 @@ import { registerDevChat } from './dev-chat.mjs';
 import { registerProjectCreate } from './jira-project-create.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
+import { registerAiAssist } from './ai-assist.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 try { process.loadEnvFile(path.join(here, '..', '..', '.env')); } catch { /* 환경변수 직접 지정 가능 */ }
@@ -65,6 +67,7 @@ await query(`SELECT setval('jira_sprints_id_seq',
 await registerAuth(app); // /api/* 로그인 필수 (auth 라우트 제외)
 registerProjectCreate(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
+registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
 registerSourceSync(app, { appName: 'gira' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
 registerSelfMigrate(app, { kind: 'jira' }); // 팀장 셀프 이관 (원본 Jira → 이 인스턴스)
 
@@ -1004,6 +1007,29 @@ app.get('/healthz', async () => {
 });
 
 const port = Number(process.env.JIRA_VIEWER_PORT ?? 3002);
+// AI 도움말·AI 검색 (GIRA-15·17): 모델에는 필드와 실제 값 목록만 — 이슈 데이터는 보내지 않는다
+registerAiAssist(app, {
+  query, appName: 'Gira', dataDir: DATA_DIR,
+  jql: {
+    resolveProject: (req, reply, key) => requireProject(req, reply, key),
+    check: (text) => jqlErrorOf(text),
+    values: async (projectId) => {
+      const list = async (sql, params = []) => (await query(sql, params)).rows.map((r) => r.v).filter((v) => v != null && v !== '');
+      return {
+        '상태 (이름 — 분류)': (await query(`SELECT name, category FROM jira_statuses ORDER BY id`)).rows.map((r) => `${r.name} — ${r.category}`),
+        '해결 상태(resolution)': await list(`SELECT DISTINCT resolution AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1`, [projectId]),
+        '이슈 유형(type)': await list(`SELECT DISTINCT t.name AS v FROM jira_issues i JOIN jira_issue_types t ON t.id = i.issue_type_id WHERE i.project_id = $1 ORDER BY 1`, [projectId]),
+        '우선순위(priority)': await list(`SELECT DISTINCT priority AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1`, [projectId]),
+        '수정 버전(fixVersion)': await list(`SELECT DISTINCT unnest(fix_versions) AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1 LIMIT 80`, [projectId]),
+        '컴포넌트(component)': await list(`SELECT DISTINCT unnest(components) AS v FROM jira_issues WHERE project_id = $1 ORDER BY 1 LIMIT 60`, [projectId]),
+        '레이블(labels, 많이 쓰는 순)': await list(`SELECT l AS v FROM jira_issues, unnest(labels) l WHERE project_id = $1 GROUP BY l ORDER BY count(*) DESC LIMIT 60`, [projectId]),
+        '스프린트(sprint)': await list(`SELECT name AS v FROM jira_sprints WHERE project_id = $1 ORDER BY position NULLS LAST, id DESC LIMIT 40`, [projectId]),
+        '담당자·보고자(표시 이름)': await list(`SELECT DISTINCT u.display_name AS v FROM jira_issues i JOIN users u ON u.id IN (i.assignee_id, i.reporter_id) WHERE i.project_id = $1 ORDER BY 1 LIMIT 120`, [projectId]),
+      };
+    },
+  },
+});
+
 // 알림 규칙(프로젝트 관리자)·인앱 알림 API, 발송 작업
 notifier.registerRoutes(app, {
   resourceType: 'project',

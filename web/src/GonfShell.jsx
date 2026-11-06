@@ -4,22 +4,24 @@ import { useMobile } from './mobile.js';
 //           구분선 · Gira / 구분선 · 개발용 메뉴. 트리의 문서는 다른 문서·폴더·스페이스 위로 끌어 옮길 수 있다.
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
+import { Avatar } from './avatar.jsx';
 import Tree from './Tree.jsx';
 import { GonfSettingsHub, CreateSpaceDialog } from './access.jsx';
+import { SpaceAvatar, spaceColor } from './space-icon.jsx';
 import { openDevChat, SPEC_PAGE_ID, REPO_URL } from './dev-feedback-ui.jsx';
 import { NotifyBell } from './notify-ui.jsx';
+import { AiHelpPanel } from './ai-ui.jsx';
 import {
   IconGrid, IconSearch, IconPlus, IconSettings, IconHome, IconStar, IconRocket,
-  IconChevronDown, IconChevronRight, IconSpace, IconBell,
+  IconChevronDown, IconChevronRight, IconSpace, IconBell, IconHelp,
 } from './jira/icons.jsx';
 
-const SPACE_COLORS = ['#0052cc', '#00875a', '#ff8b00', '#de350b', '#5243aa', '#00a3bf', '#403294', '#e56910'];
-export const spaceColor = (s) => SPACE_COLORS[[...String(s ?? '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % SPACE_COLORS.length];
+export { SpaceAvatar, spaceColor };
 
 const readRecent = () => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } };
 
 // 설정(톱니) 메뉴: 테마 선택 + '설정…'(허브 팝업) — Gira와 동일 구성
-export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole }) {
+export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole, onMeChanged, onSpaceIconChanged }) {
   const [open, setOpen] = useState(false);
   const [showHub, setShowHub] = useState(false);
   return (
@@ -39,7 +41,8 @@ export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spac
         </div>
       </>}
       {showHub && <GonfSettingsHub me={me} spaceKey={spaceKey} spaceRole={spaceRole}
-        navigate={navigate} onClose={() => setShowHub(false)} />}
+        onSpaceIconChanged={onSpaceIconChanged}
+        navigate={navigate} onMeChanged={onMeChanged} onClose={() => setShowHub(false)} />}
     </span>
   );
 }
@@ -65,7 +68,7 @@ function FolderDialog({ spaceName, onClose, onSubmit }) {
 }
 
 export default function GonfShell({ me, route, space, navigate, reloadSpace, logout, theme, setTheme,
-  onCreatePage, onPerm, onMove, onContentClick, children }) {
+  onCreatePage, onPerm, onMove, onContentClick, onMeChanged, children }) {
   const mobile = useMobile();
   const [sideOpen, setSideOpen] = useState(() => { if (window.matchMedia('(max-width: 600px)').matches) return false; try { return localStorage.getItem('gonf.side') !== '0'; } catch { return true; } });
   useEffect(() => { if (mobile) setSideOpen(false); }, [mobile, route]);
@@ -77,6 +80,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
   const [createSpace, setCreateSpace] = useState(false);
   const [dropSpace, setDropSpace] = useState(null);
   const [q, setQ] = useState('');
+  const [showHelp, setShowHelp] = useState(false); // AI 도움말 (GIRA-15)
   const recent = readRecent().slice(0, 5);
 
   useEffect(() => { try { localStorage.setItem('gonf.side', sideOpen ? '1' : '0'); } catch { /* 무시 */ } }, [sideOpen]);
@@ -154,11 +158,13 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
         </div>
         <div className="gtb-right">
           <NotifyBell Icon={IconBell} onOpen={(p) => navigate(p)} />
+          <button type="button" className={`gs-iconbtn${showHelp ? ' on' : ''}`} title="도움말 (AI)" onClick={() => setShowHelp((v) => !v)}><IconHelp size={18} /></button>
           <SettingsMenu me={me} navigate={navigate} theme={theme} setTheme={setTheme}
-            spaceKey={space?.key} spaceRole={space?.role} />
+            spaceKey={space?.key} spaceRole={space?.role} onMeChanged={onMeChanged}
+            onSpaceIconChanged={() => { loadSpaces(); reloadSpace?.(); }} />
           <span className="gtb-sep" />
-          <span className="gtb-av" title={`${me.display_name}${me.email ? ` <${me.email}>` : ''}`}
-            style={{ background: spaceColor(me.display_name) }}>{(me.display_name ?? '?').trim()[0]}</span>
+          <Avatar name={me.display_name} user={me} className="gtb-av"
+            title={`${me.display_name}${me.email ? ` <${me.email}>` : ''}`} />
           <button className="gtb-logout" onClick={logout}>로그아웃</button>
         </div>
       </header>
@@ -189,7 +195,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                     onDrop={(e) => { e.preventDefault(); setDropSpace(null); const d = Tree.dragging(); if (d && !(d.spaceKey === sp.key && d.parentId == null)) moveTo(d, { spaceKey: sp.key, spaceName: sp.name }); }}>
                     <button className="gs-twisty" title={opened ? '접기' : '펼치기'}
                       onClick={(e) => { e.stopPropagation(); toggle(sp.key); }}>{opened ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}</button>
-                    <span className="gs-sav" style={{ background: spaceColor(sp.key) }}>{sp.name.trim()[0]}</span>
+                    <SpaceAvatar space={sp} className="gs-sav" />
                     <span className="gs-trunc" title={`${sp.name} (${sp.key})`}>{sp.name}</span>
                     {canWrite && (
                       <span className="gs-plus-wrap" onClick={(e) => e.stopPropagation()}>
@@ -251,6 +257,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
       </div>
       {folderFor && <FolderDialog spaceName={folderFor.name} onClose={() => setFolderFor(null)}
         onSubmit={(name) => { const sp = folderFor; setFolderFor(null); createIn(sp, 'folder', name); }} />}
+      {showHelp && <AiHelpPanel appName="Gonfluence" view={route.view} onClose={() => setShowHelp(false)} />}
       {createSpace && <CreateSpaceDialog me={me} onClose={() => setCreateSpace(false)}
         onCreated={(sp) => { setCreateSpace(false); loadSpaces(); navigate(`/s/${sp.key}`); }} />}
     </div>

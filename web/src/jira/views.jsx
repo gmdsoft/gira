@@ -171,7 +171,54 @@ const readLS = (key, fallback) => {
   try { const v = localStorage.getItem(key); return v == null ? fallback : JSON.parse(v); } catch { return fallback; }
 };
 
-export function TableView({ project, meta, filters, bump, onOpen, onChanged, onCount, onNew, boardJql }) {
+export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onChanged, onCount, onNew, onSeen, onHome, boardJql }) {
+  const readIssue = () => {
+    const key = new URLSearchParams(location.search).get('selectedIssue') ?? '';
+    return /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(key) ? key.toUpperCase() : null;
+  };
+  const [modalKey, setModalKey] = useState(readIssue);
+  const modalRef = useRef(null);
+  const setIssue = (key) => {
+    const url = new URL(location.href);
+    if (key) url.searchParams.set('selectedIssue', key);
+    else url.searchParams.delete('selectedIssue');
+    if (url.href !== location.href) history.pushState({}, '', url);
+    setModalKey(key);
+  };
+  useEffect(() => {
+    const sync = () => setModalKey(readIssue());
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+  useEffect(() => {
+    if (!modalKey) return;
+    const previous = document.activeElement;
+    const panel = modalRef.current;
+    panel.focus({ preventScroll: true });
+    const onKey = (e) => {
+      if (e.defaultPrevented) return;
+      if (e.key === 'Escape') { e.preventDefault(); setIssue(null); }
+      if (e.key === 'Tab') {
+        const items = [...panel.querySelectorAll('a[href], button, input, select, textarea, [tabindex="0"], [contenteditable="true"]')]
+          .filter((el) => !el.disabled && el.getClientRects().length);
+        const first = items[0], last = items[items.length - 1];
+        if (!first) { e.preventDefault(); panel.focus(); }
+        else if (e.shiftKey && (document.activeElement === first || document.activeElement === panel)) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (document.activeElement === last || document.activeElement === panel)) { e.preventDefault(); first.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [!!modalKey]);
+  const issueClick = (e, key) => {
+    e.stopPropagation();
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    setIssue(key);
+  };
   const [sort, setSort] = useState(null); // null이면 서버 기본(또는 JQL의 ORDER BY)을 따른다
   const [selected, setSelected] = useState(() => new Set());
   const [widths, setWidths] = useState(() => {
@@ -266,10 +313,10 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
           ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
-          : <tr key={r.id} className={selected.has(r.id) ? 'selected' : ''} onClick={() => onOpen(r.issue_key)}>
+          : <tr key={r.id} className={selected.has(r.id) ? 'selected' : ''} onClick={() => setIssue(r.issue_key)}>
               <td className="c-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.issue_key} 선택`} /></td>
-              <td className="c-key"><span className="key-wrap"><TypeIcon name={r.type_name} /><span className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span></span></td>
-              <td className="c-sum"><span className="cell-sum" onClick={() => onOpen(r.issue_key)}>{r.summary}</span></td>
+              <td className="c-key"><span className="key-wrap"><TypeIcon name={r.type_name} /><a href={`/browse/${encodeURIComponent(r.issue_key)}`} className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={(e) => issueClick(e, r.issue_key)}>{r.issue_key}</a></span></td>
+              <td className="c-sum"><a href={`/browse/${encodeURIComponent(r.issue_key)}`} className="cell-sum" onClick={(e) => issueClick(e, r.issue_key)}>{r.summary}</a></td>
               <td className="c-type"><span className="type-cell"><TypeIcon name={r.type_name} /><span>{r.type_name ?? ''}</span></span></td>
               <td className="c-assignee"><span className="person"><Avatar name={r.assignee_name} /><span>{r.assignee_name ?? ''}</span></span></td>
               <td className="c-reporter"><span className="person"><Avatar name={r.reporter_name} /><span>{r.reporter_name ?? ''}</span></span></td>
@@ -284,7 +331,24 @@ export function TableView({ project, meta, filters, bump, onOpen, onChanged, onC
       </table>
     </div>
     <ListFoot total={total} shown={rows.length} loading={loading} onNew={onNew} onRefresh={onChanged} />
-    </div></div>
+    </div>
+    {modalKey && <div className="overlay on issue-overlay" onClick={(e) => { if (e.target === e.currentTarget) setIssue(null); }}>
+      <section className="issue-modal" role="dialog" aria-modal="true" aria-label={`${modalKey} 이슈 상세`} tabIndex={-1} ref={modalRef}>
+        <div className="issue-modal-head">
+          <span>{modalKey}</span>
+          <a href={`/browse/${encodeURIComponent(modalKey)}`} onClick={(e) => {
+            if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey || e.button !== 0) return;
+            e.preventDefault(); onOpen(modalKey);
+          }}>전체 화면으로 열기</a>
+          <button className="iconbtn" aria-label="이슈 상세 닫기" title="닫기 (Esc)" onClick={() => setIssue(null)}>✕</button>
+        </div>
+        <div id="detail" className="issue-modal-body">
+          <IssueDetail key={modalKey} issueKey={modalKey} meta={meta} pdata={pdata} me={me}
+            onOpen={setIssue} onChanged={onChanged} onSeen={onSeen} onNew={onNew} onHome={onHome} />
+        </div>
+      </section>
+    </div>}
+    </div>
   );
 }
 
