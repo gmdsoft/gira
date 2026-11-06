@@ -1,5 +1,5 @@
 <!-- spec-sync: 자동 생성 사본 — 직접 고치지 말고 Gonfluence 원본을 고친 뒤 'node scripts/spec-sync.mjs --pull' -->
-> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://172.21.1.1:3001/s/GIRA/p/1000000000009), 버전 7
+> 원본: Gonfluence GIRA › 개발문서 › Gira·Gonfluence 알파 명세서 (http://172.21.1.1:3001/s/GIRA/p/1000000000009), 버전 8
 
 ## 개요
 
