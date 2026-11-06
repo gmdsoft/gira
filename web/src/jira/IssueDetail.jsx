@@ -524,9 +524,11 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
           {((d.weblinks ?? []).length > 0 || adding === 'weblink') && (
             <section className="issue-section" ref={secRef.weblink}>{secHead(`웹 링크${d.weblinks?.length ? ` (${d.weblinks.length})` : ''}`, () => openAdd('weblink'))}
               <ul className="link-list">{(d.weblinks ?? []).map((w) => (
-                <li key={w.id}>🌐 <a href={w.url} target="_blank" rel="noreferrer noopener">{w.title || w.url}</a>
+                <li key={w.id}>{w.icon_url && /^https?:\/\//i.test(w.icon_url) ? <img src={w.icon_url} alt="" width="16" height="16" referrerPolicy="no-referrer" /> : '🌐'} <a href={w.open_url || w.url} target="_blank" rel="noreferrer noopener">{w.title || w.url}</a>
                   {w.title && <span className="dim"> {(() => { try { return new URL(w.url).hostname; } catch { return ''; } })()}</span>}
-                  {canEdit && <button type="button" className="row-x" title="웹 링크 삭제" onClick={() => confirm('이 웹 링크를 지울까요?') && removeWebLink(w)}>✕</button>}
+                  {w.source_id != null && <span className="dim"> · {w.app_name || (w.app_type === 'com.atlassian.confluence' ? 'Confluence' : w.app_type) || 'Jira'}{w.relationship ? ` · ${w.relationship}` : ''}</span>}
+                  {w.open_url && w.open_url !== w.url && <a href={w.url} target="_blank" rel="noreferrer noopener"> 원본</a>}
+                  {canEdit && w.source_id == null && <button type="button" className="row-x" title="웹 링크 삭제" onClick={() => confirm('이 웹 링크를 지울까요?') && removeWebLink(w)}>✕</button>}
                 </li>))}</ul>
               {adding === 'weblink' && <WebLinkInline issueKey={issueKey} onDone={() => { setAdding(null); load(); }} onCancel={() => setAdding(null)} />}
             </section>)}

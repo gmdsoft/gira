@@ -1,3 +1,4 @@
+import { remoteLinkView } from './jira-remote-links.mjs';
 import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // Jira PoC 앱 서버. 이관된 jira_* 테이블 조회 + 기본 쓰기(이슈/댓글/첨부/스프린트/필터).
 // 원본 Jira Cloud API는 읽기 전용(GET, 첨부 프록시)으로만 쓴다 — 쓰기는 전부 로컬 DB.
@@ -471,12 +472,12 @@ app.get('/api/issue/:key', async (req, reply) => {
     query(`SELECT h.id, h.created_at, h.items, u.display_name AS author_name
              FROM jira_changelog h LEFT JOIN users u ON u.id = h.author_id
             WHERE h.issue_id = $1 ORDER BY h.created_at`, [issue.id]),
-    query(`SELECT w.id, w.url, w.title, w.created_at, u.display_name AS author_name
+    query(`SELECT w.*, u.display_name AS author_name
              FROM jira_web_links w LEFT JOIN users u ON u.id = w.author_id
             WHERE w.issue_id = $1 ORDER BY w.id`, [issue.id]),
   ]);
   return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
-           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows };
+           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)) };
 });
 
 // ---------- 이슈 생성/수정 ----------
@@ -774,10 +775,11 @@ app.post('/api/issue/:key/weblinks', async (req, reply) => {
 
 app.delete('/api/weblinks/:id', async (req, reply) => {
   const { rows } = await query(
-    `SELECT w.id, w.issue_id, i.project_id FROM jira_web_links w JOIN jira_issues i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
+    `SELECT w.id, w.issue_id, w.source_id, i.project_id FROM jira_web_links w JOIN jira_issues i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, rows[0].project_id, 'editor')) return;
-  await query(`DELETE FROM jira_web_links WHERE id = $1`, [rows[0].id]);
+  if (rows[0].source_id != null) return reply.code(403).send({ error: '원본 링크는 삭제할 수 없습니다' });
+  await query(`DELETE FROM jira_web_links WHERE id = $1 AND source_id IS NULL`, [rows[0].id]);
   return { ok: true };
 });
 

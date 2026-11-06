@@ -227,3 +227,11 @@ LANGUAGE sql IMMUTABLE AS $$
     ) child
   ) SELECT COALESCE(array_agg(v #>> '{}') FILTER (WHERE jsonb_typeof(v) IN ('string', 'number', 'boolean') AND v #>> '{}' <> ''), ARRAY[]::text[]) FROM leaves;
 $$;
+
+-- GIRA-66: 원본 원격 링크 (로컬 링크는 source_id NULL)
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS source_id text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS app_type text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS app_name text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS relationship text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS icon_url text;
+CREATE UNIQUE INDEX IF NOT EXISTS jira_web_links_source ON jira_web_links(source_id);
