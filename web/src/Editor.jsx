@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
+import { internalLink } from './internal-links.js';
 import { editExtensions } from './extensions.js';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
@@ -59,6 +60,9 @@ export default function Editor({ pageId, navigate, reloadSpace }) {
 }
 
 function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, saveState, setSaveState, publishing, setPublishing, navigate, reloadSpace }) {
+  const [linkChoice, setLinkChoice] = useState(null);
+  const [linkError, setLinkError] = useState('');
+  const [linkLoading, setLinkLoading] = useState(false);
   const timer = useRef(null);
   const dirty = useRef(false);
   const fileInput = useRef(null);
@@ -130,6 +134,14 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
       handlePaste: (view, event) => {
         const files = [...(event.clipboardData?.files ?? [])];
         if (files.length) { uploadFiles(files); return true; }
+        const text = event.clipboardData?.getData('text/plain')?.trim();
+        const link = text && internalLink(text, window.location.href);
+        if (link && !view.state.selection.$from.parent.type.spec.code) {
+          event.preventDefault();
+          setLinkError('');
+          setLinkChoice({ ...link, text });
+          return true;
+        }
         return false;
       },
       handleDrop: (view, event) => {
@@ -249,6 +261,33 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         </div>
       </div>
       <EditingWarning editors={editors} />
+      {linkChoice && <div className="link-choice" role="dialog" aria-label="내부 링크 붙여넣기">
+        <span>{linkChoice.text}</span>
+        <button className="btn" disabled={linkLoading} onClick={() => {
+          editor.chain().focus().insertContent({ type: 'text', text: linkChoice.text,
+            marks: [{ type: 'link', attrs: { href: linkChoice.href } }] }).run();
+          setLinkChoice(null);
+        }}>링크로 삽입</button>
+        <button className="btn" disabled={linkLoading} onClick={async () => {
+          setLinkLoading(true);
+          const choice = linkChoice;
+          try {
+            const data = await api(choice.kind === 'page'
+              ? `/api/content/${choice.id}` : `/api/link-card/issue/${choice.id}`);
+            if (editor.isDestroyed) return;
+            editor.chain().focus().insertContent({ type: 'linkCard', attrs: {
+              href: choice.href, kind: choice.kind,
+              title: choice.kind === 'page' ? data.title : `${choice.id} · ${data.summary}`,
+              status: data.status_name || '',
+            } }).run();
+            setLinkChoice(null);
+          } catch { setLinkError('카드를 불러올 수 없습니다. 접근 권한과 주소를 확인하거나 링크로 삽입하세요.'); }
+          finally { setLinkLoading(false); }
+        }}>카드로 삽입</button>
+        <button className="btn" disabled={linkLoading} onClick={() => setLinkChoice(null)}>취소</button>
+        {linkError && <span role="alert">{linkError}</span>}
+      </div>}
+
       {editor && mode === 'confluence' && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
       {editor && mode === 'notion' && (
         <div className="notion-hint muted">블록 추가는 <code>/</code> 입력 · 서식은 텍스트 선택</div>

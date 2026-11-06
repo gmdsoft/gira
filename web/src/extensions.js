@@ -572,6 +572,28 @@ const SpaceLink = Node.create({
   }, node.childCount ? 0 : node.attrs.spaceKey],
 });
 
+const LinkCard = Node.create({
+  name: 'linkCard', group: 'block', atom: true, draggable: true,
+  addAttributes: () => ({
+    href: { default: '' }, title: { default: '' },
+    kind: { default: 'page' }, status: { default: '' },
+  }),
+  parseHTML: () => [{ tag: 'a[data-link-card]', getAttrs: (el) => ({
+    href: el.getAttribute('href'), title: el.querySelector('strong')?.textContent ?? '',
+    kind: el.dataset.kind, status: el.querySelector('.link-card-status')?.textContent ?? '',
+  }) }],
+  renderHTML: ({ node }) => {
+    const { href, title, kind, status } = node.attrs;
+    const safe = /^(https?:\/\/|\/(?!\/))/i.test(href);
+    return ['a', { class: 'link-card', 'data-link-card': '', 'data-kind': kind,
+      href: safe ? href : '#', target: '_blank', rel: 'noopener noreferrer' },
+      ['span', { class: 'link-card-kind' }, kind === 'issue' ? 'Gira' : 'Gonfluence'],
+      ['strong', {}, title || href],
+      ...(status ? [['span', { class: 'link-card-status' }, status]] : []),
+    ];
+  },
+});
+
 const FileLink = Node.create({
   name: 'fileLink', group: 'inline', inline: true, content: 'text*',
   addAttributes: () => ({ filename: { default: '' }, href: { default: null } }),
@@ -669,7 +691,7 @@ export const TrailingNode = Extension.create({
 // 블록 핸들로 통째 선택하거나, 그 아래에서 Backspace로 삭제할 수 있는 "블록" 종류.
 const SELECTABLE_BLOCKS = new Set([
   'panel', 'expand', 'table', 'blockquote', 'codeBlock',
-  'layout', 'jiraTable', 'cfMacro', 'adfNode', 'horizontalRule', 'mermaid',
+  'linkCard', 'layout', 'jiraTable', 'cfMacro', 'adfNode', 'horizontalRule', 'mermaid',
 ]);
 
 // 블록 바로 아래 문단의 맨 앞에서 Backspace:
@@ -889,7 +911,7 @@ const custom = [
   Panel, Expand, Layout, LayoutSection, LayoutColumn,
   Mermaid, JiraTable, CfMacro, AdfNode,
   Media, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
-  PageLink, SpaceLink, FileLink, CfMacroInline,
+  PageLink, SpaceLink, FileLink, LinkCard, CfMacroInline,
 ];
 
 // 읽기 전용 렌더링·render-check 용 (undo 히스토리 불필요)

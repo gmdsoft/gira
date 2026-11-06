@@ -227,6 +227,20 @@ app.get('/api/spaces/:key', async (req, reply) => {
   return { ...space, role, tree: visible ? tree.filter((n) => visible.has(String(n.id))) : tree };
 });
 
+// 사용자 URL을 fetch하지 않는다. 고정된 로컬 Gira API가 세션/프로젝트 권한을 확인한다.
+app.get('/api/link-card/issue/:key', async (req, reply) => {
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(req.params.key)) return reply.code(400).send({ error: 'invalid key' });
+  try {
+    const res = await fetch(`${process.env.GIRA_INTERNAL_ORIGIN ?? `http://127.0.0.1:${Number(process.env.JIRA_VIEWER_PORT ?? 3002)}`}/api/issue/${encodeURIComponent(req.params.key)}`, {
+      headers: { cookie: req.headers.cookie ?? '', ...(req.headers.authorization ? { authorization: req.headers.authorization } : {}) },
+      redirect: 'error', signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return reply.code(res.status).send({ error: 'issue unavailable' });
+    const issue = await res.json();
+    return { summary: issue.summary, status_name: issue.status_name };
+  } catch { return reply.code(502).send({ error: 'Gira unavailable' }); }
+});
+
 app.get('/api/content/:id', async (req, reply) => {
   const acc = await requireAccess(req, reply, req.params.id);
   if (!acc) return;

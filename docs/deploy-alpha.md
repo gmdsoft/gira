@@ -84,3 +84,10 @@ echo 'GIRA_DATABASE_URL=postgres://rea:rea@localhost:5432/gira' >> .env
 
 users 테이블이 스택마다 따로 있다. 알파 기간엔 이관 시점에 복제해 두고,
 Entra OIDC 도입 시 로그인 클레임으로 양쪽을 각자 갱신하는 방식으로 전환한다.
+
+### 내부 링크 카드
+
+Gonfluence 편집기에 같은 호스트의 문서 주소 또는 Gira `:3002/browse/KEY-123` 주소를 붙여넣으면 링크/카드를 선택할 수 있다. 카드에는 삽입 시점의 제목과 이슈 상태가 저장된다.
+Gonfluence 서버는 Gira 조회 시 사용자의 쿠키/Authorization을 전달하며 Gira의 프로젝트 보기 권한 검사를 그대로 적용한다.
+Gira API 기본 주소는 `http://127.0.0.1:3002` (`JIRA_VIEWER_PORT` 반영)이다. 서버가 별도 컨테이너에 있으면 Gonfluence 서버 환경에 `GIRA_INTERNAL_ORIGIN`을 접근 가능한 고정 Gira 주소로 설정한다. 쿠키 인증을 공유하려면 두 앱의 `COOKIE_SECRET`과 사용자 ID가 같아야 한다. 접속 또는 인증에 실패하면 카드 대신 링크로 삽입할 수 있다.
+외부 사이트 URL은 카드 메타데이터 조회 대상이 아니다.
