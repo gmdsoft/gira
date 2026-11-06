@@ -41,3 +41,13 @@ test('프로젝트 링커는 안내로 센다', () => {
   assert.equal(stats.noticeMacros['adf-ext:project-linker'], 1);
   assert.deepEqual(stats.unsupportedMacros, {});
 });
+
+test('옮길 수 없는 앱 매크로는 안내로 세고 투표 선택지를 보존한다 (GIRA-57)', () => {
+  const { doc, stats } = convertStorage('<ac:structured-macro ac:name="vote"><ac:parameter ac:name="title">말풍선 고르기</ac:parameter><ac:plain-text-body><![CDATA[A안\nB안]]></ac:plain-text-body></ac:structured-macro>'
+    + '<ac:structured-macro ac:name="TEST_RESULTS_ADVANCED"><ac:parameter ac:name="reportKey">TEST_RESULTS_ADVANCED</ac:parameter></ac:structured-macro><ac:structured-macro ac:name="calendar" />');
+  assert.deepEqual(stats.unsupportedMacros, {});
+  assert.deepEqual(stats.dynamicMacros, {});
+  assert.equal(Object.keys(stats.noticeMacros).length, 3);
+  const vote = find(doc, (n) => n.type === 'cfMacro' && n.attrs.name === 'vote')[0];
+  assert.equal(vote.attrs.params.__body, 'A안\nB안');
+});

@@ -1109,3 +1109,7 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .doc .mermaid-view:hover > details, .doc .mermaid-view:hover > button,
 .doc .mermaid-view:focus-within > details, .doc .mermaid-view:focus-within > button,
 .doc .mermaid-view > details[open], .doc .mermaid-view.has-error > details, .doc .mermaid-view.has-error > button { opacity: 1; }
+/* GIRA-57: 옮길 수 없는 앱 안내 — 투표·설문 질문·선택지 */
+.cf-macro-notice-title { margin-top: 6px; font-weight: 600; color: var(--text); font-size: 13px; }
+.cf-macro-notice ul { margin: 4px 0; padding-left: 20px; color: var(--text); font-size: 13px; }
+.cf-macro-notice-sub { margin-top: 2px; font-size: 11px; }
