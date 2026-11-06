@@ -34,12 +34,14 @@ export function renderChart(data, params) {
   }
   const series = [['created','생성','#2684ff'], ['resolved','해결','#e34935']];
   if (params.showUnresolvedTrend === 'true') series.push(['unresolved','미해결 추이','#36a37c']);
-  const max = Math.max(1,...data.rows.flatMap(r => series.map(([key]) => Math.abs(r[key]))));
+  // 세로축: 값 범위(미해결 추이는 음수 가능)에 맞춰 0 기준선을 둔다
+  const vals = data.rows.flatMap(r => series.map(([key]) => r[key]));
+  const max = Math.max(1, ...vals), min = Math.min(0, ...vals);
   const x = i => 50 + i*570/Math.max(1,data.rows.length-1);
-  const y = v => 170-v*130/max;
-  html += '<svg role="img" aria-label="생성 대 해결 이슈 차트 (UTC)" viewBox="0 0 660 360" style="width:100%;max-width:900px"><path d="M50 30 V300 H630 M50 170 H630" fill="none" stroke="#aaa"/>';
-  for (const [key,name,color] of series) html += `<polyline fill="none" stroke="${color}" stroke-width="2" points="${data.rows.map((r,i) => `${x(i)},${y(r[key])}`).join('')}"/>` + data.rows.map((r,i) => `<circle cx="${x(i)}" cy="${y(r[key])}" r="3" fill="${color}"><title>${r.date} ${name}: ${r[key]}</title></circle>`).join('');
+  const y = v => 300 - (v - min) * 270 / (max - min);
+  html += `<svg role="img" aria-label="생성 대 해결 이슈 차트 (UTC)" viewBox="0 0 660 360" style="width:100%;max-width:900px"><path d="M50 30 V300 H630" fill="none" stroke="#aaa"/><path d="M50 ${y(0)} H630" fill="none" stroke="#ddd"/>`;
+  for (const [key,name,color] of series) html += `<polyline fill="none" stroke="${color}" stroke-width="2" points="${data.rows.map((r,i) => `${x(i)},${y(r[key])}`).join(' ')}"/>` + data.rows.map((r,i) => `<circle cx="${x(i)}" cy="${y(r[key])}" r="3" fill="${color}"><title>${r.date} ${name}: ${r[key]}</title></circle>`).join('');
   html += data.rows.map((r,i) => i % Math.max(1,Math.ceil(data.rows.length/6)) === 0 ? `<text x="${x(i)}" y="325" text-anchor="middle" font-size="11">${r.date}</text>` : '').join('');
-  html += `<text x="10" y="40" font-size="11">${max}</text><text x="20" y="175" font-size="11">0</text></svg>`;
+  html += `<text x="44" y="${y(max) + 4}" text-anchor="end" font-size="11">${max}</text><text x="44" y="${y(0) + 4}" text-anchor="end" font-size="11">0</text>${min < 0 ? `<text x="44" y="${y(min) + 4}" text-anchor="end" font-size="11">${min}</text>` : ''}</svg>`;
   return html + `<p>${series.map(([,name,color]) => `<span style="color:${color}">${name}</span>`).join(' · ')} · ${escape(data.period)} · UTC · ${link(data.total)}개 이슈</p>`;
 }
