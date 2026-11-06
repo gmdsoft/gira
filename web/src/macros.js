@@ -1,4 +1,5 @@
 import { hydrateIssueCard } from './issue-card.js';
+import { hydrateLinkCard } from './link-card.js';
 // 매크로 하이드레이터: 렌더된 본문의 .cf-macro-slot[data-macro]를 실데이터 위젯으로 교체한다.
 // ctx = { page, navigate } — page는 /api/content/:id 응답(attachments·children 포함).
 import { generateHTML } from '@tiptap/html';
@@ -8,6 +9,9 @@ import { createToc } from './toc.js';
 
 export function hydrateMacros(root, ctx) {
   if (!root) return;
+  for (const el of root.querySelectorAll('a[data-link-card]')) {
+    if (!el.dataset.hydrated) hydrateLinkCard(el);
+  }
   for (const el of root.querySelectorAll('a.jira-issue[data-issue-key]')) {
     if (el.dataset.hydrated) continue;
     el.dataset.hydrated = '1';

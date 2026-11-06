@@ -278,7 +278,8 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
           const choice = linkChoice;
           try {
             const data = await api(choice.kind === 'page'
-              ? `/api/content/${choice.id}` : `/api/link-card/issue/${choice.id}`);
+              ? `/api/content/${choice.id}` : `/api/gira/issues/${choice.id}`);
+            if (choice.kind === 'issue' && !data.summary) throw new Error('이슈를 볼 수 없음');
             if (editor.isDestroyed) return;
             // 붙여넣은 링크가 그 자리에 그대로 있을 때만 카드로 바꾼다
             if (editor.state.doc.textBetween(choice.from, choice.to) !== choice.text) { setLinkChoice(null); return; }
@@ -286,7 +287,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
               .insertContentAt({ from: choice.from, to: choice.to }, { type: 'linkCard', attrs: {
                 href: choice.href, kind: choice.kind,
                 title: choice.kind === 'page' ? data.title : `${choice.id} · ${data.summary}`,
-                status: data.status_name || '',
+                status: data.status || '',
               } }).run();
             setLinkChoice(null);
           } catch { setLinkError('카드를 불러올 수 없습니다 — 링크로 둡니다'); }

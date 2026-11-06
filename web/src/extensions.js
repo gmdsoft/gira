@@ -2,6 +2,7 @@
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
 import { hydrateIssueCard } from './issue-card.js';
+import { hydrateLinkCard } from './link-card.js';
 import { Extension, Node, Mark, mergeAttributes, wrappingInputRule } from '@tiptap/core';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import StarterKit from '@tiptap/starter-kit';
@@ -594,6 +595,23 @@ const LinkCard = Node.create({
       ['strong', {}, title || href],
       ...(status ? [['span', { class: 'link-card-status' }, status]] : []),
     ];
+  },
+  // 편집기·보기 화면: 저장된 제목·상태로 그린 뒤 최신 값으로 바꾼다
+  addNodeView() {
+    return ({ node }) => {
+      const { href, title, kind, status } = node.attrs;
+      const a = document.createElement('a');
+      a.className = 'link-card';
+      a.dataset.linkCard = '';
+      a.dataset.kind = kind;
+      a.href = /^(https?:\/\/|\/(?!\/))/i.test(href) ? href : '#';
+      a.target = '_blank'; a.rel = 'noopener noreferrer';
+      const k = a.appendChild(document.createElement('span'));
+      k.className = 'link-card-kind'; k.textContent = kind === 'issue' ? 'Gira' : 'Gonfluence';
+      a.appendChild(document.createElement('strong')).textContent = title || href;
+      if (status) { const s = a.appendChild(document.createElement('span')); s.className = 'link-card-status'; s.textContent = status; }
+      return { dom: a, destroy: hydrateLinkCard(a) };
+    };
   },
 });
 
