@@ -106,6 +106,41 @@ export function SpacePermissionsModal({ spaceKey, onClose }) {
   );
 }
 
+// 설정 허브 › 스페이스 권한 (GIRA-29): 모달과 같은 편집을 탭 안에서
+function SpacePermissionsBody({ spaceKey }) {
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    setRows(null); setMsg('');
+    api(`/api/spaces/${spaceKey}/permissions`)
+      .then((rs) => setRows(rs.map((r) => ({ type: r.principal_type, id: Number(r.principal_id), role: r.role, name: r.name }))))
+      .catch((e) => setMsg(e.message));
+  }, [spaceKey]);
+  const save = async () => {
+    setBusy(true); setMsg('');
+    try {
+      await api(`/api/spaces/${spaceKey}/permissions`, {
+        method: 'PUT', json: { rows: rows.map((r) => ({ principalType: r.type, principalId: r.id, role: r.role })) },
+      });
+      setMsg('저장했습니다');
+    } catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div className="hub-pane">
+      <p className="muted">규칙이 하나도 없으면 사이트 관리자만 접근할 수 있는 비공개 상태입니다.
+        팀에 준 권한은 하위 파트 소속원에게도 적용됩니다.</p>
+      {!rows ? <p className="muted">{msg || '불러오는 중…'}</p> : <>
+        <PermRows rows={rows} setRows={(r) => { setRows(r); setMsg(''); }} allowAnyone roles={['viewer', 'editor', 'admin']} />
+        <div className="modal-actions">
+          {msg && <span className="muted">{msg}</span>}
+          <button className="btn btn-primary" disabled={busy} onClick={save}>저장</button>
+        </div>
+      </>}
+    </div>
+  );
+}
+
 function PermRows({ rows, setRows, allowAnyone, roles }) {
   const upd = (i, patch) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const del = (i) => setRows(rows.filter((_, j) => j !== i));
@@ -376,13 +411,25 @@ export function SpacePackageBody({ spaceKey, spaceRole, canCreate, onImported })
 
 // 설정 허브: 톱니 메뉴의 '설정…'에서 열리는 팝업 — 좌측 탭 + 우측 내용
 export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, onMeChanged, onSpaceIconChanged }) {
+  // 스페이스 권한·알림·이미지 (GIRA-29): 관리하는 스페이스를 목록에서 고른다. 지금 보는 스페이스를 관리하면 미리 고른다
+  const [adminSpaces, setAdminSpaces] = useState(null);
+  const [target, setTarget] = useState(spaceRole === 'admin' ? spaceKey : '');
+  useEffect(() => {
+    api('/api/spaces').then((ss) => {
+      const list = ss.filter((s) => s.role === 'admin').sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+      setAdminSpaces(list);
+      setTarget((t) => t || list[0]?.key || '');
+    }).catch(() => setAdminSpaces([]));
+  }, []);
+  const manages = spaceRole === 'admin' || (adminSpaces?.length ?? 0) > 0;
   const tabs = [
     ['profile', '프로필', true],
     ['keys', '내 API 키', true],
     ['pkg', '패키지 (내보내기/가져오기)', true],
     ['migrate', '원본 Confluence에서 가져오기', true],
-    ['notify', '스페이스 알림', !!spaceKey && spaceRole === 'admin'],
-    ['icon', '스페이스 이미지', !!spaceKey && spaceRole === 'admin'],
+    ['perm', '스페이스 권한', manages],
+    ['notify', '스페이스 알림', manages],
+    ['icon', '스페이스 이미지', manages],
     ['inbox', '접근 요청 승인함', !!me.is_admin],
     ['aiguide', 'AI 도움말 지침', !!me.is_admin],
   ].filter((t) => t[2]);
@@ -404,11 +451,21 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, on
           <button className="hub-close" onClick={() => onClose()}>닫기</button>
         </aside>
         <section className="hub-main">
-          <h2>{TITLE[tab]}{(tab === 'pkg' || tab === 'notify' || tab === 'icon') && spaceKey ? ` — ${spaceKey}` : ''}</h2>
+          <h2>{TITLE[tab]}{tab === 'pkg' && spaceKey ? ` — ${spaceKey}` : ''}</h2>
+          {(tab === 'perm' || tab === 'notify' || tab === 'icon') && (
+            <label className="hub-proj">
+              <span>스페이스</span>
+              <select value={target} onChange={(e) => setTarget(e.target.value)}>
+                {(adminSpaces ?? []).map((s) => <option key={s.key} value={s.key}>{s.name} ({s.key})</option>)}
+                {!adminSpaces && target && <option value={target}>{target}</option>}
+              </select>
+            </label>
+          )}
           {tab === 'aiguide' && <AiGuideBody />}
           {tab === 'profile' && <ProfileBody me={me} onChanged={onMeChanged} />}
-          {tab === 'notify' && <NotifyRulesBody key={spaceKey} resourceKey={spaceKey} resourceLabel="스페이스" />}
-          {tab === 'icon' && <SpaceIconBody key={spaceKey} spaceKey={spaceKey} onChanged={onSpaceIconChanged} />}
+          {tab === 'perm' && target && <SpacePermissionsBody key={target} spaceKey={target} />}
+          {tab === 'notify' && target && <NotifyRulesBody key={target} resourceKey={target} resourceLabel="스페이스" />}
+          {tab === 'icon' && target && <SpaceIconBody key={target} spaceKey={target} onChanged={onSpaceIconChanged} />}
           {tab === 'keys' && <ApiKeysBody />}
           {tab === 'pkg' && <SpacePackageBody spaceKey={spaceKey} spaceRole={spaceRole}
             canCreate={!!me.can_create}

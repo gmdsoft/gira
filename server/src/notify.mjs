@@ -3,8 +3,9 @@
 // 채널: Teams(채널 웹훅) · 메일(Microsoft Graph sendMail, 앱 토큰) — .env 값이 없으면 그 채널은 꺼진 채로 동작한다.
 // 알림에는 제목·링크만 담는다(본문 미포함 — 권한 밖 노출 방지).
 //   TEAMS_WEBHOOK_URL                         기본 Teams 채널 웹훅 (규칙에 URL을 따로 넣지 않으면 이것)
-//   메일(Graph 앱 토큰): TEAMS_TENANT_ID, TEAMS_APP_CLIENT_ID, TEAMS_APP_CLIENT_SECRET, TEAMS_SENDER_EMAIL
-//     (MS_TENANT_ID·MS_CLIENT_ID·MS_CLIENT_SECRET·MAIL_SENDER 이름도 받는다). 앱 등록에 Mail.Send(애플리케이션) 권한이 필요하다.
+//   메일(Graph 앱 토큰): MAIL_TENANT_ID, MAIL_CLIENT_ID, MAIL_CLIENT_SECRET, MAIL_SENDER_ADDRESS, MAIL_FROM_NAME(표시 이름, 선택)
+//     — 메일 전용 앱 등록. 없으면 TEAMS_TENANT_ID·TEAMS_APP_CLIENT_ID·TEAMS_APP_CLIENT_SECRET·TEAMS_SENDER_EMAIL(또는 MS_*·MAIL_SENDER)을 쓴다.
+//     앱 등록에 Mail.Send(애플리케이션) 권한이 필요하다.
 //   NOTIFY=0                                   발송 작업 끄기 (인앱 알림·큐 적재는 그대로)
 
 export const EVENT_LABELS = {
@@ -50,12 +51,18 @@ export function publicBase(req, envName) {
 }
 
 export function createNotifier({ query, app, env = process.env, log = console, fetchImpl = (...a) => fetch(...a) }) {
-  const mail = {
+  // MAIL_* 세트가 다 있으면 그것(메일 전용 앱), 아니면 예전 이름들. 세트를 섞지 않는다(다른 앱의 시크릿과 짝이 안 맞음)
+  const dedicated = env.MAIL_TENANT_ID && env.MAIL_CLIENT_ID && env.MAIL_CLIENT_SECRET;
+  const mail = dedicated ? {
+    tenant: env.MAIL_TENANT_ID, clientId: env.MAIL_CLIENT_ID, secret: env.MAIL_CLIENT_SECRET,
+    sender: env.MAIL_SENDER_ADDRESS ?? env.MAIL_SENDER ?? env.TEAMS_SENDER_EMAIL,
+  } : {
     tenant: env.TEAMS_TENANT_ID ?? env.MS_TENANT_ID,
     clientId: env.TEAMS_APP_CLIENT_ID ?? env.MS_CLIENT_ID,
     secret: env.TEAMS_APP_CLIENT_SECRET ?? env.MS_CLIENT_SECRET,
     sender: env.TEAMS_SENDER_EMAIL ?? env.MAIL_SENDER,
   };
+  mail.fromName = env.MAIL_FROM_NAME || '';
   const mailConfigured = !!(mail.tenant && mail.clientId && mail.secret && mail.sender);
   let mailRoles = null; // 토큰에 든 애플리케이션 권한 (Mail.Send 확인용)
   const channels = () => ({
@@ -155,6 +162,7 @@ export function createNotifier({ query, app, env = process.env, log = console, f
           subject: m.subject,
           body: { contentType: 'HTML', content: `<p>${escapeHtml(m.subject)}</p><p><a href="${escapeHtml(m.url)}">${escapeHtml(m.url)}</a></p>` },
           toRecipients: to,
+          ...(mail.fromName ? { from: { emailAddress: { name: mail.fromName, address: mail.sender } } } : {}),
         },
         saveToSentItems: false,
       }),
