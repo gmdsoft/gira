@@ -144,13 +144,16 @@ const HANDLERS = {
     let rows;
     try { rows = selectAttachments(ctx.page.attachments ?? [], params); }
     catch { swap(el, emptyWidget('첨부 패턴이 올바르지 않습니다')); return; }
-    swap(el, rows.length ? tableWidget(['파일', '크기'], rows.map(r => [fileCard({ filename: r.filename, meta: r, url: `/api/att/${ctx.page.id}/${encodeURIComponent(r.filename)}` }), fmtSize(r.file_size)])) : emptyWidget('첨부 파일 없음'));
+    // 파일 카드에 크기가 이미 있으므로 따로 크기 열을 두지 않는다
+    swap(el, rows.length ? tableWidget(['파일', '버전'], rows.map(r => [fileCard({ filename: r.filename, meta: r, url: `/api/att/${ctx.page.id}/${encodeURIComponent(r.filename)}` }), r.version ? `v${r.version}` : ''])) : emptyWidget('첨부 파일 없음'));
   },
   'toc-zone'(el, params, ctx) {
     const body = el.querySelector(':scope > div[style]');
     if (!body) return;
     body.style.display = '';
     const heads = [...body.querySelectorAll('h1,h2,h3,h4,h5,h6')].filter(h => Number(h.tagName[1]) >= (Number(params.minLevel) || 1) && Number(h.tagName[1]) <= (Number(params.maxLevel) || 6));
+    // 범위 안에 제목이 없으면(직접 쓴 링크 목록 등) 본문만 보여 준다 — 빈 목차 안내를 띄우지 않음
+    if (!heads.length) { el.querySelector('.macro-badge')?.remove(); return; }
     const nav = createToc(heads.map((h, i) => {
       if (!h.id) h.id = `zone-${ctx.page.id}-${Math.random().toString(36).slice(2)}-${i}`;
       return { level: Number(h.tagName[1]), text: h.textContent, href: `#${h.id}`, scroll: () => h.scrollIntoView({ behavior: 'smooth' }) };
@@ -163,7 +166,13 @@ const HANDLERS = {
     const url = typeof params.url === 'object' ? params.url['ri:value'] : params.url;
     const id = /\/pages\/(\d+)/.exec(url ?? '')?.[1] ?? /[?&]pageId=(\d+)/.exec(url ?? '')?.[1];
     if (!id) { swap(el, emptyWidget('대상 문서를 찾을 수 없습니다')); return; }
-    await includePage(el, { ...params, targetId: id }, ctx, false);
+    try { await includePage(el, { ...params, targetId: id }, ctx, false); }
+    catch {
+      // 대상 문서가 아직 이관되지 않음 — 주소로 열면 Gonfluence가 이관된 문서 또는 원본으로 보낸다
+      const box = emptyWidget('포함된 문서가 아직 이관되지 않았습니다 ');
+      const a = document.createElement('a'); a.href = `/wiki/pages/viewpage.action?pageId=${id}`; a.target = '_blank'; a.rel = 'noreferrer'; a.textContent = '문서 열기';
+      box.append(a); swap(el, box);
+    }
   },
   async 'recently-updated-dashboard'(el, params, ctx) {
     const rows = await report('recent', { ...params, max: params.max || 10 }, ctx);
@@ -469,19 +478,17 @@ async function renderLabels(el, params, ctx, popular) {
   let rows = await report('labels', params, ctx);
   rows.sort((a, b) => popular ? b.count - a.count || a.name.localeCompare(b.name, 'ko') : a.name.localeCompare(b.name, 'ko'));
   if (popular) rows = rows.slice(0, Math.max(1, Number(params.count) || 10));
+  if (!rows.length) { swap(el, emptyWidget('레이블 없음')); return; }
+  // 레이블 버튼 목록 — 누르면 그 레이블 문서들을 아래에 펼친다
   const box = document.createElement('div');
-  const input = document.createElement('select');
-  input.setAttribute('aria-label', '레이블');
-  input.append(new Option('레이블 선택', ''));
-  for (const r of rows) input.append(new Option(`${r.name} (${r.count})`, r.name));
   const results = document.createElement('div');
-  input.onchange = async () => {
-    const pages = input.value ? await report('content', { ...params, labels: input.value }, ctx) : [];
+  const show = async (name) => {
+    const pages = await report('content', { ...params, labels: name }, ctx);
     results.replaceChildren(listWidget('macro-labelled', pages.map(r => navLink(ctx, r.space_key, r.id, r.title))));
   };
   box.append(listWidget('macro-labels', rows.map(r => {
     const button = document.createElement('button'); button.className = 'btn btn-sm'; button.textContent = `${r.name} (${r.count})`;
-    button.onclick = () => { input.value = r.name; input.onchange(); }; return button;
-  })), input, results);
+    button.onclick = () => show(r.name); return button;
+  })), results);
   swap(el, box);
 }
