@@ -1,0 +1,12 @@
+.insert-menu .tb-pop { width: 280px; max-height: 65vh; overflow: auto; }
+.insert-menu input, .insert-menu select, .emoji-picker input, .emoji-picker select, .inline-element-popup input { box-sizing: border-box; width: 100%; padding: 7px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--text); }
+.emoji-picker { width: 280px; padding: 8px; display: grid; gap: 8px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(6, 1fr); max-height: 210px; overflow: auto; }
+.emoji-grid button { font-size: 22px; padding: 6px; border: 0; background: transparent; cursor: pointer; }
+.emoji-grid button:hover, .emoji-grid button:focus { background: var(--bg-subtle); outline: 2px solid var(--accent); }
+.emoji-suggestion, .inline-element-popup { position: fixed; z-index: 200; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px #091e4233; }
+.inline-element-popup { width: 250px; padding: 10px; display: grid; gap: 10px; }
+.status-color-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.status-color-grid button { cursor: pointer; border: 2px solid transparent; }
+.status-color-grid button[aria-pressed=true] { border-color: var(--accent, #0055cc); }
+.ProseMirror [role=button].status, .ProseMirror [role=button].date-lozenge { cursor: pointer; }

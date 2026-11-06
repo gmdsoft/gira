@@ -2,10 +2,15 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallba
 import { EditorContent, useEditor } from '@tiptap/react';
 import { internalLink } from './internal-links.js';
 import { editExtensions } from './extensions.js';
+import { InsertMenu, EmojiButton } from './element-picker.jsx';
+import { IconTask, IconImage, IconCode, IconLayout, IconTable, IconPanel, IconExpand, IconDivider, IconLink, IconUndo, IconRedo, IconMention } from './editor-icons.jsx';
 import { slashMenu, makeSlashItems } from './slash-menu.js';
 import { mentionMenu, emojiMenu } from './suggest-menus.js';
 import { api, hydrateDoc } from './api.js';
 import { useEditPresence, EditingWarning } from './edit-presence.jsx';
+import { TableMenus } from './table-ui.jsx';
+import BlockTools from './block-toolbar.jsx';
+import ImageTools from './image-tools.jsx';
 
 async function send(path, method, body) {
   const res = await fetch(path, {
@@ -245,6 +250,7 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
         </div>
       </div>
       <EditingWarning editors={editors} />
+      {editor && <ImageTools editor={editor} />}
       {editor && <Toolbar editor={editor} onImage={() => fileInput.current?.click()} />}
       </div>
       {linkChoice && <div className="link-choice" role="dialog" aria-label="붙여넣은 링크"
@@ -295,20 +301,83 @@ function EditorInner({ page, initialDoc, initialTitle, fromDraft, baseVersion, s
             }
           }} />
         <EditorContent editor={editor} className="doc" />
+        {editor && <TableMenus editor={editor} />}
       </div>
+      {editor && <BlockTools editor={editor} />}
     </div>
   );
 }
 
-// Confluence 표준 텍스트 색상 팔레트 느낌의 무난한 8색 (editor-spec.md)
-const TEXT_COLORS = ['#172b4d', '#0747a6', '#008da6', '#006644', '#ff8b00', '#de350b', '#5243aa', '#97a0af'];
+const TEXT_COLORS = [
+  '#292a2e', '#164b9f', '#206a83', '#216e4e', '#4c6b1f', '#7f5f01', '#9e4c00', '#ae2e24', '#943d73', '#803fa5',
+  '#7d818a', '#357de8', '#2898bd', '#22a06b', '#6a9a23', '#b38600', '#e56910', '#c9372c', '#cd519d', '#af59e1',
+  '#ffffff', '#cce0ff', '#c6edfb', '#baf3db', '#d3f1a7', '#f8e6a0', '#ffe2bd', '#ffd5d2', '#fdd0ec', '#eed7fc',
+];
+const HIGHLIGHT_COLORS = ['#dcdfe4', ...TEXT_COLORS.slice(21)];
+
+function FormatMenu({ label, children }) {
+  return <details className="tb-menu"><summary className="tb" title={label}>{label} ∨</summary>
+    <div className="tb-pop tb-menu-items" onClick={e => {
+      if (e.target.closest('button')) e.currentTarget.parentElement.open = false;
+    }}>{children}</div>
+  </details>;
+}
+
+// 문단 정렬 아이콘: 가로줄 4개(긴 줄·짧은 줄 번갈아), 짧은 줄의 위치로 왼쪽·가운데·오른쪽을 나타낸다
+function AlignIcon({ dir }) {
+  const x = (w) => (dir === 'left' ? 2 : dir === 'right' ? 14 - w : 8 - w / 2);
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style={{ display: 'block' }}>
+      {[[3, 12], [6.33, 8], [9.67, 12], [13, 8]].map(([y, w]) => (
+        <rect key={y} x={x(w)} y={y - 0.75} width={w} height="1.5" rx="0.75" fill="currentColor" />))}
+    </svg>
+  );
+}
+
+function ToolbarOverflow({ compact, children }) {
+  return compact ? <FormatMenu label="도구 더 보기">{children}</FormatMenu> : <>{children}</>;
+}
 
 function Toolbar({ editor, onImage }) {
   const [palette, setPalette] = useState(false);
+  // 좁을 때만 접는다: 펼친 상태에서 버튼들이 실제로 차지하는 폭을 재 두고, 툴바 폭이 그보다 좁아지면 '도구 더 보기'로
+  const [compact, setCompact] = useState(false);
+  const toolbarRef = useRef(null);
+  const neededRef = useRef(0);
+  useLayoutEffect(() => {
+    const el = toolbarRef.current;
+    if (!el || compact) return;
+    const cs = getComputedStyle(el);
+    const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    // 끝의 '/ 로 블록 삽입' 안내 글은 자리가 모자라면 줄어들므로 필요 폭에서 뺀다
+    neededRef.current = [...el.children].filter((c) => !c.classList.contains('tb-hint'))
+      .reduce((a, c) => a + c.getBoundingClientRect().width + 2, 0) + pad;
+    if (el.clientWidth < neededRef.current) setCompact(true);
+  });
+  useEffect(() => {
+    const el = toolbarRef.current;
+    const observer = new ResizeObserver(([entry]) => {
+      const w = entry.target.clientWidth;
+      setCompact((c) => (c ? w < neededRef.current : w < neededRef.current));
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    const close = e => {
+      if (e.type === 'keydown' && e.key !== 'Escape') return;
+      if (e.type === 'pointerdown' && toolbarRef.current?.contains(e.target)) return;
+      setPalette(false);
+      toolbarRef.current?.querySelectorAll('details[open]').forEach(el => { el.open = false; });
+    };
+    document.addEventListener('pointerdown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', close); };
+  }, []);
   const [grid, setGrid] = useState(null); // {r, c} 호버 상태 (null=닫힘)
   const B = ({ onClick, active, children, title }) => (
     <button className={`tb ${active ? 'tb-active' : ''}`} title={title}
-      onMouseDown={(e) => { e.preventDefault(); onClick(); }}>{children}</button>
+      onMouseDown={(e) => e.preventDefault()} onClick={onClick}>{children}</button>
   );
   const chain = () => editor.chain().focus();
   const insertTable = (rows = 3, cols = 3) => chain().insertContent({
@@ -338,65 +407,90 @@ function Toolbar({ editor, onImage }) {
   }).run();
 
   return (
-    <div className="toolbar">
+    <div className={`toolbar ${editor.isActive('mediaCaption') ? 'caption-toolbar' : ''}`} ref={toolbarRef}>
       <select className="tb-select"
-        value={editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : 'p'}
+        aria-label="텍스트 스타일" title="텍스트 스타일 (일반 Ctrl+Alt+0, 머릿글 Ctrl+Alt+1~6)"
+        value={editor.isActive('blockquote') ? 'quote' : editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : editor.isActive('smallText') ? 'small' : 'p'}
         onChange={(e) => {
           const v = e.target.value;
-          if (v === 'p') chain().setParagraph().run();
-          else chain().setHeading({ level: Number(v[1]) }).run();
+          const c = chain().unsetMark('smallText');
+          if (v === 'quote') c.toggleBlockquote().run();
+          else {
+            if (editor.isActive('blockquote')) c.lift('blockquote');
+            if (v === 'p' || v === 'small') { c.setParagraph(); if (v === 'small') c.setMark('smallText'); }
+            else c.setHeading({ level: Number(v[1]) });
+            c.run();
+          }
         }}>
-        <option value="p">일반 텍스트</option>
-        <option value="h1">제목 1</option>
-        <option value="h2">제목 2</option>
-        <option value="h3">제목 3</option>
-        <option value="h4">제목 4</option>
-        <option value="h5">제목 5</option>
-        <option value="h6">제목 6</option>
+        <option value="p" title="Ctrl+Alt+0">일반 텍스트</option>
+        <option value="small">작은 텍스트</option>
+        <option value="quote">인용</option>
+        <option value="h1" title="Ctrl+Alt+1">머릿글 1</option>
+        <option value="h2" title="Ctrl+Alt+2">머릿글 2</option>
+        <option value="h3" title="Ctrl+Alt+3">머릿글 3</option>
+        <option value="h4" title="Ctrl+Alt+4">머릿글 4</option>
+        <option value="h5" title="Ctrl+Alt+5">머릿글 5</option>
+        <option value="h6" title="Ctrl+Alt+6">머릿글 6</option>
       </select>
       <span className="tb-sep" />
       <B title="굵게 (Ctrl+B)" active={editor.isActive('bold')} onClick={() => chain().toggleBold().run()}><b>B</b></B>
       <B title="기울임 (Ctrl+I)" active={editor.isActive('italic')} onClick={() => chain().toggleItalic().run()}><i>I</i></B>
       <B title="밑줄 (Ctrl+U)" active={editor.isActive('underline')} onClick={() => chain().toggleMark('underline').run()}><u>U</u></B>
-      <B title="취소선 (Ctrl+Shift+S)" active={editor.isActive('strike')} onClick={() => chain().toggleStrike().run()}><s>S</s></B>
-      <B title="코드 (Ctrl+Shift+M)" active={editor.isActive('code')} onClick={() => chain().toggleCode().run()}>{'<>'}</B>
+      <FormatMenu label="형식 더 보기">
+      <B title="취소선 (Ctrl+Shift+S)" active={editor.isActive('strike')} onClick={() => chain().toggleStrike().run()}><s>취소선</s></B>
+      <B title="코드 (Ctrl+Shift+M)" active={editor.isActive('code')} onClick={() => chain().toggleCode().run()}>코드</B>
+        <B title="아래 첨자" active={editor.isActive('subscript')} onClick={() => chain().toggleMark('subscript').run()}>아래 첨자</B>
+        <B title="위 첨자" active={editor.isActive('superscript')} onClick={() => chain().toggleMark('superscript').run()}>위 첨자</B>
+        <B title="서식 지우기 (Ctrl+\\)" onClick={() => chain().unsetAllMarks().clearNodes().run()}>서식 지우기</B>
+      </FormatMenu>
+      <FormatMenu label="목록">
+        <B active={editor.isActive('bulletList')} onClick={() => chain().toggleBulletList().run()}>글머리 목록</B>
+        <B active={editor.isActive('orderedList')} onClick={() => chain().toggleOrderedList().run()}>번호 목록</B>
+        <B active={editor.isActive('taskList')} onClick={() => chain().toggleList('taskList', 'taskItem').run()}>작업 목록</B>
+        <B title="들여쓰기 (Tab)" onClick={() => chain().sinkListItem(editor.isActive('taskItem') ? 'taskItem' : 'listItem').run()}>들여쓰기 (Tab)</B>
+        <B title="내어쓰기 (Shift+Tab)" onClick={() => chain().liftListItem(editor.isActive('taskItem') ? 'taskItem' : 'listItem').run()}>내어쓰기 (Shift+Tab)</B>
+      </FormatMenu>
       <span className="tb-color-wrap">
         <B title="텍스트 색상" active={!!editor.getAttributes('textColor').color}
           onClick={() => setPalette((v) => !v)}>
           <span className="tb-color-a" style={{ borderBottomColor: editor.getAttributes('textColor').color ?? '#172b4d' }}>A</span>
         </B>
         {palette && (
-          <span className="tb-pop tb-palette" onMouseDown={(e) => e.preventDefault()}>
+          <span className="tb-pop tb-palette" role="dialog" aria-label="글자색 및 강조색" onMouseDown={(e) => e.preventDefault()}>
+            <strong>텍스트 색상</strong><span className="tb-color-grid">
             <button className="tb-swatch tb-swatch-none" title="기본"
               onClick={() => { chain().unsetMark('textColor').run(); setPalette(false); }}>∅</button>
             {TEXT_COLORS.map((c) => (
               <button key={c} className="tb-swatch" style={{ background: c }} title={c}
                 onClick={() => { chain().setMark('textColor', { color: c }).run(); setPalette(false); }} />
             ))}
+            </span><strong>강조 색상</strong><span className="tb-color-grid">
+            {HIGHLIGHT_COLORS.map(c => <button key={c} className="tb-swatch" style={{ background: c }} title={`강조 ${c}`}
+              onClick={() => { chain().setMark('highlight', { color: c }).run(); setPalette(false); }} />)}
+            </span><button className="tb" onClick={() => { chain().unsetMark('highlight').run(); setPalette(false); }}>강조 제거</button>
           </span>
         )}
       </span>
+      <InsertMenu editor={editor} onImage={onImage} />
+      <EmojiButton editor={editor} />
+      <ToolbarOverflow compact={compact}>
       <span className="tb-sep" />
       <B title="왼쪽 정렬" active={!editor.getAttributes('paragraph').textAlign && !editor.getAttributes('heading').textAlign}
-        onClick={() => chain().setTextAlign(null).run()}>⇤</B>
+        onClick={() => chain().setTextAlign(null).run()}><AlignIcon dir="left" /></B>
       <B title="가운데 정렬" active={editor.isActive({ textAlign: 'center' })}
-        onClick={() => chain().setTextAlign('center').run()}>⇹</B>
+        onClick={() => chain().setTextAlign('center').run()}><AlignIcon dir="center" /></B>
       <B title="오른쪽 정렬" active={editor.isActive({ textAlign: 'right' })}
-        onClick={() => chain().setTextAlign('right').run()}>⇥</B>
+        onClick={() => chain().setTextAlign('right').run()}><AlignIcon dir="right" /></B>
       <span className="tb-sep" />
-      <B title="글머리 목록 (Ctrl+Shift+8)" active={editor.isActive('bulletList')} onClick={() => chain().toggleBulletList().run()}>•≡</B>
-      <B title="번호 목록 (Ctrl+Shift+7)" active={editor.isActive('orderedList')} onClick={() => chain().toggleOrderedList().run()}>1≡</B>
-      <B title="인용 (Ctrl+Shift+9)" active={editor.isActive('blockquote')} onClick={() => chain().toggleBlockquote().run()}>❝</B>
-      <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}>{ '{ }' }</B>
+      <B title="코드 블록" active={editor.isActive('codeBlock')} onClick={() => chain().toggleCodeBlock().run()}><IconCode /></B>
       <span className="tb-sep" />
-      <B title="작업 항목 ([] 입력)" onClick={() => chain().insertContent({
-        type: 'taskList', content: [{ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph' }] }],
-      }).run()}>☑</B>
-      <B title="멘션 (@ 입력)" onClick={() => chain().insertContent('@').run()}>@</B>
-      <B title="이미지·파일 업로드" onClick={onImage}>🖼</B>
-      <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}>⫴</B>
+      <B title="작업 항목 ([] 입력, Ctrl+Shift+6)" active={editor.isActive('taskList')}
+        onClick={() => chain().toggleList('taskList', 'taskItem').run()}><IconTask /></B>
+      <B title="멘션 (@ 입력)" onClick={() => chain().insertContent('@').run()}><IconMention /></B>
+      <B title="이미지·파일 업로드" onClick={onImage}><IconImage /></B>
+      <B title="레이아웃 (2단)" onClick={() => insertLayout(2)}><IconLayout /></B>
       <span className="tb-table-wrap">
-        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}>⊞ 표</B>
+        <B title="표 삽입 (크기 선택)" onClick={() => setGrid(grid ? null : { r: 3, c: 3 })}><IconTable /></B>
         {grid && (
           <span className="tb-pop tb-grid" onMouseDown={(e) => e.preventDefault()}>
             {Array.from({ length: 6 }, (_, r) => (
@@ -413,33 +507,16 @@ function Toolbar({ editor, onImage }) {
           </span>
         )}
       </span>
-      <B title="정보 패널" onClick={() => insertPanel('info')}>ℹ 패널</B>
-      <B title="펼치기" onClick={insertExpand}>▸ 펼치기</B>
-      <B title="구분선" onClick={() => chain().setHorizontalRule().run()}>—</B>
-      <B title="링크 (Ctrl+K)" active={editor.isActive('link')} onClick={() => {
-        const prev = editor.getAttributes('link').href ?? '';
-        const url = window.prompt('링크 URL', prev);
-        if (url === null) return;
-        if (!url) chain().extendMarkRange('link').unsetMark('link').run();
-        else chain().extendMarkRange('link').setMark('link', { href: url }).run();
-      }}>🔗</B>
+      <B title="정보 패널" onClick={() => insertPanel('info')}><IconPanel /></B>
+      <B title="펼치기" onClick={insertExpand}><IconExpand /></B>
+      <B title="구분선" onClick={() => chain().setHorizontalRule().run()}><IconDivider /></B>
+      <B title="링크 (Ctrl+K)" active={editor.isActive('link')}
+        onClick={() => window.dispatchEvent(new CustomEvent('gonf:link-dialog'))}><IconLink /></B>
       <span className="tb-sep" />
-      <B title="실행 취소" onClick={() => chain().undo().run()}>↶</B>
-      <B title="다시 실행" onClick={() => chain().redo().run()}>↷</B>
+      <B title="실행 취소" onClick={() => chain().undo().run()}><IconUndo /></B>
+      <B title="다시 실행" onClick={() => chain().redo().run()}><IconRedo /></B>
       <span className="tb-hint muted">입력 중 <code>/</code> 로 블록 삽입</span>
-      {editor.isActive('table') && (
-        <span className="tb-table-ops">
-          <span className="tb-sep" />
-          <B title="아래에 행 추가" onClick={() => chain().addRowAfter().run()}>+행</B>
-          <B title="행 삭제" onClick={() => chain().deleteRow().run()}>−행</B>
-          <B title="오른쪽에 열 추가" onClick={() => chain().addColumnAfter().run()}>+열</B>
-          <B title="열 삭제" onClick={() => chain().deleteColumn().run()}>−열</B>
-          <B title="헤더 행 토글" onClick={() => chain().toggleHeaderRow().run()}>헤더</B>
-          <B title="선택한 셀 병합" onClick={() => chain().mergeCells().run()}>셀 병합</B>
-          <B title="셀 분할" onClick={() => chain().splitCell().run()}>셀 분할</B>
-          <B title="표 삭제" onClick={() => chain().deleteTable().run()}>표 삭제</B>
-        </span>
-      )}
+      </ToolbarOverflow>
     </div>
   );
 }

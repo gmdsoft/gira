@@ -1,9 +1,26 @@
 #!/usr/bin/env node
 // DB에 적재된 모든 본문 doc을 TipTap 스키마(extensions.js)로 HTML 직렬화해 본다.
 // 스키마에 없는 노드/마크가 있으면 여기서 드러난다.
+import { getSchema } from '@tiptap/core';
+import { convertStorage } from '../../scripts/convert-storage.mjs';
 import { generateHTML } from '@tiptap/html';
 import { extensions } from '../src/extensions.js';
 import { query, closeDb } from '../../server/src/db.mjs';
+
+// DB에 아직 없는 신규 서식도 공통 보기 스키마로 검사한다.
+const { doc: formattingDoc } = convertStorage('<p><small>작은 텍스트</small><span style="color: #164b9f; background-color: #baf3db">색상과 강조</span><sub>아래</sub><sup>위</sup></p>');
+getSchema(extensions).nodeFromJSON(formattingDoc).check();
+generateHTML(formattingDoc, extensions);
+
+// 편집기 이미지 속성이 게시용 스키마에서도 보존되는지 DB 검사 전에 확인한다.
+const imageDoc = { type: 'doc', content: [{ type: 'paragraph', content: [{
+  type: 'media', attrs: { src: '/image-check.png', width: 836, layout: 'wrap-left',
+    border: true, borderColor: '#44546F', borderWidth: 4, alt: '검사 이미지', href: 'https://example.org' },
+  content: [{ type: 'mediaCaption', content: [{ type: 'text', text: '검사 캡션', marks: [{ type: 'bold' }] }] }],
+}] }] };
+getSchema(extensions).nodeFromJSON(imageDoc).check();
+generateHTML(imageDoc, extensions);
+
 
 const { rows } = await query(
   `SELECT v.content_id, c.title, v.doc FROM content_versions v JOIN content c ON c.id = v.content_id WHERE v.doc IS NOT NULL`);

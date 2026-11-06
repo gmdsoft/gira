@@ -1,0 +1,29 @@
+.task-body { min-width: 0; flex: 1; }
+.editor-body .ProseMirror .task-body > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: "작업을 입력하고 '@'를 사용하여 할당합니다.";
+  color: var(--muted);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+.task-body .date-past { color: #ae2e24; background: #ffeceb; }
+.task-body .date-today { font-size: 0; }
+.task-body .date-today::after { content: '오늘'; font-size: 14px; }
+.task-check {
+  appearance: none;
+  border: 1px solid #8590a2;
+  border-radius: 3px;
+  background: white;
+  display: grid;
+  place-content: center;
+}
+.task-check:checked { background: #1868db; border-color: #1868db; }
+.task-check:checked::after {
+  content: '';
+  width: 8px;
+  height: 4px;
+  border: solid white;
+  border-width: 0 0 2px 2px;
+  transform: translateY(-1px) rotate(-45deg);
+}
+.task-check:focus-visible { outline: 2px solid #4688f4; outline-offset: 2px; }

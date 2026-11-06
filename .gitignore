@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 .env
 # 사내 문서 제목 등 원본 데이터가 포함될 수 있으므로 커밋하지 않음
 analysis/raw/
