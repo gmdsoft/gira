@@ -68,6 +68,10 @@ const TOOLS = [
               executor: { type: 'string', enum: ['codex', 'opencode', 'human'] },
               priority: { type: 'string', enum: ['Highest', 'High', 'Normal', 'Low'],
                 description: '중요도에 따른 우선순위 (지침의 우선순위 기준)' },
+              apps: {
+                type: 'array', items: { type: 'string', enum: ['Gira', 'Gonfluence'] },
+                description: '대상 앱 (지침의 대상 앱 기준). 둘 다 해당하면 둘 다',
+              },
               needs_approval: { type: 'boolean' },
               spec_update: { type: 'boolean' },
               attach_files: {
@@ -75,7 +79,7 @@ const TOOLS = [
                 description: '이 이슈에 첨부할 파일 번호 (사용자가 올린 [첨부 #번호]). 없으면 빈 배열',
               },
             },
-            required: ['ref', 'type', 'summary', 'description', 'parent', 'executor', 'priority', 'needs_approval', 'spec_update',
+            required: ['ref', 'type', 'summary', 'description', 'parent', 'executor', 'priority', 'apps', 'needs_approval', 'spec_update',
               'attach_files'],
             additionalProperties: false,
           },
@@ -170,6 +174,9 @@ async function toolCreate({ items }, ctx, textToAdf) {
     const labels = ['dev-chat', `agent:${it.executor}`];
     if (it.needs_approval) labels.push('needs-approval');
     if (it.spec_update) labels.push('spec-update');
+    // 대상 앱 태그 (Gira / Gonfluence). 모델이 비워 두면 대화를 시작한 앱으로
+    const apps = (it.apps ?? []).filter((a) => a === 'Gira' || a === 'Gonfluence');
+    labels.push(...new Set(apps.length ? apps : [ctx.source]));
     const body = [it.description?.trim() || it.summary,
       `— 요청: ${ctx.author ?? '알 수 없음'} (${ctx.source}, 개발참여 챗봇)`].join('\n\n');
     const { rows } = await query(
@@ -195,7 +202,7 @@ async function toolCreate({ items }, ctx, textToAdf) {
         [rows[0].id, f.filename, f.media_type, f.file_size, localKey, ctx.userId]);
     }
     created.push({ ref: it.ref, key: rows[0].issue_key, type: it.type, summary: it.summary.trim(),
-      executor: it.executor, priority: it.priority ?? 'Normal', needsApproval: !!it.needs_approval, parent: it.parent || null,
+      executor: it.executor, priority: it.priority ?? 'Normal', apps: labels.filter((l) => l === 'Gira' || l === 'Gonfluence'), needsApproval: !!it.needs_approval, parent: it.parent || null,
       attachments: files.map((f) => f.filename) });
   }
   // 2차: 상위 연결 (같은 호출의 ref 또는 기존 이슈 키)
