@@ -1,3 +1,4 @@
+import DatabaseView from './DatabaseView.jsx';
 import React, { useEffect, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { extensions } from './extensions.js';
@@ -41,14 +42,14 @@ export default function VersionHistory({ pageId, spaceKey, navigate }) {
         <div className="history-head">
           <h1>{page.title} <span className="muted">— 버전 기록</span></h1>
           <div className="editor-actions">
-            {selected !== current && (
+            {page.type !== 'database' && selected !== current && (
               <select className="mode-select" value={mode} onChange={(e) => setMode(e.target.value)}>
                 <option value="single">선택 버전 보기</option>
                 <option value="side">현재와 나란히 비교</option>
                 <option value="diff">변경 내용 (텍스트)</option>
               </select>
             )}
-            {selected !== current && <button className="btn btn-primary" onClick={restore}>v{selected} 복원</button>}
+            {page.type !== 'database' && selected !== current && <button className="btn btn-primary" onClick={restore}>v{selected} 복원</button>}
             <button className="btn" onClick={() => navigate(`/s/${spaceKey}/p/${pageId}`)}>닫기</button>
           </div>
         </div>
@@ -60,11 +61,11 @@ export default function VersionHistory({ pageId, spaceKey, navigate }) {
               <div className="pane-label">v{selected}{selected === current && ' (현재)'}
                 {selectedDoc && <span className="muted"> · {selectedDoc.author_name ?? ''} {selectedDoc.created_at ? new Date(selectedDoc.created_at).toLocaleString('ko-KR') : ''}</span>}
               </div>
-              {selectedDoc?.doc
+              {page.type === 'database' && selectedDoc?.data ? <DatabaseView key={selected} page={{...page,canEdit:false,data:selectedDoc.data}} /> : selectedDoc?.doc
                 ? <RenderDoc doc={selectedDoc.doc} pageId={pageId} page={page} navigate={navigate} />
                 : <p className="muted">이 버전의 본문이 없습니다.</p>}
             </div>
-            {mode === 'side' && selected !== current && (
+            {mode === 'side' && page.type !== 'database' && selected !== current && (
               <div className="history-pane">
                 <div className="pane-label">v{current} (현재)</div>
                 {page.version?.doc && <RenderDoc doc={page.version.doc} pageId={pageId} page={page} navigate={navigate} />}
