@@ -144,3 +144,13 @@ CREATE TABLE IF NOT EXISTS redirects (
   content_id bigint,
   target_url text
 );
+
+-- Imported canvas databases retain their source for future conversion.
+CREATE TABLE IF NOT EXISTS database_snapshots (
+  content_id bigint NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+  version int NOT NULL,
+  data jsonb NOT NULL,
+  source_ybin bytea NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (content_id, version)
+);
