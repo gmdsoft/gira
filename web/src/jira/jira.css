@@ -218,7 +218,14 @@ a.sitem:hover { text-decoration: none; }
 .fbar select { height: 32px; padding: 0 26px 0 8px; font-size: 13px; color: var(--text); background-color: var(--panel); appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23626f86' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 7px center; }
 .fbar select:hover { background-color: var(--hover); }
 .fbar select.active { background-color: var(--selected); border-color: var(--accent); color: var(--accent); }
-.fbar input[type=search] { height: 32px; width: 210px; font-size: 13px; }
+.fbar input[type=search] { height: 32px; width: 150px; font-size: 13px; }
+/* 담당자·스프린트: 긴 이름에 맞춰 넓어지지 않게 (넘치면 …) */
+.fbar select.f-narrow { max-width: 130px; text-overflow: ellipsis; }
+/* 맨 앞 'AI에게 물어보기' */
+.fbar > button.ai-ask { display: inline-flex; align-items: center; gap: 5px; height: 32px; padding: 0 10px 0 6px; font-size: 13px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--text); }
+.fbar > button.ai-ask:hover { background: var(--hover); }
+.fbar > button.ai-ask.on { background: var(--selected); border-color: var(--accent); color: var(--accent); font-weight: 600; }
 .fbar > button:not(.iconbtn):not(.plain) { height: 32px; padding: 0 10px; font-size: 13px; }
 .fbar-spacer { flex: 1; min-width: 8px; }
 #count { color: var(--dim); font-size: 12px; white-space: nowrap; }
