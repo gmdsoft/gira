@@ -1,8 +1,9 @@
-// 댓글 입력: 글 + 파일 첨부(📎 버튼·클립보드 붙여넣기·끌어 놓기). 첨부는 이슈 첨부로 올리고,
-// 댓글 본문에는 그 첨부를 가리키는 미디어로 넣는다(이미지는 댓글 안에 바로 보인다).
+// 댓글 입력 (Gira·Gonfluence 공용): 글 + 파일 첨부(📎 버튼·클립보드 붙여넣기·끌어 놓기).
+// 파일은 upload(file)로 먼저 올리고(이슈 첨부 / 문서 첨부), 그 결과를 onSubmit(text, uploaded)에 넘긴다 —
+// 본문에 어떻게 넣을지는 각 앱이 정한다 (이미지는 댓글 안에 바로 보이게).
 import React, { useEffect, useRef, useState } from 'react';
-import { api } from './util.jsx';
-import { IconPaperclip } from './icons.jsx';
+import { IconPaperclip } from './jira/icons.jsx';
+import './comment-composer.css';
 
 // 클립보드 이미지는 이름이 늘 image.png라 시각을 붙여 구분한다
 function namedFile(f) {
@@ -14,8 +15,8 @@ function namedFile(f) {
   return new File([f], `붙여넣은-이미지-${stamp}-${Math.random().toString(36).slice(2, 6)}.${ext}`, { type: f.type });
 }
 
-export default function CommentComposer({ issueKey, initialText = '', placeholder = '댓글 추가...', submitLabel = '댓글 달기',
-  autoFocus = false, mini = false, onSubmit, onCancel }) {
+export default function CommentComposer({ upload, initialText = '', placeholder = '댓글 추가...', submitLabel = '댓글 달기',
+  autoFocus = false, mini = false, className = 'cform', onSubmit, onCancel }) {
   const [text, setText] = useState(initialText);
   const [pending, setPending] = useState([]); // [{ key, file, url }]
   const [busy, setBusy] = useState(false);
@@ -44,14 +45,9 @@ export default function CommentComposer({ issueKey, initialText = '', placeholde
     if ((!body && !pending.length) || busy) return;
     setBusy(true);
     try {
-      const ids = [];
-      for (const p of pending) {
-        const fd = new FormData();
-        fd.append('file', p.file, p.file.name);
-        const r = await api(`/api/issue/${encodeURIComponent(issueKey)}/attachments`, { method: 'POST', body: fd, quiet: true });
-        ids.push(r.id);
-      }
-      await onSubmit(body, ids);
+      const uploaded = [];
+      for (const p of pending) uploaded.push(await upload(p.file));
+      await onSubmit(body, uploaded);
       pending.forEach((p) => p.url && URL.revokeObjectURL(p.url));
       setPending([]); setText('');
     } catch (e) {
@@ -60,7 +56,7 @@ export default function CommentComposer({ issueKey, initialText = '', placeholde
   };
 
   return (
-    <div className={`cform composer${over ? ' drop-over' : ''}`}
+    <div className={`${className} composer${over ? ' drop-over' : ''}`}
       onDragOver={(e) => { if ([...(e.dataTransfer?.types ?? [])].includes('Files')) { e.preventDefault(); setOver(true); } }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); setOver(false); addFiles(e.dataTransfer.files); } }}>
@@ -78,11 +74,11 @@ export default function CommentComposer({ issueKey, initialText = '', placeholde
         </div>)}
       <div className="actions">
         <input type="file" multiple ref={fileRef} hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-        <button type="button" className={`composer-attach${mini ? ' mini' : ''}`} title="파일·이미지 첨부 (붙여넣기·끌어 놓기도 됩니다)"
+        <button type="button" className={`composer-attach btn${mini ? ' mini' : ''}`} title="파일·이미지 첨부 (붙여넣기·끌어 놓기도 됩니다)"
           onClick={() => fileRef.current?.click()}><IconPaperclip size={16} /></button>
         <span className="composer-hint dim">이미지는 붙여넣기(Ctrl+V)·끌어 놓기 가능</span>
-        {onCancel && <button type="button" className={mini ? 'mini' : ''} onClick={onCancel} disabled={busy}>취소</button>}
-        <button type="button" className={`primary${mini ? ' mini' : ''}`} onClick={submit}
+        {onCancel && <button type="button" className={`btn${mini ? ' mini' : ''}`} onClick={onCancel} disabled={busy}>취소</button>}
+        <button type="button" className={`primary btn btn-primary${mini ? ' mini' : ''}`} onClick={submit}
           disabled={busy || (!text.trim() && !pending.length)}>{busy ? '올리는 중…' : submitLabel}</button>
       </div>
     </div>

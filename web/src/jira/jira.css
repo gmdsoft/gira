@@ -926,18 +926,6 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
   .lane-head { flex-wrap: wrap; }
   .home-cols { grid-template-columns: 1fr; }
 }
-/* 댓글 입력: 파일·이미지 첨부 (📎·붙여넣기·끌어 놓기) */
-.composer.drop-over textarea { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(12, 102, 228, .16); }
-.composer-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.composer-file { position: relative; display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); overflow: hidden; }
-.composer-file img { display: block; height: 72px; max-width: 160px; object-fit: cover; }
-.composer-fname { padding: 6px 28px 6px 10px; font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.composer-x { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 50%;
-  background: rgba(9, 30, 66, .6); color: #fff; font-size: 11px; line-height: 20px; cursor: pointer; }
-.composer-attach { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; }
-.composer-attach.mini { width: 28px; height: 28px; }
-.composer-hint { font-size: 12px; margin-right: auto; margin-left: -4px; }
-.composer-keep { font-size: 12px; margin-top: 4px; }
 .comment-body .adf-img { max-height: 480px; object-fit: contain; border: 1px solid var(--line-soft); border-radius: 4px; }
 
 /* 전체 목록은 마운트한 채 상세만 덮어 필터·표 스크롤을 유지한다. */

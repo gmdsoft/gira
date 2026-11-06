@@ -1,4 +1,5 @@
 import { useMobile } from './mobile.js';
+import CommentComposer from './comment-composer.jsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { generateHTML } from '@tiptap/html';
@@ -386,35 +387,31 @@ function InlineComments({ comments, pageId, onChanged }) {
   );
 }
 
+// 댓글 입력 (Gira와 같은 공용 입력창): 글 + 파일·이미지 첨부(📎·붙여넣기·끌어 놓기).
+// 파일은 문서 첨부로 올리고, 댓글 본문에 이미지(media)·파일 링크(fileLink)로 넣는다 — 보기에서 첨부 주소로 채워진다.
 function CommentForm({ pageId, onAdded }) {
-  const [text, setText] = useState('');
-  const [busy, setBusy] = useState(false);
-  const submit = async () => {
-    if (!text.trim() || busy) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/content/${pageId}/comments`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: text.trim() }),
-      });
-      if (!res.ok) { alert('댓글 등록 실패'); return; }
-      setText('');
-      onAdded();
-    } finally { setBusy(false); }
+  const upload = async (file) => {
+    const fd = new FormData(); fd.append('file', file, file.name);
+    const res = await fetch(`/api/content/${pageId}/attachments`, { method: 'POST', body: fd });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(res.status === 403 ? '이 문서에 파일을 올릴 권한(편집)이 없습니다' : (body.error ?? '파일을 올리지 못했습니다'));
+    return { filename: body.filename, image: (file.type || '').startsWith('image/') };
   };
-  return (
-    <div className="comment-form">
-      <textarea value={text} rows={2} placeholder="댓글 추가…"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }} />
-      {text.trim() && (
-        <div className="comment-form-actions">
-          <button className="btn btn-primary" disabled={busy} onClick={submit}>등록</button>
-          <span className="muted">Ctrl+Enter로 등록</span>
-        </div>
-      )}
-    </div>
-  );
+  const submit = async (text, uploaded) => {
+    const content = [
+      ...(text ? text.split(/\n+/).map((line) => ({ type: 'paragraph', content: [{ type: 'text', text: line }] })) : []),
+      ...uploaded.map((u) => ({ type: 'paragraph', content: [u.image
+        ? { type: 'media', attrs: { kind: 'attachment', filename: u.filename } }
+        : { type: 'fileLink', attrs: { filename: u.filename } }] })),
+    ];
+    const res = await fetch(`/api/content/${pageId}/comments`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc: { type: 'doc', content } }),
+    });
+    if (!res.ok) throw new Error('댓글 등록 실패');
+    onAdded();
+  };
+  return <CommentComposer className="comment-form" placeholder="댓글 추가…" submitLabel="등록" upload={upload} onSubmit={submit} />;
 }
 
 function isEmptyDoc(doc) {
