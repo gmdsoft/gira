@@ -441,10 +441,13 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                 .map(([k, label]) => (
                   <button key={k} className={actTab === k ? 'on' : ''} onClick={() => setActTab(k)}>{label}</button>))}
             </div>
+            {/* 활동은 최신순이라 Jira처럼 댓글 입력창을 목록 위에 둔다 */}
+            {actTab !== 'history' && actTab !== 'worklog' && (
+              <div className="composer-top">
+                <CommentComposer key={'new-' + issueKey} issueKey={issueKey} onSubmit={addComment} />
+              </div>)}
             {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
             {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
-            {actTab !== 'history' && actTab !== 'worklog' && (
-              <CommentComposer key={'new-' + issueKey} issueKey={issueKey} onSubmit={addComment} />)}
           </section>
         </div>
 

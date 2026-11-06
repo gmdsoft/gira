@@ -950,3 +950,6 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .issue-modal .issue-view { max-width: none; }
 .issues a.cell-sum { color: inherit; text-decoration: none; }
 .issues a.cell-sum:hover { text-decoration: underline; }
+
+/* 댓글 입력창을 활동 목록 위에 둘 때 아래 간격 */
+.composer-top { margin-bottom: 14px; }
