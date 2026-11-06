@@ -1,4 +1,4 @@
-// DB 접근 계층. PostgreSQL 16 (로컬: docker-compose.dev.yml, 운영: docker-compose.prod.yml).
+// DB 접근 계층. PostgreSQL 16 (로컬: docker/docker-compose.dev.yml, 운영: docker/docker-compose.gira.yml·gonfluence.yml).
 // query(sql, params) → { rows }
 //
 // 앱마다 DB가 다르다 (알파부터 분리):
@@ -36,7 +36,7 @@ export async function getDb() {
   if (!pool) {
     const url = config.url ?? process.env.DATABASE_URL;
     if (!url) {
-      throw new Error('DATABASE_URL 이 없습니다. docker compose -f docker-compose.dev.yml up -d 후 .env 를 확인하세요.');
+      throw new Error('DATABASE_URL 이 없습니다. docker compose -f docker/docker-compose.dev.yml up -d 후 .env 를 확인하세요.');
     }
     pool = new pg.Pool({
       connectionString: url,

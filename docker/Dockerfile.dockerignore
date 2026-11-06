@@ -10,9 +10,7 @@ analysis
 temp
 docs
 scripts
-search
 *.md
-Dockerfile
-docker-compose*.yml
+docker
 web/dist-admin
 !docs/alpha-spec.md

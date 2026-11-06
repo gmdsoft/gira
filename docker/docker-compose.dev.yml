@@ -1,5 +1,5 @@
 # 로컬 개발용 스택. 운영 compose(TrueNAS)는 별도로 작성한다.
-# 실행: docker compose -f docker-compose.dev.yml up -d
+# 실행(저장소 루트에서): docker compose -f docker/docker-compose.dev.yml up -d
 name: rea-confluence-dev
 services:
   postgres:

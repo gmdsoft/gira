@@ -2,12 +2,12 @@
 
 Gira와 Gonfluence는 **각각 독립 스택으로 배포**한다. 스택마다 자기 PostgreSQL을 가지며,
 서로 없어도 동작한다 (앱 간 연결은 URL 링크뿐). 같은 호스트에 둘 다 올려도 되고,
-다른 호스트에 하나씩 올려도 된다. 두 앱 모두 루트 `Dockerfile` 한 장으로 빌드된 같은 이미지를 쓴다.
+다른 호스트에 하나씩 올려도 된다. 두 앱 모두 `docker/Dockerfile` 한 장으로 빌드된 같은 이미지를 쓴다.
 
 | 스택 | compose 파일 | 포트 | 구성 |
 | --- | --- | --- | --- |
-| Gonfluence | docker-compose.gonfluence.yml | 3001 (`GONFLUENCE_PORT`), 관리 3003 (`ADMIN_PORT`) | app + postgres(rea DB) + opensearch + admin |
-| Gira | docker-compose.gira.yml | 3002 (`GIRA_PORT`), 관리 3013 (`GIRA_ADMIN_PORT`) | app + postgres(gira DB) + admin |
+| Gonfluence | docker/docker-compose.gonfluence.yml | 3001 (`GONFLUENCE_PORT`), 관리 3003 (`ADMIN_PORT`) | app + postgres(rea DB) + opensearch + admin |
+| Gira | docker/docker-compose.gira.yml | 3002 (`GIRA_PORT`), 관리 3013 (`GIRA_ADMIN_PORT`) | app + postgres(gira DB) + admin |
 
 **관리 서비스(admin)** 는 조직(사용자·팀·파트·그룹·직책·생성 권한·API 키)의 유일한 관리 지점이다.
 자체 DB 없이 스택의 조직 테이블(schema-core)을 관리하며, 앱 서버에는 조직을 바꾸는 API가 없다.
@@ -17,8 +17,8 @@ Gira와 Gonfluence는 **각각 독립 스택으로 배포**한다. 스택마다 
 ```
 # Gonfluence 스택의 admin 이 양쪽 조직 테이블을 관리하도록
 echo 'ORG_MIRROR_DATABASE_URL=postgres://rea:<PW>@gira-postgres-1주소:5432/gira' >> .env
-docker compose -f docker-compose.gonfluence.yml up -d --build
-docker compose -f docker-compose.gira.yml up -d --build --scale admin=0
+docker compose -f docker/docker-compose.gonfluence.yml --env-file .env up -d --build
+docker compose -f docker/docker-compose.gira.yml --env-file .env up -d --build --scale admin=0
 ```
 
 (개발 환경은 로컬 postgres 하나라 `.env` 의 `ORG_MIRROR_DATABASE_URL=...:5432/gira` 로 충분)
@@ -44,8 +44,8 @@ docker compose -f docker-compose.gira.yml up -d --build --scale admin=0
 2. 필요한 스택만 기동 (스키마는 앱이 기동하면서 스스로 적용):
 
    ```
-   docker compose -f docker-compose.gonfluence.yml up -d --build
-   docker compose -f docker-compose.gira.yml up -d --build
+   docker compose -f docker/docker-compose.gonfluence.yml --env-file .env up -d --build
+   docker compose -f docker/docker-compose.gira.yml --env-file .env up -d --build
    ```
 
 3. 데이터 반입: 개발 DB의 `pg_dump` 를 각 스택의 postgres 로 복원한다
@@ -56,15 +56,15 @@ docker compose -f docker-compose.gira.yml up -d --build --scale admin=0
 
 ```
 git pull
-docker compose -f docker-compose.gonfluence.yml up -d --build app   # Gonfluence만
-docker compose -f docker-compose.gira.yml up -d --build app         # Gira만
+docker compose -f docker/docker-compose.gonfluence.yml --env-file .env up -d --build app   # Gonfluence만
+docker compose -f docker/docker-compose.gira.yml --env-file .env up -d --build app         # Gira만
 ```
 
 스택이 분리되어 있으므로 한쪽을 재배포해도 다른 쪽은 영향이 없다.
 
 ## 백업 (스택별)
 
-- DB: `docker compose -f docker-compose.gira.yml exec postgres sh -c 'pg_dump -U rea gira' > gira.sql`
+- DB: `docker compose -f docker/docker-compose.gira.yml --env-file .env exec postgres sh -c 'pg_dump -U rea gira' > gira.sql`
   (Gonfluence는 rea DB 동일 요령)
 - 첨부: 각 스택의 `appdata` 볼륨 스냅샷
 
