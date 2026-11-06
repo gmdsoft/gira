@@ -826,3 +826,7 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .home-in-shell { margin-top: 24px; }
 .home-in-shell .home-title { font-size: 24px; margin: 0; }
 .home-in-shell .home-hello { margin: 4px 0 8px; }
+
+.jira-issue { display: inline-flex; align-items: baseline; gap: 5px; max-width: 100%; vertical-align: baseline; }
+.jira-issue-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 32em; }
+.jira-issue .status { flex-shrink: 0; }

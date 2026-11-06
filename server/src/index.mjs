@@ -1,3 +1,4 @@
+import { registerGiraCards } from './gira-cards.mjs';
 // API 서버 (PoC).
 // - /api/* : 스페이스, 콘텐츠 트리, 본문(ProseMirror JSON), 댓글, 첨부 프록시
 // - /wiki/* : 기존 Confluence URL 호환 리다이렉트 (docs/architecture.md)
@@ -892,6 +893,8 @@ app.put('/api/content/:id/restrictions', async (req, reply) => {
   }
   return { ok: true };
 });
+
+registerGiraCards(app);
 
 // ---------- 개발참여: Gira의 GIRA 개발 프로젝트로 프록시 ----------
 // 서비스 키(GIRA_SERVICE_KEY)로 Gira에 이슈를 만들고, 실제 작성자 이름을 설명에 남긴다.
