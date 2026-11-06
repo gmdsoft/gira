@@ -154,6 +154,7 @@ CREATE TABLE IF NOT EXISTS database_snapshots (
   fetched_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (content_id, version)
 );
+ALTER TABLE database_snapshots ALTER COLUMN source_ybin DROP NOT NULL;
 CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
   content_id bigint NOT NULL REFERENCES content(id) ON DELETE CASCADE,
   version int NOT NULL,
