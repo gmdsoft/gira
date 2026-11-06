@@ -208,3 +208,22 @@ CREATE INDEX IF NOT EXISTS jira_web_links_issue ON jira_web_links(issue_id);
 
 ALTER TABLE jira_attachments ADD COLUMN IF NOT EXISTS media_id text;
 CREATE INDEX IF NOT EXISTS jira_attachments_media_id ON jira_attachments(media_id);
+
+-- GIRA-65: 원본 형식과 컨텍스트별 선택지. 기존 설치에도 적용한다.
+ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS schema_custom text;
+ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '[]';
+
+-- JS searchValues와 동일하게 값의 의미 있는 잎만 검색한다(옵션 id 등 메타데이터 제외).
+CREATE OR REPLACE FUNCTION jira_custom_search(value jsonb) RETURNS text[]
+LANGUAGE sql IMMUTABLE AS $$
+  WITH RECURSIVE leaves(v) AS (
+    SELECT value
+    UNION ALL
+    SELECT child.v FROM leaves l CROSS JOIN LATERAL (
+      SELECT a.value AS v FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.v) = 'array' THEN l.v ELSE '[]'::jsonb END) a
+      UNION ALL
+      SELECT o.value FROM jsonb_each(CASE WHEN jsonb_typeof(l.v) = 'object' THEN l.v ELSE '{}'::jsonb END) o
+      WHERE o.key IN ('value', 'displayName', 'accountId', 'name', 'text', 'content', 'start', 'end')
+    ) child
+  ) SELECT COALESCE(array_agg(v #>> '{}') FILTER (WHERE jsonb_typeof(v) IN ('string', 'number', 'boolean') AND v #>> '{}' <> ''), ARRAY[]::text[]) FROM leaves;
+$$;

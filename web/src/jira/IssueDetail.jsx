@@ -32,6 +32,45 @@ function InlineText({ value, onSave, as: Tag = 'span', className, placeholder, i
     onKeyDown={(e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); }} />;
 }
 
+function CustomField({ field: f, canEdit, onSave, attachments }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const multi = ['multicheckboxes', 'multiselect'].includes(f.type);
+  const select = multi || ['select', 'radiobuttons'].includes(f.type);
+  const begin = () => {
+    setValue(select ? (multi ? f.value.map(v => String(v.id)) : String(f.value?.id ?? '')) : f.type === 'labels' ? f.value.join(', ') : String(f.value ?? ''));
+    setError(''); setEditing(true);
+  };
+  const save = async (clear = false) => {
+    setBusy(true);
+    try {
+      let next = clear ? null : value;
+      if (!clear) {
+        if (f.type === 'float') next = value === '' ? null : Number(value);
+        if (f.type === 'labels') next = value.split(',').map(v => v.trim()).filter(Boolean);
+        if (!multi && next === '') next = null;
+      }
+      await onSave(next); setEditing(false);
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  if (editing) return <div>
+    {select ? <select aria-label={f.name} multiple={multi} value={value} onChange={e => setValue(multi ? Array.from(e.target.selectedOptions, o => o.value) : e.target.value)}>
+      {!multi && <option value="">없음</option>}
+      {f.options.map(o => <option key={o.id} value={String(o.id)}>{o.value}</option>)}
+    </select> : <input aria-label={f.name} type={f.type === 'float' ? 'number' : f.type === 'datepicker' ? 'date' : f.type === 'url' ? 'url' : 'text'} step="any" value={value} onChange={e => setValue(e.target.value)} />}
+    {f.type === 'labels' && <small>쉼표로 구분</small>}
+    <button disabled={busy} onClick={() => save()}>저장</button><button disabled={busy} onClick={() => save(true)}>비우기</button><button disabled={busy} onClick={() => setEditing(false)}>취소</button>
+    {error && <div role="alert">{error}</div>}
+  </div>;
+  return <div>
+    {f.type === 'textarea' && f.value?.type === 'doc' ? <AdfView doc={f.value} attachments={attachments} /> : <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.display}</span>}
+    {canEdit && f.editable && <button type="button" className="add-link" onClick={begin} aria-label={`${f.name} 편집`}>편집</button>}
+  </div>;
+}
+
 // ---------- 필드 컨트롤 (Jira식 팝오버/칩) ----------
 function Popover({ children, onClose, width }) {
   const ref = useRef(null);
@@ -514,18 +553,19 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
           <div className="dcard">
             <div className="dcard-head"><IconChevronDown size={16} /><span>세부 사항</span></div>
             <div className="body"><dl>
-              <dt>Story point estimate</dt><dd><span className="add-link">스토리 포인트 추가</span></dd>
+              {(d.customFields ?? []).filter(f => f.storyPoints).map(f => <React.Fragment key={f.id}><dt>{f.name}</dt><dd><CustomField field={f} canEdit={canEdit} attachments={d.attachments} onSave={value => patch({ customFields: { [f.id]: value } })} /></dd></React.Fragment>)}
               <dt>보고자</dt><dd><span className="person"><Avatar name={d.reporter_name} /><span>{d.reporter_name ?? '-'}</span></span></dd>
             </dl></div>
           </div>
           <div className="dcard">
-            <div className="dcard-head"><IconChevronRight size={16} /><span>더 많은 필드</span></div>
+            <div className="dcard-head"><IconChevronDown size={16} /><span>더 많은 필드</span></div>
             <div className="body"><dl>
               <dt>타입</dt><dd>
                 <span className="type-cell"><TypeIcon name={meta.types.find((t) => Number(t.id) === Number(d.issue_type_id))?.name} />
                 <select value={d.issue_type_id ?? ''} onChange={(e) => patch({ typeId: Number(e.target.value) })}>
                   {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select></span></dd>
+              {(d.customFields ?? []).filter(f => !f.storyPoints).map(f => <React.Fragment key={f.id}><dt>{f.name}</dt><dd><CustomField field={f} canEdit={canEdit} attachments={d.attachments} onSave={value => patch({ customFields: { [f.id]: value } })} /></dd></React.Fragment>)}
             </dl></div>
           </div>
           <div className="dtimes">
