@@ -1008,3 +1008,10 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .worklog-add input { padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
 .worklog-row { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .worklog-comment { flex-basis: 100%; padding-left: 32px; }
+
+.adf-inline-card { display: inline; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; overflow-wrap: anywhere; }
+.adf-link-card { display: block; border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+.adf-inline-card .status-lozenge, .adf-link-card .status-lozenge { margin-left: 6px; }
+.adf-embed { width: 100%; height: 450px; border: 1px solid var(--line); border-radius: 6px; }
+.adf-decisions { list-style: none; padding-left: 16px; }
+.adf-decisions > li { padding: 6px; border-left: 3px solid var(--line); }
