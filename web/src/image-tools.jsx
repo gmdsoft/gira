@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { DOMSerializer } from '@tiptap/pm/model';
 import './image-tools.css';
 
@@ -9,6 +9,7 @@ export default function ImageTools({ editor }) {
   const [drag, setDrag] = useState(null);
   const [preview, setPreview] = useState(false);
   const [zoom, setZoom] = useState(100);
+  const [link, setLink] = useState('');
   const [bytes, setBytes] = useState(null);
   useEffect(() => {
     const sync = () => {
@@ -59,26 +60,42 @@ export default function ImageTools({ editor }) {
     const area = editor.view.dom.closest('.editor') || editor.view.dom.parentElement;
     setDrag({ x: e.clientX, width: rect.width, direction, factor: wrap || aligned ? 1 : 2, max: Math.min(1800, area.clientWidth) });
   };
+  let recent = [];
+  try { recent = JSON.parse(localStorage.getItem('gonf.recent') || '[]'); } catch {}
+  const saveLink = value => {
+    if (!value || /^(https?:\/\/|mailto:|\/(?!\/)|#)/i.test(value)) { update({ href: value || null }); setMenu(''); }
+  };
+  const addCaption = () => {
+    const caption = editor.schema.nodes.mediaCaption.create(null, a.caption ? editor.schema.text(a.caption) : null);
+    const tr = editor.state.tr.setNodeMarkup(pos, undefined, { ...a, caption: null });
+    tr.insert(pos + 1, caption);
+    tr.setSelection(TextSelection.create(tr.doc, pos + 2));
+    editor.view.dispatch(tr); editor.view.focus();
+  };
   const toggle = name => setMenu(menu === name ? '' : name);
   const sizeInput = (label, value, divisor) => <label>{label} <input key={`${label}-${width}`} type="number" min="24" max="1800" defaultValue={value} onBlur={e => { if (e.target.value && Number.isFinite(e.target.valueAsNumber)) update({ width: Math.round(Math.max(24, Math.min(1800, 1800 * ratio, e.target.valueAsNumber * divisor))) }); }} onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }} /></label>;
   return <>
+    {!node.childCount && <button className="image-add-caption" style={{ left: rect.left, top: rect.bottom + 6, width: rect.width }} onMouseDown={e => e.preventDefault()} onClick={addCaption}>{a.caption || '캡션 추가'}</button>}
     {(!wrap || a.layout === 'wrap-right') && <button aria-label="이미지 왼쪽 크기 조절" className="image-resize-handle" style={{ left: rect.left - 10, top: rect.top + rect.height / 2 - 32 }} onPointerDown={e => begin(e, -1)} />}
     {(!wrap || a.layout === 'wrap-left') && <button aria-label="이미지 오른쪽 크기 조절" className="image-resize-handle" style={{ left: rect.right + 6, top: rect.top + rect.height / 2 - 32 }} onPointerDown={e => begin(e, 1)} />}
     {drag && <div className="image-guides" style={{ left: rect.left, width: rect.width }} />}
-    <div className="image-tools" role="toolbar" aria-label="이미지 도구" style={{ left: Math.max(8, Math.min(rect.left + rect.width / 2 - 210, window.innerWidth - 440)), top: Math.max(150, Math.min(rect.bottom + 12, window.innerHeight - 65)) }} onMouseDown={e => { if (e.target.tagName !== 'INPUT') e.preventDefault(); }}>
+    <div className="image-tools" role="toolbar" aria-label="이미지 도구" style={{ left: Math.max(8, Math.min(rect.left + rect.width / 2 - 210, window.innerWidth - 440)), top: Math.max(150, Math.min(rect.bottom + (node.childCount ? 44 : 40), window.innerHeight - 65)) }} onMouseDown={e => { if (e.target.tagName !== 'INPUT') e.preventDefault(); }}>
       {drag ? <span>너비 {width} 높이 {height}</span> : <>
         <button aria-pressed={!!a.border} onClick={() => update({ border: !a.border })}>테두리</button>
         <button aria-label="테두리 옵션" onClick={() => toggle('border')}>⌄</button>
         <button onClick={() => toggle('align')}>정렬 ⌄</button>
         <button onClick={() => toggle('size')}>크기 ⌄</button>
         <button onClick={() => { setPreview(true); setZoom(100); }}>펼치기</button>
+        {a.href && <a href={a.href} target="_blank" rel="noopener noreferrer">새 탭에서 링크 열기</a>}
         <button aria-label="이미지 더 보기" onClick={() => toggle('more')}>⋯</button>
         {menu && <div className="image-menu">
           {menu === 'border' && <><span>색</span>{[['#DCDFE4','연한 회색'],['#8590A2','회색'],['#44546F','진한 회색']].map(([color,label]) => <button key={color} onClick={() => update({ border: true, borderColor: color })}>{label}</button>)}<span>굵기</span>{[[1,'가늘게'],[2,'보통'],[4,'굵게']].map(([n,label]) => <button key={n} onClick={() => update({ border: true, borderWidth: n })}>{label}</button>)}</>}
           {menu === 'align' && [['left','왼쪽'],['center','가운데'],['right','오른쪽'],['wrap-left','왼쪽에서 줄 바꿈'],['wrap-right','오른쪽에서 줄 바꿈']].map(([value,label]) => <button key={value} onClick={() => { update({ align: value.startsWith('wrap') ? null : value, layout: value.startsWith('wrap') ? value : null }); setMenu(''); }}>{label}</button>)}
           {menu === 'size' && <button onClick={() => { update({ width: null }); setMenu(''); }}>원래 크기</button>}
           {menu === 'resize' && <>{sizeInput('너비', width, 1)}{sizeInput('높이', height, ratio)}<button onClick={() => setMenu('')}>닫기</button></>}
-          {menu === 'more' && <><button onClick={() => setMenu('resize')}>크기 조정</button><button onClick={() => { const dom = DOMSerializer.fromSchema(editor.schema).serializeNode(node);
+          {menu === 'alt' && <><label>대체 텍스트<input autoFocus maxLength={510} placeholder="대체 텍스트로 이미지 설명하기" value={a.alt ?? a.filename ?? ''} onChange={e => update({ alt: e.target.value })} /></label><button aria-label="대체 텍스트 지우기" onClick={() => update({ alt: '' })}>⊗</button><span>대체 텍스트는 시각적 제약으로 인해 화면 읽기 프로그램을 사용하는 사람에게 유용합니다.</span><button onClick={() => setMenu('')}>닫기</button></>}
+          {menu === 'link' && <><form onSubmit={e => { e.preventDefault(); saveLink(link); }}><input autoFocus aria-label="이미지 링크" placeholder="링크 붙여넣기 또는 검색" value={link} onChange={e => setLink(e.target.value)} /><button type="submit">적용</button></form>{recent.filter(r => !link || r.title?.includes(link)).map(r => <button key={r.id} onClick={() => saveLink(`/s/${encodeURIComponent(r.spaceKey)}/p/${r.id}`)}>{r.title}</button>)}{a.href && <button onClick={() => saveLink('')}>링크 제거</button>}</>}
+          {menu === 'more' && <><button onClick={() => { setLink(a.href || ''); setMenu('link'); }}>{a.href ? '링크 편집' : '링크 추가'}</button><button onClick={() => setMenu('alt')}>대체 텍스트</button><button onClick={() => setMenu('resize')}>크기 조정</button><button onClick={() => { const dom = DOMSerializer.fromSchema(editor.schema).serializeNode(node);
             const copy = e => { e.preventDefault(); e.clipboardData.setData('text/html', dom.outerHTML); e.clipboardData.setData('text/plain', a.src || ''); };
             document.addEventListener('copy', copy);
             try { document.execCommand('copy'); } finally { document.removeEventListener('copy', copy); }

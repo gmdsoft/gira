@@ -15,7 +15,8 @@ generateHTML(formattingDoc, extensions);
 // 편집기 이미지 속성이 게시용 스키마에서도 보존되는지 DB 검사 전에 확인한다.
 const imageDoc = { type: 'doc', content: [{ type: 'paragraph', content: [{
   type: 'media', attrs: { src: '/image-check.png', width: 836, layout: 'wrap-left',
-    border: true, borderColor: '#44546F', borderWidth: 4 },
+    border: true, borderColor: '#44546F', borderWidth: 4, alt: '검사 이미지', href: 'https://example.org' },
+  content: [{ type: 'mediaCaption', content: [{ type: 'text', text: '검사 캡션', marks: [{ type: 'bold' }] }] }],
 }] }] };
 getSchema(extensions).nodeFromJSON(imageDoc).check();
 generateHTML(imageDoc, extensions);

@@ -407,7 +407,7 @@ function Toolbar({ editor, onImage }) {
   }).run();
 
   return (
-    <div className="toolbar" ref={toolbarRef}>
+    <div className={`toolbar ${editor.isActive('mediaCaption') ? 'caption-toolbar' : ''}`} ref={toolbarRef}>
       <select className="tb-select"
         aria-label="텍스트 스타일" title="텍스트 스타일 (일반 Ctrl+Alt+0, 머릿글 Ctrl+Alt+1~6)"
         value={editor.isActive('blockquote') ? 'quote' : editor.isActive('heading') ? `h${editor.getAttributes('heading').level}` : editor.isActive('smallText') ? 'small' : 'p'}

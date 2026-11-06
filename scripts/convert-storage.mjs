@@ -155,8 +155,16 @@ export function convertStorage(xhtml) {
         // 원본은 테두리 유무만 제공한다. 편집기의 색·굵기는 기본값으로 렌더한다.
         borderColor: null, borderWidth: null,
         alt: dec(n.attribs['ac:alt'] ?? '') || null,
-        caption: caption ? textOf(caption).trim() : null,
+        caption: null,
       },
+      ...(caption ? { content: [{
+        type: 'mediaCaption',
+        content: inline(caption.children, [])
+          .filter(n => ['text', 'mention', 'emoji', 'pageLink', 'spaceLink', 'fileLink'].includes(n.type))
+          .map(n => ({ ...n, ...(n.marks ? {
+            marks: n.marks.filter(m => ['bold', 'italic', 'underline', 'textColor', 'link'].includes(m.type)),
+          } : {}) })),
+      }] } : {}),
     };
   }
 

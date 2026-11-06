@@ -3,6 +3,7 @@ import { datePresentation } from './date-presentation.js';
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
 // StarterKit(문단, 제목, 목록, 인용, 코드, 수평선 등) + 아래 커스텀 노드/마크.
 // JSX 없이 작성한다 — node 스크립트(render-check)에서도 그대로 import한다.
+import { MediaCaption } from './image-caption.js';
 import { inlineElementView } from './inline-element-view.js';
 import { decisionBlock } from './slash-menu.js';
 import { openBlockMenu, closeBlockMenu, copyBlockLink } from './block-handle-menu.js';
@@ -33,6 +34,7 @@ const Superscript = Mark.create({ name: 'superscript', excludes: 'subscript', pa
 
 const LinkMark = Mark.create({
   name: 'link',
+  parseHTML: () => [{ tag: 'a[href]', priority: 40, getAttrs: el => ({ href: el.getAttribute('href') }) }],
   addAttributes: () => ({ href: { default: null } }),
   renderHTML: ({ HTMLAttributes }) => {
     const external = /^https?:/i.test(HTMLAttributes.href ?? '');
@@ -524,15 +526,19 @@ const AdfNode = Node.create({
 const inlineAtom = { group: 'inline', inline: true, atom: true };
 
 const Media = Node.create({
-  name: 'media', ...inlineAtom,
-  parseHTML: () => [{ tag: '[data-media]', getAttrs: el => { try { return JSON.parse(el.getAttribute('data-media')); } catch { return false; } } }],
+  addProseMirrorPlugins() { return [new Plugin({ props: { handleClickOn(view, pos, node, nodePos, event) {
+    if (node.type.name !== 'media' || !event.target.closest('img')) return false;
+    event.preventDefault(); view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, nodePos))); return true;
+  } } })]; },
+  name: 'media', group: 'inline', inline: true, selectable: true, content: 'mediaCaption?',
+  parseHTML: () => [{ tag: '[data-media]', contentElement: el => el.querySelector('.media-caption-content') || el.ownerDocument.createElement('span'), getAttrs: el => { try { return JSON.parse(el.getAttribute('data-media')); } catch { return false; } } }],
   addAttributes: () => ({
     kind: { default: 'attachment' }, filename: { default: null }, src: { default: null },
     width: { default: null }, align: { default: null }, layout: { default: null },
-    border: { default: null }, borderColor: { default: null }, borderWidth: { default: null }, alt: { default: null }, caption: { default: null },
+    border: { default: null }, borderColor: { default: null }, borderWidth: { default: null }, alt: { default: null }, caption: { default: null }, href: { default: null },
   }),
   renderHTML: ({ node }) => {
-    const { src, filename, width, align, layout, border, borderColor, borderWidth, alt, caption } = node.attrs;
+    const { src, filename, width, align, layout, border, borderColor, borderWidth, alt, caption, href } = node.attrs;
     if (!src) return ['span', { class: 'media-missing' }, `🖼 ${filename ?? '(이미지)'}`];
     const img = ['img', {
       src, alt: alt ?? filename ?? '',
@@ -542,9 +548,15 @@ const Media = Node.create({
     const breakout = width && width > 760;
     const cls = `media ${align ? `media-${align}` : ''} ${layout ? `media-layout-${layout}` : ''}${breakout ? ' media-breakout' : ''}`.trim();
     const style = breakout ? `--media-w: ${width}px` : null;
-    return caption
-      ? ['figure', { class: cls, 'data-media': JSON.stringify(node.attrs), ...(style ? { style } : {}) }, img, ['figcaption', {}, caption]]
-      : ['span', { class: cls, 'data-media': JSON.stringify(node.attrs), ...(style ? { style } : {}) }, img];
+    if (href && /^(https?:\/\/|mailto:|\/(?!\/)|#)/i.test(href)) {
+      const image = [...img]; img.splice(0, img.length, 'a', { href, target: '_blank', rel: 'noopener noreferrer' }, image);
+    }
+    // Keep a content hole even before a caption is added: ProseMirror reuses
+    // this DOM when child content changes without changing image attributes.
+    const children = [img];
+    if (caption && !node.childCount) children.push(['span', { class: 'media-legacy-caption' }, caption]);
+    children.push(['span', { class: 'media-caption-content' }, 0]);
+    return ['span', { class: cls, 'data-media': JSON.stringify(node.attrs), ...(style ? { style } : {}) }, ...children];
   },
 });
 
@@ -1298,7 +1310,7 @@ const custom = [
   TaskList, TaskItem,
   BlockResize, Panel, Expand, Layout, LayoutSection, LayoutColumn,
   Mermaid, JiraTable, CfMacro, AdfNode,
-  Media, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
+  Media, MediaCaption, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
   PageLink, SpaceLink, FileLink, LinkCard, CfMacroInline,
 ];
 

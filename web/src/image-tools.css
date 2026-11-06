@@ -17,3 +17,15 @@
 .image-preview-stage { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; }
 .image-preview-stage img { max-width: none; flex-shrink: 0; }
 .image-preview footer { justify-content: center; }
+.image-add-caption { position: fixed; z-index: 89; border: 0; background: white; color: #626f86; text-align: center; cursor: text; padding: 2px; }
+.image-menu input { width: 310px; max-width: 65vw; padding: 8px; }
+.image-menu > span { white-space: normal; max-width: 360px; }
+.image-tools a { padding: 7px; }
+.doc .media:has(.media-caption):not([class*="media-layout-"]):not(.media-left):not(.media-right):not(.media-center) { display: inline-block; vertical-align: top; }
+.doc .media-legacy-caption, .doc .media-caption-content, .doc .media-caption { display: block; text-align: center; }
+.doc .media-caption { min-height: 1.5em; color: #626f86; font-size: 14px; cursor: text; }
+.caption-toolbar .tb-select, .caption-toolbar details:has([title="들여쓰기 (Tab)"]), .caption-toolbar [title$="정렬"], .caption-toolbar [title="코드 블록"], .caption-toolbar [title^="작업 항목"], .caption-toolbar [title="이미지·파일 업로드"] { pointer-events: none; opacity: .4; }
+.doc .media:has(.media-caption).media-left, .doc .media:has(.media-caption).media-layout-align-start { width: fit-content; margin-right: auto; }
+.doc .media:has(.media-caption).media-right, .doc .media:has(.media-caption).media-layout-align-end { width: fit-content; margin-left: auto; }
+.doc .media:has(.media-caption).media-center, .doc .media:has(.media-caption).media-layout-center { width: fit-content; margin-inline: auto; }
+.doc .media-caption-content:has(.media-caption) { width: 0; min-width: 100%; }
