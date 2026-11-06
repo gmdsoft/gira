@@ -78,7 +78,8 @@ function Node({ n }) {
     case 'tableRow': return <tr><Kids n={n} /></tr>;
     case 'tableHeader': return <th colSpan={n.attrs?.colspan} rowSpan={n.attrs?.rowspan}><Kids n={n} /></th>;
     case 'tableCell': return <td colSpan={n.attrs?.colspan} rowSpan={n.attrs?.rowspan}><Kids n={n} /></td>;
-    case 'mediaSingle': case 'mediaGroup': return <div className="media-row"><Kids n={n} /></div>;
+    case 'mediaSingle': return <div className="media-row"><Kids n={n} /></div>;
+    case 'mediaGroup': return <div className="media-row media-group"><Kids n={n} /></div>; // 파일 묶음은 카드를 가로로 (원본과 같게)
     case 'media': case 'mediaInline': return <Media n={n} />;
     case 'inlineCard': return <a href={n.attrs?.url} target="_blank" rel="noopener noreferrer">{n.attrs?.url}</a>;
     case 'expand': case 'nestedExpand':

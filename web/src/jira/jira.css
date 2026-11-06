@@ -1000,3 +1000,4 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .adf .adf-file-card { display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; max-width: 100%; box-sizing: border-box; text-decoration: none; }
 .adf .adf-file-info { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
 .adf .adf-file-info strong { overflow-wrap: anywhere; }
+.adf .media-group { display: flex; flex-wrap: wrap; gap: 8px; }
