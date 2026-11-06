@@ -6,7 +6,7 @@ import Table from '@tiptap/extension-table';
 import TableRow from '@tiptap/extension-table-row';
 import TableHeader from '@tiptap/extension-table-header';
 import TableCell from '@tiptap/extension-table-cell';
-import { Underline, LinkMark, adfToTiptap } from './adf-convert.js';
+import { Underline, LinkMark, PreservedMedia, PreservedMediaInline, adfToTiptap } from './adf-convert.js';
 
 const TOOLBAR = [
   ['bold', <b key="b">B</b>], ['italic', <i key="i">I</i>], ['underline', <u key="u">U</u>],
@@ -43,7 +43,7 @@ function runCmd(editor, cmd) {
 
 export default function DescEditor({ initialAdf, onReady }) {
   const editor = useEditor({
-    extensions: [StarterKit, Underline, LinkMark,
+    extensions: [StarterKit, Underline, LinkMark, PreservedMedia, PreservedMediaInline,
       Table.configure({ resizable: false }), TableRow, TableHeader, TableCell],
     content: initialAdf ? adfToTiptap(initialAdf) : '',
   });

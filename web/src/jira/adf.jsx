@@ -1,25 +1,26 @@
 // ADF(Atlassian Document Format) → React 읽기 전용 렌더러
 import { linkParts } from '../../../server/src/linkify.mjs';
+import { attachmentMaps, matchMedia, fileSize } from './adf-media.js';
 import React, { useContext } from 'react';
 
-// 첨부 매핑: media 노드 → 이슈 첨부. Gira에서 단 댓글은 attrs.id(첨부 id, collection 'gira'),
-// 이관된 Jira 본문은 alt(파일명)로 찾는다. 이미지면 인라인으로 보여준다.
+// 첨부 매핑: 원본 media UUID → Gira 첨부 id → 파일명 순서.
 const AttCtx = React.createContext(null);
 
 function Media({ n }) {
-  const { byName, byId } = useContext(AttCtx) ?? {};
+  const maps = useContext(AttCtx) ?? {};
   const a = n.attrs ?? {};
   if (a.type === 'external' && a.url) {
     return <img className="adf-img" src={a.url} alt={a.alt ?? ''} loading="lazy"
       style={{ maxWidth: '100%', width: a.width ? Math.min(a.width, 740) : undefined }} />;
   }
-  const hit = (a.collection === 'gira' && a.id ? byId?.get(String(a.id)) : null)
-    ?? (a.alt ? byName?.get(String(a.alt).toLowerCase()) : null);
+  const hit = matchMedia(a, maps);
   if (hit && (hit.media_type ?? '').startsWith('image/')) {
-    return <img className="adf-img" src={`/api/attachment/${hit.id}`} alt={a.alt} loading="lazy"
+    return <img className="adf-img" src={`/api/attachment/${hit.id}`} alt={a.alt ?? hit.filename} loading="lazy"
       style={{ maxWidth: '100%', width: a.width ? Math.min(a.width, 740) : undefined }} />;
   }
-  if (hit) return <a href={`/api/attachment/${hit.id}`} target="_blank" rel="noopener noreferrer">📎 {a.alt}</a>;
+  if (hit) return <a className="adf-file-card" href={`/api/attachment/${hit.id}`} download={hit.filename}>
+    <span aria-hidden="true">📄</span><span className="adf-file-info"><strong>{hit.filename}</strong>
+      <span className="dim">{fileSize(hit.file_size)} · 다운로드</span></span></a>;
   return <span className="media-ph">📎 {a.alt || '첨부 미디어'} <span className="dim">(첨부 목록 참조)</span></span>;
 }
 
@@ -77,7 +78,8 @@ function Node({ n }) {
     case 'tableRow': return <tr><Kids n={n} /></tr>;
     case 'tableHeader': return <th colSpan={n.attrs?.colspan} rowSpan={n.attrs?.rowspan}><Kids n={n} /></th>;
     case 'tableCell': return <td colSpan={n.attrs?.colspan} rowSpan={n.attrs?.rowspan}><Kids n={n} /></td>;
-    case 'mediaSingle': case 'mediaGroup': return <div className="media-row"><Kids n={n} /></div>;
+    case 'mediaSingle': return <div className="media-row"><Kids n={n} /></div>;
+    case 'mediaGroup': return <div className="media-row media-group"><Kids n={n} /></div>; // 파일 묶음은 카드를 가로로 (원본과 같게)
     case 'media': case 'mediaInline': return <Media n={n} />;
     case 'inlineCard': return <a href={n.attrs?.url} target="_blank" rel="noopener noreferrer">{n.attrs?.url}</a>;
     case 'expand': case 'nestedExpand':
@@ -88,10 +90,9 @@ function Node({ n }) {
 
 export default function AdfView({ doc, attachments }) {
   if (!doc) return <span className="dim">없음</span>;
-  const byName = new Map((attachments ?? []).map((a) => [String(a.filename).toLowerCase(), a]));
-  const byId = new Map((attachments ?? []).map((a) => [String(a.id), a]));
+  const maps = attachmentMaps(attachments ?? []);
   return (
-    <AttCtx.Provider value={{ byName, byId }}>
+    <AttCtx.Provider value={maps}>
       <div className="adf"><Node n={doc} /></div>
     </AttCtx.Provider>
   );

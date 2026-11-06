@@ -996,3 +996,8 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .link-list .row-x { margin-left: 8px; border: 0; background: none; color: var(--dim); cursor: pointer; padding: 0 4px; visibility: hidden; }
 .link-list li:hover .row-x { visibility: visible; }
 .link-list .row-x:hover { color: var(--danger, #c9372c); }
+
+.adf .adf-file-card { display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; max-width: 100%; box-sizing: border-box; text-decoration: none; }
+.adf .adf-file-info { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
+.adf .adf-file-info strong { overflow-wrap: anywhere; }
+.adf .media-group { display: flex; flex-wrap: wrap; gap: 8px; }

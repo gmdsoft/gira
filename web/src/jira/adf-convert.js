@@ -1,6 +1,6 @@
 // ADF ↔ TipTap JSON 변환 + 보조 마크 (StarterKit에 없는 underline/link 최소 구현).
 // 이관 이슈 50건 왕복 검증 통과본 (구 web/src/jira-editor.js에서 추출).
-import { Mark } from '@tiptap/core';
+import { Mark, Node } from '@tiptap/core';
 
 export const Underline = Mark.create({
   name: 'underline',
@@ -14,6 +14,17 @@ export const LinkMark = Mark.create({
   addAttributes() { return { href: { default: null } }; },
   parseHTML() { return [{ tag: 'a[href]' }]; },
   renderHTML({ HTMLAttributes }) { return ['a', { ...HTMLAttributes, target: '_blank', rel: 'noopener' }, 0]; },
+});
+
+// 원본 미디어를 원자 노드로 보존하여 설명 수정 시 UUID와 attrs를 잃지 않는다.
+export const PreservedMedia = Node.create({
+  name: 'preservedMedia', group: 'block', atom: true,
+  addAttributes() { return { original: { default: null } }; },
+  renderHTML() { return ['div', { class: 'media-ph' }, '📎 첨부 미디어 (저장 시 유지)']; },
+});
+export const PreservedMediaInline = PreservedMedia.extend({
+  name: 'preservedMediaInline', group: 'inline', inline: true,
+  renderHTML() { return ['span', { class: 'media-ph' }, '📎 첨부 미디어 (저장 시 유지)']; },
 });
 
 // ---------- ADF → TipTap (미지원 요소는 가장 가까운 형태로 단순화) ----------
@@ -58,8 +69,10 @@ export function adfToTiptap(n) {
     case 'tableRow': return { type: 'tableRow', content: kids() };
     case 'tableHeader': return { type: 'tableHeader', attrs: cellAttrs(), content: kids() };
     case 'tableCell': return { type: 'tableCell', attrs: cellAttrs(), content: kids() };
-    case 'mediaSingle': case 'mediaGroup':
-      return { type: 'paragraph', content: [textNode('📎 (이미지/첨부 — 편집기 미지원, 저장 시 이 문구로 대체됩니다)')] };
+    case 'mediaSingle': case 'mediaGroup': case 'media':
+      return { type: 'preservedMedia', attrs: { original: structuredClone(n) } };
+    case 'mediaInline':
+      return { type: 'preservedMediaInline', attrs: { original: structuredClone(n) } };
     case 'mention': return textNode('@' + (n.attrs?.text?.replace(/^@/, '') ?? ''));
     case 'emoji': return textNode(n.attrs?.text ?? n.attrs?.shortName ?? '');
     case 'status': return textNode(`[${n.attrs?.text ?? ''}]`);
@@ -90,6 +103,7 @@ export function tiptapToAdf(n) {
     return Object.keys(a).length ? { attrs: a } : {};
   };
   switch (n.type) {
+    case 'preservedMedia': case 'preservedMediaInline': return structuredClone(n.attrs.original);
     case 'doc': return { type: 'doc', version: 1, content: kids() };
     case 'text': {
       const marks = marksOut(n.marks);
