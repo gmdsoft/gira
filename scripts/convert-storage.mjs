@@ -152,6 +152,8 @@ export function convertStorage(xhtml) {
         align: dec(n.attribs['ac:align'] ?? '') || null,
         layout: dec(n.attribs['ac:layout'] ?? '') || null, // center/align-start/wide/full-width 등
         border: n.attribs['ac:border'] === 'true' || null,
+        // 원본은 테두리 유무만 제공한다. 편집기의 색·굵기는 기본값으로 렌더한다.
+        borderColor: null, borderWidth: null,
         alt: dec(n.attribs['ac:alt'] ?? '') || null,
         caption: caption ? textOf(caption).trim() : null,
       },

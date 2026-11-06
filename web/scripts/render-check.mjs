@@ -12,6 +12,15 @@ const { doc: formattingDoc } = convertStorage('<p><small>작은 텍스트</small
 getSchema(extensions).nodeFromJSON(formattingDoc).check();
 generateHTML(formattingDoc, extensions);
 
+// 편집기 이미지 속성이 게시용 스키마에서도 보존되는지 DB 검사 전에 확인한다.
+const imageDoc = { type: 'doc', content: [{ type: 'paragraph', content: [{
+  type: 'media', attrs: { src: '/image-check.png', width: 836, layout: 'wrap-left',
+    border: true, borderColor: '#44546F', borderWidth: 4 },
+}] }] };
+getSchema(extensions).nodeFromJSON(imageDoc).check();
+generateHTML(imageDoc, extensions);
+
+
 const { rows } = await query(
   `SELECT v.content_id, c.title, v.doc FROM content_versions v JOIN content c ON c.id = v.content_id WHERE v.doc IS NOT NULL`);
 
