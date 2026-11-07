@@ -1,4 +1,5 @@
 const types = ['t', 'n', 'd', 's', 'u', 'h', 'ji', 'pl', 'i', 'jid'];
+const calcs = ['count', 'empty', 'filled', 'sum', 'avg', 'min', 'max'];
 const array = (v, check) => Array.isArray(v) && v.every(check);
 const str = v => typeof v === 'string';
 const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -56,6 +57,9 @@ export function validateDatabase(data, previous) {
     if (v.sort != null && !array(v.sort, s => s && fields.has(s.field) && typeof s.ascending === 'boolean')) fail();
     if (v.coverField && !fields.has(v.coverField)) fail();
     if (v.groupBy && fields.get(v.groupBy)?.type !== 's') fail();
+    // 계산 줄: 필드 id → 계산 종류 (형식에 안 맞거나 지워진 필드 항목은 화면에서 무시한다)
+    if (v.calculations != null && (typeof v.calculations !== 'object' || Array.isArray(v.calculations)
+      || !Object.values(v.calculations).every(c => calcs.includes(c)))) fail();
     filter(v.filter);
   }
   return data;
