@@ -152,6 +152,9 @@ CREATE TABLE IF NOT EXISTS notify_outbox (
 );
 CREATE INDEX IF NOT EXISTS notify_outbox_due ON notify_outbox(status, next_at);
 CREATE INDEX IF NOT EXISTS notify_outbox_resource ON notify_outbox(resource_type, resource_id, id DESC);
+-- 개발참여 자동 처리(검토 요청·승인 요청)가 직접 보내는 메일: 안내 문장과 추가 링크(테스트 서버 등)
+ALTER TABLE notify_outbox ADD COLUMN IF NOT EXISTS note text;
+ALTER TABLE notify_outbox ADD COLUMN IF NOT EXISTS links jsonb;
 CREATE TABLE IF NOT EXISTS notifications (
   id bigserial PRIMARY KEY,
   user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,

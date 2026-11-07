@@ -1,3 +1,4 @@
+import { kickDevFlow } from './dev-flow-kick.mjs';
 import { adfPageLink } from './adf-page-links.mjs';
 import { canReadCollection, gadgetParams } from './jira-collections.mjs';
 import { addWatcher, watchIssuePeople } from './jira-watchers.mjs';
@@ -129,9 +130,11 @@ async function notifyCreated(req, issueId) {
 function notifyIssue(req, issueId, event, extra) {
   (async () => {
     const { rows } = await query(
-      `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id FROM jira_issues i WHERE i.id = $1`, [issueId]);
+      `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id, p.key AS project_key
+         FROM jira_issues i JOIN jira_projects p ON p.id = i.project_id WHERE i.id = $1`, [issueId]);
     const it = rows[0];
     if (!it) return;
+    if (it.project_key === 'GIRA') kickDevFlow(); // 개발참여 자동 처리 (DEV_FLOW=1일 때만)
     const { rows: watchers } = await query('SELECT user_id FROM jira_issue_watchers WHERE issue_id = $1', [issueId]);
     await notifier.emit({
       watchers: watchers.map(w => w.user_id),
@@ -708,6 +711,8 @@ app.patch('/api/issue/:key', async (req, reply) => {
     await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
       [issue.id, req.access.userId, JSON.stringify(items)]);
   }
+  // 레이블만 바뀐 경우(관리자 승인 = needs-approval 제거 등)에도 개발참여 자동 처리를 깨운다
+  if ('labels' in b && issue.issue_key?.startsWith('GIRA-')) kickDevFlow();
   return { ok: true };
 });
 

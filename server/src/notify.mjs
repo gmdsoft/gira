@@ -18,6 +18,8 @@ export const EVENT_LABELS = {
   'page.updated': '문서 수정',
   'page.comment': '문서 댓글',
 };
+// 인앱 알림 전용 이름 (알림 규칙에서 고르는 이벤트는 아님)
+const INAPP_LABELS = { ...EVENT_LABELS, 'issue.devflow': '개발참여' };
 const MAX_ATTEMPTS = 5;
 // SSRF 방지: Teams 웹훅은 Microsoft 웹훅 호스트만 허용
 const TEAMS_HOST = /(^|\.)(webhook\.office\.com|logic\.azure\.com|powerplatform\.com|powerautomate\.com)$/i;
@@ -25,6 +27,18 @@ const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
 const ROLE_TOKENS = ['@assignee', '@reporter', '@author', '@watchers'];
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// 메일 본문: 제목, (있으면) 안내 문장, 대표 링크, 추가 링크(테스트 서버 등 — http(s)만)
+export function mailHtml(m) {
+  const link = (url, label) => `<a href="${escapeHtml(url)}">${escapeHtml(label ?? url)}</a>`;
+  const extra = (Array.isArray(m.links) ? m.links : []).filter((l) => /^https?:\/\//i.test(l?.url ?? ''));
+  return [
+    `<p>${escapeHtml(m.subject)}</p>`,
+    m.note ? `<p>${escapeHtml(m.note).replace(/\n/g, '<br>')}</p>` : '',
+    `<p>${link(m.url)}</p>`,
+    extra.length ? `<ul>${extra.map((l) => `<li>${escapeHtml(l.label ?? '')}${l.label ? ': ' : ''}${link(l.url)}</li>`).join('')}</ul>` : '',
+  ].join('');
+}
 
 export function validTeamsUrl(u) {
   try { const x = new URL(u); return x.protocol === 'https:' && TEAMS_HOST.test(x.hostname); } catch { return false; }
@@ -163,7 +177,7 @@ export function createNotifier({ query, app, env = process.env, log = console, f
       body: JSON.stringify({
         message: {
           subject: m.subject,
-          body: { contentType: 'HTML', content: `<p>${escapeHtml(m.subject)}</p><p><a href="${escapeHtml(m.url)}">${escapeHtml(m.url)}</a></p>` },
+          body: { contentType: 'HTML', content: mailHtml(m) },
           toRecipients: to,
           ...(mail.fromName ? { from: { emailAddress: { name: mail.fromName, address: mail.sender } } } : {}),
         },
@@ -323,7 +337,7 @@ export function createNotifier({ query, app, env = process.env, log = console, f
         `SELECT id, event, title, path, actor_name, created_at, read_at FROM notifications
           WHERE user_id = $1 ORDER BY id DESC LIMIT 30`, [req.access.userId]);
       const { rows: c } = await query(`SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND read_at IS NULL`, [req.access.userId]);
-      return { unread: c[0].n, items: rows.map((r) => ({ ...r, label: EVENT_LABELS[r.event] ?? r.event })) };
+      return { unread: c[0].n, items: rows.map((r) => ({ ...r, label: INAPP_LABELS[r.event] ?? r.event })) };
     });
     fastify.post('/api/notifications/read', async (req) => {
       const ids = (Array.isArray(req.body?.ids) ? req.body.ids : []).map(Number).filter(Number.isFinite);
