@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateWhiteboard, saveWhiteboard, emptyWhiteboard } from '../server/src/whiteboard-edit.mjs';
 import { toExcalidrawScene, sceneForSave } from '../web/src/whiteboard-excalidraw.mjs';
+import { locallyEditedCanvases } from '../scripts/lib/canvas-local-edits.mjs';
 
 const el = (id, extra) => ({ id, type: 'rectangle', x: 0, y: 0, width: 10, height: 10, version: 1, ...extra });
 
@@ -58,4 +59,18 @@ test('이관 원본 → Excalidraw 장면: 섹션은 프레임+배경, 아이콘
   const saved = sceneForSave([...scene.elements, el('x', { isDeleted: true })], { ...scene.files, junk: { dataURL: 'data:image/png;base64,AA' } }, {});
   assert.ok(!saved.elements.some((e) => e.id === 'x')); assert.ok(!saved.files.junk);
   assert.doesNotThrow(() => validateWhiteboard(saved));
+});
+
+test('이관·동기화: 로컬 편집본(원본 바이너리 없는 스냅샷)이 있는 화이트보드·데이터베이스는 건너뛴다', async () => {
+  // 합성 DB: 10=편집한 화이트보드, 11=원본 그대로인 화이트보드, 20=편집한 데이터베이스
+  const snaps = { whiteboard_snapshots: [[10, true], [10, false], [11, true]], database_snapshots: [[20, false], [21, true]] };
+  const seen = [];
+  const query = async (sql, [ids]) => {
+    const table = /FROM (\w+)/.exec(sql)[1]; seen.push([table, ids]);
+    return { rows: snaps[table].filter(([id, hasBin]) => !hasBin && ids.includes(String(id))).map(([id]) => ({ id: String(id) })) };
+  };
+  const edited = await locallyEditedCanvases(query, [{ id: 10, type: 'whiteboard' }, { id: 11, type: 'whiteboard' }, { id: 20, type: 'database' }, { id: 21 }]);
+  assert.deepEqual([...edited].sort(), ['10', '20']);
+  assert.deepEqual(seen, [['whiteboard_snapshots', ['10', '11']], ['database_snapshots', ['20', '21']]]);
+  assert.equal((await locallyEditedCanvases(async () => { throw new Error('호출 안 함'); }, [])).size, 0);
 });
