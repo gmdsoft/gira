@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { normalizeWhiteboard, fetchWhiteboard, fitConnectorRoute } from '../scripts/lib/confluence-whiteboard.mjs';
+import { normalizeWhiteboard, fetchWhiteboard, fetchWhiteboardExtras, fitConnectorRoute, canvasText, canvasRich, roundedPath, whiteboardImageName } from '../scripts/lib/confluence-whiteboard.mjs';
 import { whiteboardSvg, whiteboardBounds } from '../web/src/whiteboard-svg.mjs';
 function fixture() {
   const doc = new Y.Doc(), board = doc.getMap('board');
@@ -76,7 +76,8 @@ test('붙은 커넥터는 요소의 붙은 지점에서 다시 잇고, 꺾임 �
 });
 test('맞출 수 없는 경로는 직각 꺾은선으로', () => {
   const r = fitConnectorRoute([0, 0], [100, 50], 'l,180,30', 0);
-  assert.equal(r.path, 'M 0 0 L 50 0 L 50 50 L 100 50');
+  assert.equal(r.path, 'M 0 0 L 42 0 Q 50 0 50 8 L 50 42 Q 50 50 58 50 L 100 50'); // 모서리는 둥글게 (GIRA-78)
+  assert.deepEqual(r.waypoints, [[0, 0], [50, 0], [50, 50], [100, 50]]);
 });
 test('아이콘 도형은 위 끝(bp#.y)과 중심(p#)으로 크기를 잡고, 해결된 댓글은 숨긴다', () => {
   const data = normalizeWhiteboard({
@@ -98,5 +99,75 @@ test('경유점이 있는 커넥터는 그 좌표를 지나는 직각 꺾은선�
     dimensions: [{ key: 'p#a', val: [0, 0] }, { key: 's#a', val: [100, 40] }, { key: 'p#b', val: [-100, 300] }, { key: 's#b', val: [100, 40] }, { key: 'p#w', val: [200, 99] }],
     paths: [{ key: 's#line', val: [0, 0] }, { key: 'e#line', val: [0, 0] }, { key: 'se#line', val: '' }],
   });
-  assert.equal(data.connectors[0].path, 'M 50 0 L 200 0 L 200 300 L -50 300');
+  assert.equal(data.connectors[0].path, 'M 50 0 L 192 0 Q 200 0 200 8 L 200 292 Q 200 300 192 300 L -50 300');
+});
+
+// ---- GIRA-78: 리치 텍스트·이미지·댓글·둥근 모서리 (합성 바이트만 — 원본 데이터 아님) ----
+const enc = (t) => { const b = [...new TextEncoder().encode(t)]; return [4, b.length, ...b]; };
+function richBytes() {
+  const link = [...new TextEncoder().encode('\x91\x81\xa4href\xb4https://example.test/a')];
+  return Uint8Array.from([0, 1, 4,
+    11, 1, 2, ...enc('제목'), 0,                                   // 제목 2
+    1, 2, 0, ...enc('굵게'), 1, 5, ...enc(' 링크'), 1, 13, 1, link.length, ...link, // 문단: 굵게 + 링크
+    2, 2, 3, 1, 1, 1, 0, ...enc('하나'), 1, 15, 3, 1, 1, 1, 0, ...enc('둘'), 1, 6, // 글머리 목록: 취소선, 기울임
+    1, 4, 0, ...enc('줄'), 0, 16, ...enc('바꿈'), 0, 9, 3, ...new TextEncoder().encode(':x:'), 4, 0xf0, 0x9f, 0x92, 0xa5]); // 줄바꿈, 이모지
+}
+test('리치 텍스트: 문단·제목·목록·마크를 해석하고, 서식이 있을 때만 rich를 남긴다', () => {
+  const b = richBytes();
+  assert.equal(canvasText(b), '제목\n굵게 링크\n하나\n둘\n줄\n바꿈💥');
+  const lines = canvasRich(b);
+  assert.equal(lines[0].heading, 2);
+  assert.deepEqual(lines[1].runs, [{ text: '굵게', b: true }, { text: ' 링크', href: 'https://example.test/a' }]);
+  assert.deepEqual([lines[2].list, lines[2].n, lines[2].runs[0].s, lines[3].n, lines[3].runs[0].i], ['ul', 1, true, 2, true]);
+  // 서식 없는 글자는 rich 없음, 해석 못 하는 값은 예전 방식으로 글자만
+  assert.equal(canvasRich(Uint8Array.from([0, 1, 1, 1, 1, 0, ...enc('그냥'), 0])), null);
+  assert.equal(canvasText(Uint8Array.from([0, 1, 4, ...enc('옛 형식').slice(1), 0])), '옛 형식');
+  const data = normalizeWhiteboard({ board: { s: { t: 'shape', sh: 1, tx: Object.fromEntries([...b].map((x, i) => [i, x])) } }, dimensions: [{ key: 's#s', val: [200, 200] }] });
+  const svg = whiteboardSvg(data);
+  assert.match(svg, /<b>굵게<\/b>/); assert.match(svg, /<s>하나<\/s>/); assert.match(svg, /<i>둘<\/i>/); assert.match(svg, /•/);
+  assert.match(svg, /href="https:\/\/example.test\/a"/); assert.match(svg, /font-weight:600/);
+});
+test('리치 텍스트 링크는 http(s)만, 글자는 이스케이프', () => {
+  const evil = [...new TextEncoder().encode('\x91\x81\xa4href\xa5javascript:alert(1)')];
+  const b = Uint8Array.from([0, 1, 1, 1, 1, 0, ...enc('<img onerror=x>'), 2, 5, 13, 1, evil.length, ...evil]);
+  const data = normalizeWhiteboard({ board: { s: { t: 'shape', sh: 1, tx: b } } });
+  const svg = whiteboardSvg(data);
+  assert.ok(!svg.includes('javascript:')); assert.ok(!svg.includes('<img')); assert.match(svg, /<b>&lt;img/);
+});
+test('둥근 모서리: 짧은 구간은 반지름을 줄이고, 일직선은 그대로', () => {
+  assert.equal(roundedPath([[0, 0], [100, 0]]), 'M 0 0 L 100 0');
+  assert.equal(roundedPath([[0, 0], [50, 0], [100, 0]]), 'M 0 0 L 50 0 L 100 0');
+  assert.equal(roundedPath([[0, 0], [6, 0], [6, 100]]), 'M 0 0 L 3 0 Q 6 0 6 3 L 6 100');
+});
+test('이미지는 이관한 첨부로, 댓글 표시는 눌러 볼 수 있게, 모르는 요소는 점선 상자로', () => {
+  const data = normalizeWhiteboard({ board: {
+    img: { t: 'image', fi: 'abc-123', mt: 'image/png' }, note: { t: 'comment', ci: 'ref-1', r: false, at: { parentId: 'img', offset: [5, 5] } },
+    card: { t: 'smartCard', u: 'https://example.test/browse/X-1' },
+  } });
+  const img = data.elements.find((e) => e.id === 'img');
+  assert.equal(img.imageName, 'whiteboard-abc-123.png'); assert.equal(whiteboardImageName('../x', ''), 'whiteboard-x');
+  const svg = whiteboardSvg(data, { contentId: 42, comments: { 'ref-1': 2 } });
+  assert.match(svg, /<image href="\/api\/att\/42\/whiteboard-abc-123.png"/);
+  assert.match(svg, /data-wb-comment="ref-1"/); assert.match(svg, /댓글 2개/);
+  assert.match(svg, /smartCard — 옮기지 못한 요소/); assert.match(svg, /stroke-dasharray="4 3"/);
+  assert.ok(!whiteboardSvg(data).includes('<image')); // contentId 없으면 자리 표시만
+});
+test('이미지 원본·댓글 GET: media 토큰(iss = 클라이언트 id)과 contentId 모음, markerRef 연결, 실패는 손실로', async () => {
+  const jwt = ['e30', Buffer.from(JSON.stringify({ iss: 'client-x' })).toString('base64url'), 'sig'].join('.');
+  const data = normalizeWhiteboard({ board: { a: { t: 'image', fi: 'm1', mt: 'image/png' }, b: { t: 'image', fi: 'm2', mt: '' }, c: { t: 'comment', ci: 'ref-1' } } });
+  const calls = [];
+  const res = await fetchWhiteboardExtras('77', data, {
+    media: { token: jwt, baseUrl: 'https://media.example.test', contentId: '77' },
+    fetchImpl: async (url, opt) => { calls.push([url, opt]); return url.includes('/m1/') ? new Response(Uint8Array.from([1, 2, 3]), { headers: { 'content-type': 'image/png' } }) : new Response('', { status: 404 }); },
+    get: async (p) => p.includes('start=') ? { results: [{ id: '9', extensions: { inlineProperties: { markerRef: 'ref-2' }, resolution: { status: 'resolved' } } }] }
+      : { results: [{ id: '8', body: { storage: { value: '<p>본문</p>' } }, history: { createdBy: { accountId: 'acc-1' }, createdDate: '2026-01-01T00:00:00Z' }, extensions: { inlineProperties: { markerRef: 'ref-1' }, resolution: { status: 'open' } } }], _links: { next: '/rest/api/content/77/child/comment?start=100' } },
+  });
+  assert.equal(calls[0][0], 'https://media.example.test/file/m1/binary?collection=contentId-77');
+  assert.equal(calls[0][1].method, undefined); assert.equal(calls[0][1].headers['X-Client-Id'], 'client-x'); assert.equal(calls[0][1].headers.Authorization, `Bearer ${jwt}`);
+  assert.deepEqual(res.images.map((i) => [i.filename, i.mimeType, i.buffer.length]), [['whiteboard-m1.png', 'image/png', 3]]);
+  assert.deepEqual(res.losses, ['이미지 m2: 404']);
+  assert.deepEqual(res.comments.map((c) => [c.id, c.markerRef, c.resolved, c.authorId]), [['8', 'ref-1', false, 'acc-1'], ['9', 'ref-2', true, null]]);
+  // media 토큰이 없으면 이미지는 손실로 남기고 계속
+  const none = await fetchWhiteboardExtras('77', data, { get: async () => ({ results: [] }), fetchImpl: async () => assert.fail('호출 안 함') });
+  assert.deepEqual(none.losses, ['이미지 2개: media 토큰 없음']);
 });

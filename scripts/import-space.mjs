@@ -6,6 +6,7 @@
 //   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
 import { fetchWhiteboard } from './lib/confluence-whiteboard.mjs';
+import { storeWhiteboardExtras } from './lib/whiteboard-extras.mjs';
 import { fetchDatabase } from './lib/confluence-database.mjs';
 import { embedDoc } from './lib/confluence-embed.mjs';
 import { locallyEditedCanvases } from './lib/canvas-local-edits.mjs';
@@ -241,6 +242,7 @@ for (const { doc } of docs) if (doc) walk(doc, (n) => { if (n.type === 'mention'
 // ---------- 사용자 ----------
 
 const accountIds = new Set(mentionIds);
+for (const snap of canvasData.values()) for (const c of snap.comments ?? []) if (c.authorId) accountIds.add(c.authorId);
 for (const { data } of canvasData.values()) for (const row of data.rows ?? []) for (const field of data.fields ?? []) {
   if (field.type === 'u') for (const value of row.cells[field.id] ?? []) if (value.a) accountIds.add(value.a);
 }
@@ -345,7 +347,15 @@ for (const d of canvases) {
   const version = d.version?.number ?? 1;
   const type = d.type === 'whiteboard' ? 'whiteboard' : 'database';
   const table = type === 'whiteboard' ? 'whiteboard_snapshots' : 'database_snapshots';
+  // 화이트보드 이미지 원본·댓글은 편집 여부와 관계없이 보관 (댓글은 문서에 딸린 것, 이미지는 원본 보기 버전에서 쓴다)
+  const storeExtras = async () => {
+    if (type !== 'whiteboard') return;
+    for (const loss of snap.losses ?? []) console.log(`  ⚠ 화이트보드 ${d.id}: ${loss}`);
+    const n = await storeWhiteboardExtras(query, d.id, snap, { uid });
+    if (n.images || n.comments) console.log(`  화이트보드 ${d.id}: 이미지 ${n.images}, 댓글 ${n.comments}`);
+  };
   if (locallyEdited.has(String(d.id))) {
+    await storeExtras();
     console.log(`  건너뜀: ${type} ${d.id} "${d.title}" — 로컬 편집본이 있어 원본(버전 ${version})으로 덮어쓰지 않음`);
     continue;
   }
@@ -356,6 +366,7 @@ for (const d of canvases) {
   await query(`INSERT INTO ${table} (content_id,version,data,source_ybin) VALUES ($1,$2,$3,$4)
     ON CONFLICT (content_id,version) DO UPDATE SET data=EXCLUDED.data,source_ybin=EXCLUDED.source_ybin,fetched_at=now()`,
     [d.id, version, JSON.stringify(snap.data), snap.binary]);
+  await storeExtras();
 }
 for (const d of embeds) {
   const version = d.version?.number ?? 1;
