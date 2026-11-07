@@ -1,6 +1,7 @@
 // 이관된 화이트보드(정규화 데이터: scripts/lib/confluence-whiteboard.mjs) → Excalidraw 장면 (GIRA-74)
 // 편집기를 처음 열 때 한 번 변환하고, 저장하면 이후로는 Excalidraw 장면 그대로 쌓인다.
 import { iconGlyph } from './whiteboard-svg.mjs';
+import { stampEmoji } from './whiteboard-stamps.mjs';
 
 const hex = (c, fallback) => {
   const m = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/.exec(c ?? '');
@@ -8,7 +9,6 @@ const hex = (c, fallback) => {
   return typeof c === 'string' && c.startsWith('#') ? c : fallback;
 };
 const FONT = 2; // Helvetica 계열(시스템 글꼴) — 한글은 브라우저 기본 글꼴로
-const STAMP = { fire: '🔥', success: '✅', heart: '❤️', like: '👍', question: '❓', star: '⭐' };
 
 export function toExcalidrawScene(data) {
   let seed = 1;
@@ -56,7 +56,7 @@ export function toExcalidrawScene(data) {
       out.push(text(e.id + '-t', e.x, e.y, e.w, e.h, e.filename || '이미지 (이관 대기)', 14, { containerId: e.id }));
       byId.get(e.id).boundElements.push({ type: 'text', id: e.id + '-t' });
     } else if (e.type === 'stamp') {
-      out.push(text(e.id, e.x, e.y, e.w, e.h, STAMP[e.stamp] ?? '●', Math.max(12, Math.min(e.w, e.h) * 0.8)));
+      out.push(text(e.id, e.x, e.y, e.w, e.h, stampEmoji(e.stamp), Math.max(12, Math.min(e.w, e.h) * 0.8)));
     } else if (e.type === 'drawing' && e.points?.length) {
       const [x0, y0] = e.points[0];
       out.push(base(e.id, e.x, e.y, e.w, e.h, { type: 'freedraw', points: e.points.map(([x, y]) => [x - x0, y - y0]), pressures: [], simulatePressure: true, strokeColor: hex(e.color, '#1e1e1e'), strokeWidth: 2, x: x0, y: y0 }));
@@ -103,4 +103,24 @@ export function sceneForSave(elements, files, appState) {
     files: Object.fromEntries(Object.entries(files ?? {}).filter(([id]) => used.has(id)).map(([id, f]) => [id, { id, mimeType: f.mimeType, dataURL: f.dataURL, created: f.created }])),
     appState: { viewBackgroundColor: appState?.viewBackgroundColor ?? '#ffffff' },
   };
+}
+
+// 편집기에서 새로 넣는 스탬프·아이콘 (GIRA-79) — 이관 변환과 같은 모양으로 만든다
+const newId = () => 'n' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+export const ICONS = [
+  { key: 'person', label: '사람' },
+  { key: 'server', label: '서버' },
+  { key: 'code', label: '코드' },
+  { key: 'generic', label: '상자' },
+];
+// (cx, cy) 가운데에 놓는다. 결과: { elements, files }
+export function stampScene(stamp, cx, cy, size = 40) {
+  return toExcalidrawScene({ elements: [{ id: newId(), type: 'stamp', stamp, x: cx - size / 2, y: cy - size / 2, w: size, h: size }] });
+}
+export function iconScene(icon, cx, cy, label = ICONS.find((i) => i.key === icon)?.label ?? '') {
+  const w = 64, h = 100, id = newId();
+  const scene = toExcalidrawScene({ elements: [{ id, type: 'shape', icon, x: cx - w / 2, y: cy - h / 2, w, h, color: '#ffffff', strokeColor: '#42526e', text: label, fontScale: 1 }] });
+  // 그림과 이름표가 함께 움직이게 묶는다
+  for (const e of scene.elements) e.groupIds = ['g-' + id];
+  return scene;
 }

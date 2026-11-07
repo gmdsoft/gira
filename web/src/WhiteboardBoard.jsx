@@ -5,7 +5,8 @@ import { Excalidraw, restoreElements, exportToBlob, exportToSvg } from '@excalid
 import MenuButton from './MenuButton.jsx';
 import { WhiteboardExportDialog, MAX_EXPORT_PX } from './WhiteboardExport.jsx';
 import '@excalidraw/excalidraw/index.css';
-import { toExcalidrawScene, sceneForSave } from './whiteboard-excalidraw.mjs';
+import { toExcalidrawScene, sceneForSave, stampScene, iconScene, ICONS } from './whiteboard-excalidraw.mjs';
+import { STAMPS } from './whiteboard-stamps.mjs';
 import { WbIcon } from './whiteboard-icons.jsx';
 
 const versionSum = (elements) => elements.reduce((n, e) => n + (e.version ?? 0) + (e.isDeleted ? 1 : 0), 0);
@@ -78,6 +79,27 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
     const bmp = await createImageBitmap(blob);
     return { blob, width: bmp.width, height: bmp.height };
   };
+  // 스탬프·아이콘 넣기 (GIRA-79): 스탬프는 선택한 요소 오른쪽 위 모서리에, 선택이 없으면 화면 가운데에
+  const viewCenter = (st) => { const z = st.zoom?.value || 1; return [-st.scrollX + st.width / 2 / z, -st.scrollY + st.height / 2 / z]; };
+  const insert = ({ elements, files }, frameId = null) => {
+    const ex = api.current; if (!ex) return;
+    if (Object.keys(files).length) ex.addFiles(Object.values(files));
+    for (const e of elements) e.frameId = frameId;
+    ex.updateScene({ elements: [...ex.getSceneElementsIncludingDeleted(), ...elements],
+      appState: { selectedElementIds: Object.fromEntries(elements.filter((e) => !e.containerId).map((e) => [e.id, true])) } });
+  };
+  const addStamp = (key) => {
+    const ex = api.current; if (!ex) return;
+    const ids = selectedIds();
+    const target = ex.getSceneElements().find((e) => ids.has(e.id) && !e.containerId);
+    if (target) insert(stampScene(key, target.x + target.width, target.y), target.type === 'frame' ? target.id : target.frameId);
+    else insert(stampScene(key, ...viewCenter(ex.getAppState())));
+  };
+  const addIcon = (key) => { const ex = api.current; if (ex) insert(iconScene(key, ...viewCenter(ex.getAppState()))); };
+  const stampMenu = <MenuButton label="스탬프" className="wb-btn" align="left" title="스탬프 넣기 — 선택한 요소의 오른쪽 위에 붙습니다"
+    items={STAMPS.map((st) => ({ label: `${st.emoji}  ${st.label}`, onClick: () => addStamp(st.key) }))}><WbIcon name="stamp" /><span className="wb-label">스탬프</span></MenuButton>;
+  const iconMenu = <MenuButton label="아이콘" className="wb-btn" align="left" title="아이콘 넣기 (사람·서버·코드)"
+    items={ICONS.map((ic) => ({ label: ic.label, onClick: () => addIcon(ic.key) }))}><WbIcon name="person" /><span className="wb-label">아이콘</span></MenuButton>;
   const moreMenu = <MenuButton label="더 보기" items={[{ label: '내보내기 (PNG · JPG · PDF · SVG)', icon: 'download', onClick: () => setExporting({ selected: selectedIds().size }) }]} />;
   const close = () => { if (dirty && !confirm('저장하지 않은 변경이 있습니다. 편집을 끝낼까요?')) return; onClose?.(); };
   return <div className="wb-frame">
@@ -88,6 +110,7 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
           <span role="status" className={`wb-status ${shown.kind}`}>{shown.text}</span>
         </div>
         <div className="wb-right">
+          {stampMenu}{iconMenu}
           {moreMenu}
           <button className="wb-btn" onClick={close}><WbIcon name="close" /><span className="wb-label">편집 종료</span></button>
           <button className="wb-btn primary" onClick={save} disabled={busy || !dirty} title="저장 (Ctrl+S)"><WbIcon name="check" />저장<kbd>Ctrl S</kbd></button>

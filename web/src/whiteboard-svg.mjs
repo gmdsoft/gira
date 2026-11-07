@@ -1,3 +1,4 @@
+import { stampEmoji } from './whiteboard-stamps.mjs';
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const n = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 export function whiteboardBounds(data) {
@@ -48,7 +49,7 @@ export function whiteboardSvg(data) {
     else if (e.icon) body = iconGlyph(e) + label({ ...e, y: y + h * 0.62, h: h * 0.38 });
     else if (e.type === 'text' || e.type === 'pathLabel') body = label(e);
     else if (e.type === 'image') body = rect('#ebecf0', '#c1c7d0') + label(e, e.filename);
-    else if (e.type === 'stamp') body = `<text x="${n(x + w / 2)}" y="${n(y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-size="${Math.min(w, h)}">${esc(({ fire: '🔥', success: '✅', heart: '❤️', like: '👍', question: '❓', star: '⭐' })[e.stamp] ?? '●')}</text>`;
+    else if (e.type === 'stamp') body = `<text x="${n(x + w / 2)}" y="${n(y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-size="${Math.min(w, h)}">${esc(stampEmoji(e.stamp))}</text>`;
     else if (e.type === 'comment') body = `<circle cx="${n(x + 12)}" cy="${n(y + 12)}" r="12" fill="#deebff"/><text x="${n(x + 12)}" y="${n(y + 17)}" text-anchor="middle" font-size="14">💬</text>`;
     else if (e.type === 'drawing') body = `<polyline points="${(e.points ?? []).map(p => p.map(n).join(',')).join(' ')}" fill="none" stroke="${esc(e.color)}" stroke-width="2"/>`;
     else if (e.type === 'shape' || e.type === 'sticky') {

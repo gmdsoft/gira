@@ -74,3 +74,21 @@ test('이관·동기화: 로컬 편집본(원본 바이너리 없는 스냅샷)�
   assert.deepEqual(seen, [['whiteboard_snapshots', ['10', '11']], ['database_snapshots', ['20', '21']]]);
   assert.equal((await locallyEditedCanvases(async () => { throw new Error('호출 안 함'); }, [])).size, 0);
 });
+
+test('스탬프·아이콘 (GIRA-79): 원본 스탬프 11종 이모지, 새 스탬프·아이콘 요소 생성', async () => {
+  const { STAMPS, stampEmoji } = await import('../web/src/whiteboard-stamps.mjs');
+  const { stampScene, iconScene } = await import('../web/src/whiteboard-excalidraw.mjs');
+  for (const k of ['success', 'gold-star', 'warning', 'fire', 'thumbs-up', 'error', 'artist', 'rocket', 'question', 'note', 'question-mark']) assert.notEqual(stampEmoji(k), '●', k);
+  assert.equal(stampEmoji('like'), '👍'); assert.equal(stampEmoji('없음'), '●');
+  assert.equal(new Set(STAMPS.map((s) => s.key)).size, STAMPS.length);
+  const st = stampScene('rocket', 100, 100);
+  assert.equal(st.elements.length, 1); assert.equal(st.elements[0].text, '🚀'); assert.equal(st.elements[0].x, 80);
+  const a = iconScene('server', 0, 0), b = iconScene('server', 0, 0);
+  assert.deepEqual(a.elements.map((e) => e.type), ['image', 'text']);
+  assert.equal(a.elements[1].text, '서버');
+  assert.ok(a.files[a.elements[0].fileId].dataURL.startsWith('data:image/svg+xml;base64,'));
+  assert.equal(new Set(a.elements.flatMap((e) => e.groupIds)).size, 1);
+  assert.notEqual(a.elements[0].id, b.elements[0].id);
+  // 저장 검증을 통과한다
+  assert.equal(validateWhiteboard({ format: 'excalidraw', elements: [...a.elements, ...st.elements], files: a.files }).elements.length, 3);
+});

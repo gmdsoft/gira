@@ -18,6 +18,8 @@ const P = {
   settings: <><circle cx="8" cy="8" r="2" /><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" /></>,
   chevron: <path d="M4.5 6.5L8 10l3.5-3.5" />,
   link: <><path d="M6.5 9.5l3-3" /><path d="M7 4.5l1.2-1.2a2.5 2.5 0 0 1 3.5 3.5L10.5 8" /><path d="M9 11.5l-1.2 1.2a2.5 2.5 0 0 1-3.5-3.5L5.5 8" /></>,
+  stamp: <><path d="M6.5 2.5h3v3.5l2 1.5v2h-7v-2l2-1.5z" /><path d="M3 13.5h10" /></>,
+  person: <><circle cx="8" cy="5" r="2.5" /><path d="M3.5 13.5a4.5 4.5 0 0 1 9 0" /></>,
 };
 
 export function WbIcon({ name }) {
