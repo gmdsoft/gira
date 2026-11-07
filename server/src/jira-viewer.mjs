@@ -181,7 +181,7 @@ async function requireProjectId(req, reply, projectId, need = 'viewer') {
 
 app.get('/api/meta', async (req) => {
   const roles = await projectRoles(req.access);
-  const [projects, statuses, types, assignees, priorities, resolutions] = await Promise.all([
+  const [projects, statuses, types, assignees, priorities, resolutions, projectStatuses] = await Promise.all([
     query(`SELECT id, key, name FROM jira_projects ORDER BY key`),
     query(`SELECT id, name, category FROM jira_statuses ORDER BY
              CASE category WHEN 'new' THEN 0 WHEN 'indeterminate' THEN 1 ELSE 2 END, id`),
@@ -191,12 +191,18 @@ app.get('/api/meta', async (req) => {
             JOIN jira_issues i ON i.assignee_id = u.id OR i.reporter_id = u.id ORDER BY u.display_name`),
     query(`SELECT DISTINCT priority FROM jira_issues WHERE priority IS NOT NULL`),
     query(`SELECT DISTINCT resolution FROM jira_issues WHERE resolution IS NOT NULL`),
+    // 프로젝트별 상태 후보: 원본 상태 목록 + 이슈가 실제로 쓰는 상태
+    query(`SELECT project_id, array_agg(DISTINCT status_id::text) AS ids FROM (
+             SELECT project_id, status_id FROM jira_project_statuses
+             UNION SELECT DISTINCT project_id, status_id FROM jira_issues WHERE status_id IS NOT NULL) x
+           GROUP BY project_id`),
   ]);
+  const statusIdsOf = new Map(projectStatuses.rows.map((r) => [String(r.project_id), r.ids]));
   return {
     // 접근 가능한 프로젝트만 노출 (role 포함)
     projects: projects.rows
       .filter((p) => roles.has(String(p.id)))
-      .map((p) => ({ ...p, role: roles.get(String(p.id)) })),
+      .map((p) => ({ ...p, role: roles.get(String(p.id)), statusIds: statusIdsOf.get(String(p.id)) ?? [] })),
     statuses: statuses.rows, types: types.rows,
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
     resolutions: resolutions.rows.map((r) => r.resolution),

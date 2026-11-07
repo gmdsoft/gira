@@ -58,6 +58,17 @@ export function CatChips({ rows, catOf = (r) => r.status_category }) {
   );
 }
 
+// 이슈 프로젝트가 쓰는 상태만 (모든 프로젝트 상태를 다 펼치면 드롭다운 폭이 가장 긴 이름에 맞춰 커진다).
+// 프로젝트 목록 정보가 없으면 전체, 현재 상태는 항상 포함.
+export function statusesFor(meta, issueKey, value) {
+  const all = meta?.statuses ?? [];
+  const key = String(issueKey ?? '').split('-')[0];
+  const ids = meta?.projects?.find((p) => p.key === key)?.statusIds;
+  if (!ids?.length) return all;
+  const keep = new Set([...ids.map(String), String(value)]);
+  return all.filter((s) => keep.has(String(s.id)));
+}
+
 // 상태 변경 드롭다운 (색상 롯지) — 변경 후 blur: Windows Chrome이 포커스 유지 중 옵션 하이라이트(파란 칠)를 박스에 그대로 보여주는 것 방지
 export function StatusSelect({ statuses, value, category, onChange, small }) {
   const mobile = useMobile();

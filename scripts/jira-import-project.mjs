@@ -14,6 +14,7 @@ import { fillMediaIds } from './lib/jira-media.mjs';
 import { syncNameAliases } from './lib/jira-name-aliases.mjs';
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
+import { replaceProjectStatuses } from './lib/jira-project-statuses.mjs';
 
 try { process.loadEnvFile('.env'); } catch { /* 환경변수 직접 지정 가능 */ }
 
@@ -103,6 +104,8 @@ for (const [id, s] of statuses) {
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category`,
     [id, s.name, s.category]);
 }
+// 프로젝트가 쓰는 상태 목록 — 상태 드롭다운은 이 목록만 보여 준다 (전체 상태를 다 펼치면 폭이 커진다)
+await replaceProjectStatuses(project.id, [...statuses.keys()]);
 for (const t of project.issueTypes ?? []) {
   await query(
     `INSERT INTO jira_issue_types (id, name, subtask, description) VALUES ($1, $2, $3, $4)

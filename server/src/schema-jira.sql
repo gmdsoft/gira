@@ -20,6 +20,13 @@ CREATE TABLE IF NOT EXISTS jira_statuses (
 -- 원본 Jira의 번역 전 이름(untranslatedName, 예: 'In Progress') — 원본 필터 JQL이 이 이름을 쓴다
 ALTER TABLE jira_statuses ADD COLUMN IF NOT EXISTS alias text;
 
+-- 프로젝트가 쓰는 상태 (원본 /project/{key}/statuses) — 상태 드롭다운 후보
+CREATE TABLE IF NOT EXISTS jira_project_statuses (
+  project_id bigint NOT NULL,
+  status_id bigint NOT NULL,
+  PRIMARY KEY (project_id, status_id)
+);
+
 CREATE TABLE IF NOT EXISTS jira_issue_types (
   id bigint PRIMARY KEY,
   name text NOT NULL,

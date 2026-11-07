@@ -1,7 +1,7 @@
 import { isMobile, useMobile } from '../mobile.js';
 // 뷰 4종: 목록(분할), 전체 목록(표), 보드(칸반), 백로그(스프린트)
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, hashColor, epicColor, PRIORITY_ORDER } from './util.jsx';
+import { api, dt, Prio, Avatar, EpicBar, CatChips, StatusSelect, statusesFor, hashColor, epicColor, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
 import { IconCheck, IconMore, IconChevronRight, IconChevronDown, IconClose, IconExpand, IconLock, IconEye, IconShare } from './icons.jsx';
 import IssueDetail from './IssueDetail.jsx';
@@ -336,7 +336,7 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
               <td className="c-assignee"><span className="person"><Avatar name={r.assignee_name} /><span>{r.assignee_name ?? ''}</span></span></td>
               <td className="c-reporter"><span className="person"><Avatar name={r.reporter_name} /><span>{r.reporter_name ?? ''}</span></span></td>
               <td className="c-priority"><span className="person"><Prio p={r.priority} /><span>{r.priority ?? ''}</span></span></td>
-              <td className="c-status"><StatusSelect small statuses={meta.statuses} value={r.status_id} category={r.status_category}
+              <td className="c-status"><StatusSelect small statuses={statusesFor(meta, r.issue_key, r.status_id)} value={r.status_id} category={r.status_category}
                 onChange={(id) => changeStatus(r, id)} /></td>
               <td className="c-resolution">{r.resolution ? <span className="resolved"><IconCheck size={14} />{r.resolution}</span> : (r.resolved_at ? <span className="resolved"><IconCheck size={14} />완료</span> : '')}</td>
               <td className="c-created">{dt(r.created_at)}</td>
@@ -830,7 +830,7 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
       <span className={`key ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={() => onOpen(r.issue_key)}>{r.issue_key}</span>
       <span className="sum">{r.summary}</span>
       {(r.fix_versions ?? []).map((v) => <span className="chip" key={v}>{v}</span>)}
-      <StatusSelect small statuses={meta.statuses} value={r.status_id} category={r.status_category}
+      <StatusSelect small statuses={statusesFor(meta, r.issue_key, r.status_id)} value={r.status_id} category={r.status_category}
         onChange={(id) => changeStatus(r.issue_key, id)} />
       <Prio p={r.priority} />
       <Avatar name={r.assignee_name} />

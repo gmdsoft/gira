@@ -1,7 +1,7 @@
 import { useMobile, isMobile } from '../mobile.js';
 // 이슈 상세: Jira식 2단 (본문 가변 + 우측 고정 패널), 하위 작업 패널, 인라인 필드 변경, 편집 모드
 import React, { useEffect, useRef, useState } from 'react';
-import { api, dt, fileSize, Prio, Avatar, StatusSelect, PRIORITY_ORDER } from './util.jsx';
+import { api, dt, fileSize, Prio, Avatar, StatusSelect, statusesFor, PRIORITY_ORDER } from './util.jsx';
 import { TypeIcon } from './icons.jsx';
 import { IconChevronDown, IconChevronRight, IconPlus, IconShare, IconLock, IconEye, IconCheck } from './icons.jsx';
 import AdfView from './adf.jsx';
@@ -522,7 +522,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                       <td className="dim">{s.type_name ?? ''}</td>
                       <td><Prio p={s.priority} /> {s.priority ?? ''}</td>
                       <td><Avatar name={s.assignee_name} /> {s.assignee_name ?? ''}</td>
-                      <td><StatusSelect small statuses={meta.statuses} value={s.status_id} category={s.status_category}
+                      <td><StatusSelect small statuses={statusesFor(meta, s.issue_key, s.status_id)} value={s.status_id} category={s.status_category}
                         onChange={async (id) => { await api('/api/issue/' + encodeURIComponent(s.issue_key), { method: 'PATCH', json: { statusId: id } }); load(); }} /></td>
                     </tr>))}
                   </tbody>
@@ -566,7 +566,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
 
         <div className="dside">
           <div className="side-status">
-            <StatusSelect statuses={meta.statuses} value={d.status_id} category={d.status_category}
+            <StatusSelect statuses={statusesFor(meta, d.issue_key, d.status_id)} value={d.status_id} category={d.status_category}
               onChange={(id) => patch({ statusId: id })} />
             {d.resolved_at && <span className="done-mark"><IconCheck size={14} /> {d.resolution ?? '해결됨'}</span>}
           </div>
