@@ -9,6 +9,26 @@ export function whiteboardBounds(data) {
   const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
   return [Math.min(...xs) - 40, Math.min(...ys) - 40, Math.max(...xs) - Math.min(...xs) + 80, Math.max(...ys) - Math.min(...ys) + 80];
 }
+// 아이콘 도형(사람·서버·코드): 상자 위쪽 60%에 그림, 아래는 이름표
+function iconGlyph(e) {
+  const gh = e.h * 0.58, gw = Math.min(e.w, gh * 0.8), cx = e.x + e.w / 2, top = e.y, left = cx - gw / 2;
+  const fill = esc(e.color), stroke = esc(e.strokeColor === 'none' ? '#42526e' : e.strokeColor), sw = Math.max(1.5, gh / 30);
+  if (e.icon === 'person') {
+    const r = gh * 0.2;
+    return `<circle cx="${n(cx)}" cy="${n(top + r + sw)}" r="${n(r)}" fill="${fill}" stroke="${stroke}" stroke-width="${n(sw)}"/>`
+      + `<path d="M ${n(left)} ${n(top + gh)} L ${n(left)} ${n(top + gh * 0.68)} Q ${n(left)} ${n(top + gh * 0.48)} ${n(cx)} ${n(top + gh * 0.48)} Q ${n(left + gw)} ${n(top + gh * 0.48)} ${n(left + gw)} ${n(top + gh * 0.68)} L ${n(left + gw)} ${n(top + gh)} Z" fill="${fill}" stroke="${stroke}" stroke-width="${n(sw)}"/>`;
+  }
+  if (e.icon === 'server') {
+    const bh = gh / 3.4;
+    return [0, 1, 2].map((i) => `<rect x="${n(left)}" y="${n(top + i * bh * 1.2)}" width="${n(gw)}" height="${n(bh)}" rx="${n(bh / 5)}" fill="${fill}" stroke="${stroke}" stroke-width="${n(sw)}"/><line x1="${n(left + gw * 0.15)}" y1="${n(top + i * bh * 1.2 + bh / 2)}" x2="${n(left + gw * 0.55)}" y2="${n(top + i * bh * 1.2 + bh / 2)}" stroke="${stroke}" stroke-width="${n(sw)}"/>`).join('');
+  }
+  const box = `<rect x="${n(left)}" y="${n(top)}" width="${n(gw)}" height="${n(gh)}" rx="${n(gh / 6)}" fill="${fill}" stroke="${stroke}" stroke-width="${n(sw)}"/>`;
+  if (e.icon === 'code') {
+    const m = gh / 2, a = gw * 0.18;
+    return box + `<path d="M ${n(cx - a * 0.4)} ${n(top + m - a)} L ${n(cx - a * 1.4)} ${n(top + m)} L ${n(cx - a * 0.4)} ${n(top + m + a)} M ${n(cx + a * 0.4)} ${n(top + m - a)} L ${n(cx + a * 1.4)} ${n(top + m)} L ${n(cx + a * 0.4)} ${n(top + m + a)}" fill="none" stroke="${stroke}" stroke-width="${n(sw)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  return box;
+}
 export function whiteboardSvg(data) {
   const bounds = whiteboardBounds(data), elements = new Map((data.elements ?? []).map(e => [e.id, e])), connectors = new Map((data.connectors ?? []).map(e => [e.id, e]));
   // 텍스트 요소는 원본처럼 왼쪽 위 정렬·줄바꿈 없이 내용 크기만큼 (상자 밖으로 넘쳐도 보이게)
@@ -16,11 +36,16 @@ export function whiteboardSvg(data) {
   const parts = [];
   for (const id of data.order ?? [...elements.keys(), ...connectors.keys()]) {
     const c = connectors.get(id);
-    if (c) { parts.push(`<path d="${esc(c.path)}" fill="none" stroke="${esc(c.color)}" stroke-width="2"${c.startArrow ? ' marker-start="url(#wb-arrow-start)"' : ''}${c.endArrow ? ' marker-end="url(#wb-arrow)"' : ''}/>`); continue; }
+    if (c) { parts.push(`<path d="${esc(c.path)}" fill="none" stroke="${esc(c.color)}" stroke-width="1.5"${c.dashed ? ' stroke-dasharray="6 4"' : ''}${c.startArrow ? ' marker-start="url(#wb-arrow-start)"' : ''}${c.endArrow ? ' marker-end="url(#wb-arrow)"' : ''}/>`); continue; }
     const e = elements.get(id); if (!e) continue;
     const { x, y, w, h } = e; let body = '';
-    const rect = (fill, stroke = e.strokeColor, opacity = 1) => `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="${e.shape === 3 ? 8 : 0}" fill="${esc(fill)}" fill-opacity="${opacity}" stroke="${esc(stroke)}"/>`;
-    if (e.type === 'section') body = rect(e.color, '#c1c7d0', .35) + `<text x="${n(x)}" y="${n(y - 8)}" font-size="16" font-family="sans-serif">${esc(e.sectionTitle)}</text>`;
+    const rect = (fill, stroke = e.strokeColor, opacity = 1) => `<rect x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" rx="${e.shape === 3 ? 8 : e.type === 'section' ? 0 : 3}" fill="${esc(fill)}" fill-opacity="${opacity}" stroke="${esc(stroke)}"/>`;
+    // 섹션: 원본처럼 테두리 없는 색 영역 + 왼쪽 위 바깥의 제목 꼬리표
+    if (e.type === 'section') {
+      const title = String(e.sectionTitle ?? '').trim(), tw = Math.max(40, [...title].length * 13 + 16);
+      body = rect(e.color, 'none') + (title ? `<rect x="${n(x)}" y="${n(y - 30)}" width="${n(tw)}" height="24" rx="4" fill="#1d7afc"/><text x="${n(x + 8)}" y="${n(y - 13)}" font-size="14" font-family="sans-serif" fill="#ffffff">${esc(title)}</text>` : '');
+    }
+    else if (e.icon) body = iconGlyph(e) + label({ ...e, y: y + h * 0.62, h: h * 0.38 });
     else if (e.type === 'text' || e.type === 'pathLabel') body = label(e);
     else if (e.type === 'image') body = rect('#ebecf0', '#c1c7d0') + label(e, e.filename);
     else if (e.type === 'stamp') body = `<text x="${n(x + w / 2)}" y="${n(y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-size="${Math.min(w, h)}">${esc(({ fire: '🔥', success: '✅', heart: '❤️', like: '👍', question: '❓', star: '⭐' })[e.stamp] ?? '●')}</text>`;

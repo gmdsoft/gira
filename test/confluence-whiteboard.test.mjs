@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { normalizeWhiteboard, fetchWhiteboard } from '../scripts/lib/confluence-whiteboard.mjs';
+import { normalizeWhiteboard, fetchWhiteboard, fitConnectorRoute } from '../scripts/lib/confluence-whiteboard.mjs';
 import { whiteboardSvg, whiteboardBounds } from '../web/src/whiteboard-svg.mjs';
 function fixture() {
   const doc = new Y.Doc(), board = doc.getMap('board');
@@ -19,9 +19,10 @@ function fixture() {
 }
 test('합성 Yjs: 계산된 경계·전역 좌표·색·UTF-8·첨부 위치·꺾임 경로 보존', () => {
   const data = normalizeWhiteboard(fixture()), shape = data.elements.find(e => e.id === 'shape');
-  assert.deepEqual([shape.x, shape.y, shape.w, shape.h], [130, 238, 200, 40]);
+  // bp#는 중심 → 왼쪽 위 = 중심 - 크기/2
+  assert.deepEqual([shape.x, shape.y, shape.w, shape.h], [30, 218, 200, 40]);
   assert.equal(shape.color, 'rgb(120,200,255)'); assert.equal(shape.text, '한글 <script>');
-  const stamp = data.elements.find(e => e.id === 'stamp'); assert.deepEqual([stamp.x, stamp.y], [135, 248]);
+  const stamp = data.elements.find(e => e.id === 'stamp'); assert.deepEqual([stamp.x, stamp.y], [35, 228]);
   assert.equal(data.connectors[0].path, 'M 330 258 L 390 258 Q 400 258 400 268 L 400 328');
   assert.equal(data.connectors[0].startArrow, false); assert.equal(data.connectors[0].endArrow, true);
   assert.match(data.plainText, /메모/);
@@ -57,4 +58,45 @@ test('자유 그리기·회전 경계·커넥터 라벨과 빈 텍스트', () =>
 });
 test('스냅샷 GET 실패를 빈 보드로 저장하지 않는다', async () => {
   await assert.rejects(fetchWhiteboard('bad', { site: 'https://example.test', get: async p => p.includes('tenant_info') ? { cloudId: 'x' } : p.includes('session') ? [{ data: { access: { token: 'test' } } }] : { referenceId: 'test' }, fetchImpl: async () => new Response('', { status: 403 }) }), /collab 403/);
+});
+test('붙은 커넥터는 요소의 붙은 지점에서 다시 잇고, 꺾임 방향은 유지한다', () => {
+  // 저장된 경로(s#·e#·se#)는 옛 배치 기준이라 끝점이 요소와 어긋나 있다
+  const data = normalizeWhiteboard({
+    board: {
+      a: { t: 'shape', sh: 1 }, b: { t: 'shape', sh: 1 },
+      line: { t: 'connector', se: 'a', sa: { left: 0.5, top: 1 }, te: 'b', ta: { left: 0, top: 0.5 }, sc: 1, ec: 2, sts: 2 },
+    },
+    dimensions: [{ key: 'p#a', val: [100, 100] }, { key: 's#a', val: [100, 40] }, { key: 'p#b', val: [400, 300] }, { key: 's#b', val: [100, 40] }],
+    paths: [{ key: 's#line', val: [0, 0] }, { key: 'e#line', val: [50, 50] }, { key: 'se#line', val: 'l,90,30 a,90,0,10,a l,0,10' }],
+  });
+  const c = data.connectors[0];
+  assert.deepEqual(c.start, [100, 120]); assert.deepEqual(c.end, [350, 300]);
+  assert.equal(c.path, 'M 100 120 L 100 290 Q 100 300 110 300 L 350 300');
+  assert.equal(c.dashed, true);
+});
+test('맞출 수 없는 경로는 직각 꺾은선으로', () => {
+  const r = fitConnectorRoute([0, 0], [100, 50], 'l,180,30', 0);
+  assert.equal(r.path, 'M 0 0 L 50 0 L 50 50 L 100 50');
+});
+test('아이콘 도형은 위 끝(bp#.y)과 중심(p#)으로 크기를 잡고, 해결된 댓글은 숨긴다', () => {
+  const data = normalizeWhiteboard({
+    board: { person: { t: 'shape', sh: 37, tx: '예성' }, done: { t: 'comment', r: true, at: { parentId: 'person', offset: [0, 0] } } },
+    dimensions: [{ key: 'p#person', val: [0, 0] }, { key: 's#person', val: [160, 206] }, { key: 'bp#person', val: [0, -60] }, { key: 'bs#person', val: [86, 1] }],
+  });
+  assert.equal(data.elements.length, 1);
+  const p = data.elements[0];
+  assert.equal(p.icon, 'person'); assert.equal(p.h, 120); assert.equal(p.y, -60); assert.equal(p.x + p.w / 2, 0);
+  assert.match(whiteboardSvg(data), /<circle/);
+});
+test('경유점이 있는 커넥터는 그 좌표를 지나는 직각 꺾은선으로', () => {
+  const data = normalizeWhiteboard({
+    board: {
+      a: { t: 'shape', sh: 1 }, b: { t: 'shape', sh: 1 },
+      line: { t: 'connector', se: 'a', sa: { left: 1, top: 0.5 }, te: 'b', ta: { left: 1, top: 0.5 }, sc: 1, ec: 2 },
+      w: { t: 'pathWaypoint', pi: 'line', ax: 0 },
+    },
+    dimensions: [{ key: 'p#a', val: [0, 0] }, { key: 's#a', val: [100, 40] }, { key: 'p#b', val: [-100, 300] }, { key: 's#b', val: [100, 40] }, { key: 'p#w', val: [200, 99] }],
+    paths: [{ key: 's#line', val: [0, 0] }, { key: 'e#line', val: [0, 0] }, { key: 'se#line', val: '' }],
+  });
+  assert.equal(data.connectors[0].path, 'M 50 0 L 200 0 L 200 300 L -50 300');
 });
