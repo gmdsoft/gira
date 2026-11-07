@@ -220,8 +220,9 @@ async function toolCreate({ items }, ctx, textToAdf) {
        RETURNING id, issue_key`,
       [pr.id, key, typeId[it.type] ?? typeId.task, st[0]?.id ?? null, it.summary.trim(),
        JSON.stringify(textToAdf(body)), labels, ctx.reporterId ?? ctx.userId,
-       // 에이전트가 처리할 이슈는 프로젝트 기본 담당자(GIRA 에이전트), 사람 담당은 비워 둔다
-       it.executor === 'human' ? null : (pr.default_assignee_id ?? null),
+       // 프로젝트 기본 담당자가 있으면 할당(담당자 지정 알림 메일이 간다), 없으면 비워 둔다.
+       // 자동 처리가 시작되면 처리 에이전트가 담당을 가져가고, 검토 단계에서 보고자에게 넘긴다.
+       pr.default_assignee_id ?? null,
        ['Highest', 'High', 'Normal', 'Low'].includes(it.priority) ? it.priority : 'Normal']);
     byRef.set(it.ref, { id: rows[0].id, key: rows[0].issue_key });
     onIssueCreated?.(ctx.req, rows[0].id); // 등록·담당자 지정 알림 (jira-viewer의 notifyIssue)

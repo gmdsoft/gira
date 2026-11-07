@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // 데이터베이스 테스트 자료(.ybin) 만들기 — 원본 스냅샷의 '구조'(필드 id·형식·선택지 id·보기 설정·행 순서)만 남기고
 // 이름·글·사용자·링크·이슈 키 같은 값은 모두 가짜로 바꾼다. 원본 사내 데이터는 저장소에 넣지 않는다(공개 저장소).
-// 사용: node test/fixtures/make-database-fixtures.mjs <원본 .ybin 폴더(analysis/raw/canvas)>
+// 사용: node scripts/research/make-database-fixtures.mjs <원본 .ybin 폴더(analysis/raw/canvas)>
 import * as Y from 'yjs';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { decodeCanvas } from '../../scripts/research/canvas-decode.mjs';
+import { decodeCanvas } from './canvas-decode.mjs';
 
 const KEEP = new Set(['Country', 'Indonesia', 'Video']); // 테스트가 이름으로 찾는 일반 라벨
 const IDS = ['943521921', '120422433', '135694426', '1103429634', '47614020'];
@@ -57,6 +57,6 @@ function encode(data) {
 IDS.forEach((id, i) => {
   const raw = decodeCanvas(readFileSync(`${src}/database-${id}.ybin`));
   const out = encode(anonymize(raw, i + 1));
-  writeFileSync(new URL(`./database-${id}.ybin`, import.meta.url), out);
+  writeFileSync(new URL(`../../test/fixtures/database-${id}.ybin`, import.meta.url), out);
   console.log(id, out.length, 'bytes');
 });

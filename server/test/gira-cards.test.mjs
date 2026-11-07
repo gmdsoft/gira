@@ -16,6 +16,10 @@ test('이슈 카드는 키만 저장하며 HTML 왕복 후에도 Gira 링크를 
 });
 
 test('조회자 인증 전달, 최신 상태 재조회, 비공개·오류 시 키만 반환, Gira 이동', async (t) => {
+  // 공개 주소 설정(.env의 GIRA_PUBLIC_URL)이 있으면 접속 호스트 대신 그 주소를 쓰므로, 이 시험에서는 비운다
+  const savedPublic = process.env.GIRA_PUBLIC_URL;
+  delete process.env.GIRA_PUBLIC_URL;
+  t.after(() => { if (savedPublic !== undefined) process.env.GIRA_PUBLIC_URL = savedPublic; });
   const app = Fastify();
   await app.register(cookie);
   registerGiraCards(app, { giraUrl: 'https://gira.example/' });

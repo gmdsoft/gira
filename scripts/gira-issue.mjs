@@ -4,12 +4,16 @@
 //   node scripts/gira-issue.mjs GIRA-4         # 이슈 상세: 설명, 레이블, 상위/하위, 댓글, 첨부(로컬 경로)
 //   node scripts/gira-issue.mjs GIRA-4 --status 검토 --comment "처리 결과…" [--label +agent-done,-agent-running]
 //        # 처리 기록 (Gira DB만 갱신 — 댓글 작성자는 GIRA 에이전트 계정)
+//   node scripts/gira-issue.mjs GIRA-4 --assign reporter|agent|default|none   # default = 프로젝트 기본 담당자(없으면 비움)
+//   node scripts/gira-issue.mjs GIRA-4 --mail reporter|approvers --subject "검토 요청" [--note "안내"] [--link "테스트 서버|http://…"]
+//        # 메일은 대기열(notify_outbox)에 넣고 Gira 서버가 보낸다. 보고자에게는 인앱 알림도 남긴다.
 // 처리는 scripts/dev-dispatcher.mjs --run --issue <KEY> 로 맡기거나 세션에서 직접 한다.
 import path from 'node:path';
 import { textToAdf } from '../server/src/linkify.mjs'; // 주소는 링크로
 import { parseArgs } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { configureDb, query, closeDb, DATA_DIR } from '../server/src/db.mjs';
+import { approverEmails, defaultAssignee, reporterEmail, enqueueMail, issueUrl } from './lib/dev-flow.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 try { process.loadEnvFile(path.join(ROOT, '.env')); } catch { /* 환경변수 직접 지정 가능 */ }
@@ -31,14 +35,18 @@ const d = (t) => (t ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') :
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
-  options: { status: { type: 'string' }, comment: { type: 'string' }, label: { type: 'string' } },
+  options: { status: { type: 'string' }, comment: { type: 'string' }, label: { type: 'string' }, assign: { type: 'string' },
+    mail: { type: 'string' }, subject: { type: 'string' }, note: { type: 'string' }, link: { type: 'string', multiple: true } },
 });
 const key = positionals[0]?.toUpperCase();
 
 // 처리 기록: 상태 변경·댓글·레이블 (변경 이력도 남긴다)
 async function record(issueKey) {
   const { rows } = await query(
-    `SELECT i.id, i.status_id, s.name AS status FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id
+    `SELECT i.id, i.status_id, i.project_id, i.reporter_id, i.assignee_id, i.summary, s.name AS status,
+            ra.display_name AS reporter, aa.display_name AS assignee
+       FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id
+       LEFT JOIN users ra ON ra.id = i.reporter_id LEFT JOIN users aa ON aa.id = i.assignee_id
       WHERE i.issue_key = $1`, [issueKey]);
   const it = rows[0];
   if (!it) throw new Error(`${issueKey} 이슈가 없습니다`);
@@ -52,6 +60,19 @@ async function record(issueKey) {
       await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
         [it.id, actor, JSON.stringify([{ field: 'status', fromString: it.status, toString: st[0].name }])]);
       console.log(`상태: ${it.status} → ${st[0].name}`);
+    }
+  }
+  if (opt.assign) {
+    const who = opt.assign.toLowerCase();
+    const to = who === 'reporter' ? it.reporter_id : who === 'agent' ? actor : who === 'none' ? null
+      : who === 'default' ? ((await defaultAssignee(query))?.id ?? null) : undefined;
+    if (to === undefined) throw new Error(`--assign 값은 reporter|agent|default|none 중 하나: ${opt.assign}`);
+    if (String(to ?? '') !== String(it.assignee_id ?? '')) {
+      const { rows: nm } = to ? await query(`SELECT display_name FROM users WHERE id = $1`, [to]) : { rows: [] };
+      await query(`UPDATE jira_issues SET assignee_id = $2, updated_at = now() WHERE id = $1`, [it.id, to]);
+      await query(`INSERT INTO jira_changelog (issue_id, author_id, items) VALUES ($1, $2, $3)`,
+        [it.id, actor, JSON.stringify([{ field: 'assignee', fromString: it.assignee ?? null, toString: nm[0]?.display_name ?? null }])]);
+      console.log(`담당: ${it.assignee ?? '-'} → ${nm[0]?.display_name ?? '-'}`);
     }
   }
   if (opt.label) {
@@ -72,9 +93,24 @@ async function record(issueKey) {
     await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [it.id]);
     console.log('댓글 추가');
   }
+  if (opt.mail) {
+    const kind = opt.mail.toLowerCase();
+    const to = kind === 'reporter' ? [await reporterEmail(query, issueKey)].filter(Boolean)
+      : kind === 'approvers' ? await approverEmails(query) : null;
+    if (!to) throw new Error(`--mail 값은 reporter|approvers 중 하나: ${opt.mail}`);
+    const links = (opt.link ?? []).map((x) => { const i = x.indexOf('|'); return i > 0 ? { label: x.slice(0, i), url: x.slice(i + 1) } : { url: x }; });
+    const subject = `[Gira] ${opt.subject ?? '알림'}: ${issueKey} ${it.summary}`;
+    const ok = await enqueueMail(query, { to, subject, url: issueUrl(issueKey), note: opt.note ?? null, links: links.length ? links : null,
+      issueId: it.id, projectId: it.project_id });
+    console.log(ok ? `메일 대기열: ${to.join(', ')}` : '메일 받을 주소 없음 — 건너뜀');
+    if (kind === 'reporter' && it.reporter_id) {
+      await query(`INSERT INTO notifications (user_id, event, title, path, actor_name) VALUES ($1, 'issue.devflow', $2, $3, 'GIRA 에이전트')`,
+        [it.reporter_id, `${opt.subject ?? '알림'}: ${issueKey} ${it.summary}`, `/browse/${encodeURIComponent(issueKey)}`]);
+    }
+  }
 }
 try {
-  if (key && (opt.status || opt.comment || opt.label)) {
+  if (key && (opt.status || opt.comment || opt.label || opt.assign || opt.mail)) {
     await record(key);
   } else if (!key) {
     const { rows } = await query(
