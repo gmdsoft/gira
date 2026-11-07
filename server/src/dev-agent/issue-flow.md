@@ -21,6 +21,7 @@ CLAUDE.md의 작업 규칙(데이터 원칙, 테스트 데이터 정리, 공개 
 | 단계 | 누가 | 계기 |
 | --- | --- | --- |
 | request-approval | 감시기 | `needs-approval`이 있고 `approval-requested`가 없음 → 기본 담당자에게 할당·메일(없으면 미할당) |
+| approve | 감시기 | 승인 요청 뒤 기본 담당자·관리자가 '승인' 댓글 → `needs-approval` 제거·`approved` (레이블을 직접 지워도 됨) |
 | process | 에이전트 | 상태 `해야 할 일`, 또는 `needs-info`에 보고자가 답 댓글 |
 | revise | 에이전트 | `agent-review`(검토 중)에 사람이 새 댓글 |
 | finalize | 감시기 | `agent-review`인 이슈가 완료 분류 상태가 됨 |

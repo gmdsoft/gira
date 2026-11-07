@@ -9,7 +9,7 @@ import { list as listTestServers } from '../../scripts/dev-test-server.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const LOG_DIR = path.join(ROOT, 'logs', 'dev-flow');
-const ACTION_LABELS = { process: '분석·처리', revise: '추가 요청 반영', finalize: '머지', 'request-approval': '승인 요청 메일' };
+const ACTION_LABELS = { process: '분석·처리', revise: '추가 요청 반영', finalize: '머지', 'request-approval': '승인 요청 메일', approve: '승인 확인' };
 
 // 감시기 요약 줄: "2026-11-07T12:27:28 GIRA-76 process — claude 실행" (ISO 시각으로 시작하는 줄만)
 export function parseWatchLog(text) {
