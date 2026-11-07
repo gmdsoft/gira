@@ -4,10 +4,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Excalidraw, restoreElements } from '@excalidraw/excalidraw';
 import '@excalidraw/excalidraw/index.css';
 import { toExcalidrawScene, sceneForSave } from './whiteboard-excalidraw.mjs';
+import { WbIcon } from './whiteboard-icons.jsx';
 
 const versionSum = (elements) => elements.reduce((n, e) => n + (e.version ?? 0) + (e.isDeleted ? 1 : 0), 0);
 
-export default function WhiteboardBoard({ pageId, data, version, editing, onSaved, onClose }) {
+export default function WhiteboardBoard({ pageId, data, version, editing, editAction, onSaved, onClose }) {
   const scene = useMemo(() => {
     const s = data?.format === 'excalidraw' ? data : toExcalidrawScene(data);
     // 글자 줄바꿈·크기와 화살표 연결을 편집기 기준으로 다시 맞춘다
@@ -17,7 +18,7 @@ export default function WhiteboardBoard({ pageId, data, version, editing, onSave
   const baseline = useRef(null);
   const ver = useRef(version);
   const [dirty, setDirty] = useState(false);
-  const [status, setStatus] = useState('');
+  const [status, setStatus] = useState(null); // { text, kind: busy|saved|error }
   const [busy, setBusy] = useState(false);
   useEffect(() => { ver.current = version; }, [version]);
 
@@ -30,17 +31,17 @@ export default function WhiteboardBoard({ pageId, data, version, editing, onSave
 
   const save = useCallback(async () => {
     const ex = api.current; if (!ex || busy) return;
-    setBusy(true); setStatus('저장 중…');
+    setBusy(true); setStatus({ text: '저장 중…', kind: 'busy' });
     try {
       const body = sceneForSave(ex.getSceneElementsIncludingDeleted(), ex.getFiles(), ex.getAppState());
       const r = await fetch(`/api/content/${pageId}/whiteboard`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseVersion: ver.current, data: body }) });
       const j = await r.json().catch(() => ({}));
-      if (r.status === 409) { setStatus('다른 사람이 먼저 저장했습니다 — 내 변경을 복사해 두고 다시 불러오세요'); return; }
-      if (!r.ok) { setStatus('저장 실패: ' + (j.error ?? r.status)); return; }
+      if (r.status === 409) { setStatus({ text: '다른 사람이 먼저 저장했습니다 — 내 변경을 복사해 두고 다시 불러오세요', kind: 'error' }); return; }
+      if (!r.ok) { setStatus({ text: '저장 실패: ' + (j.error ?? r.status), kind: 'error' }); return; }
       ver.current = j.version; baseline.current = versionSum(ex.getSceneElementsIncludingDeleted()); setDirty(false);
-      setStatus(`저장됨 (버전 ${j.version})`);
+      setStatus({ text: `저장됨 · 버전 ${j.version}`, kind: 'saved' });
       onSaved?.(j.version, { ...body, plainText: undefined });
-    } catch (e) { setStatus('저장 실패: ' + e.message); } finally { setBusy(false); }
+    } catch (e) { setStatus({ text: '저장 실패: ' + e.message, kind: 'error' }); } finally { setBusy(false); }
   }, [pageId, busy, onSaved]);
 
   // Ctrl/⌘+S 저장, 저장 안 한 채 떠나면 경고
@@ -52,13 +53,31 @@ export default function WhiteboardBoard({ pageId, data, version, editing, onSave
     return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('beforeunload', leave); };
   }, [editing, dirty, save]);
 
-  return <>
-    {editing && <div className="wb-toolbar" style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-      <button className="primary" onClick={save} disabled={busy || !dirty}>저장</button>
-      <button onClick={() => { if (dirty && !confirm('저장하지 않은 변경이 있습니다. 편집을 끝낼까요?')) return; onClose?.(); }}>편집 종료</button>
-      <span role="status" className="muted">{status || (dirty ? '저장하지 않은 변경 있음' : '')}</span>
-    </div>}
-    <div className="wb-excalidraw" style={{ height: editing ? '78vh' : '70vh', border: '1px solid #dfe1e6' }}>
+  // 상태 글자: 진행·오류가 우선, 그다음 변경 여부
+  const shown = status?.kind === 'busy' || status?.kind === 'error' ? status
+    : dirty ? { text: '저장하지 않은 변경 있음', kind: 'dirty' }
+    : status ?? { text: '변경 없음', kind: '' };
+  const close = () => { if (dirty && !confirm('저장하지 않은 변경이 있습니다. 편집을 끝낼까요?')) return; onClose?.(); };
+  return <div className="wb-frame">
+    {editing
+      ? <div className="wb-toolbar">
+        <div className="wb-left">
+          <span className="wb-badge is-edit"><WbIcon name="pencil" />편집 중</span>
+          <span role="status" className={`wb-status ${shown.kind}`}>{shown.text}</span>
+        </div>
+        <div className="wb-right">
+          <button className="wb-btn" onClick={close}><WbIcon name="close" /><span className="wb-label">편집 종료</span></button>
+          <button className="wb-btn primary" onClick={save} disabled={busy || !dirty} title="저장 (Ctrl+S)"><WbIcon name="check" />저장<kbd>Ctrl S</kbd></button>
+        </div>
+      </div>
+      : <div className="wb-toolbar">
+        <div className="wb-left">
+          <span className="wb-badge"><WbIcon name="history" />버전 {version}</span>
+          <span className="wb-note">휠로 확대/축소, 스페이스바를 누른 채 끌어서 이동</span>
+        </div>
+        {editAction && <div className="wb-right">{editAction}</div>}
+      </div>}
+    <div className="wb-canvas wb-excalidraw" style={{ height: editing ? '78vh' : '70vh' }}>
       <Excalidraw
         excalidrawAPI={(a) => {
           if (api.current === a) return;
@@ -78,5 +97,5 @@ export default function WhiteboardBoard({ pageId, data, version, editing, onSave
         UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: { saveFileToDisk: true }, toggleTheme: false } }}
       />
     </div>
-  </>;
+  </div>;
 }
