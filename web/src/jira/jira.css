@@ -1063,3 +1063,13 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .df-attention h2 { color: #c9372c; }
 .df-running { border-color: var(--accent); }
 @media (max-width: 720px) { .df-servers a { white-space: normal; } .df-when { width: auto; } }
+/* 사이드바 프로젝트 즐겨찾기·간단히 보기 (Gonfluence GIRA-76과 같은 방식) */
+.sstar { display: none; width: 24px; height: 24px; margin-left: auto; flex: none; place-items: center; border: 0; background: none; border-radius: 4px; color: var(--dim); cursor: pointer; padding: 0; }
+.sstar:hover { background: var(--hover); color: var(--text); }
+.phead2:hover .sstar, .sstar.on { display: grid; }
+.sstar.on { color: #e2b203; }
+.sstar.on svg { fill: currentColor; }
+.ssubhead { padding: 6px 8px 2px 40px; font-size: 11px; color: var(--dim); }
+.sallproj { width: 100%; border: 0; background: none; font: inherit; text-align: left; color: var(--text2); }
+.skeycount { margin-left: auto; font-size: 12px; color: var(--dim); }
+.sallproj .sarrow { margin-left: 4px; }
