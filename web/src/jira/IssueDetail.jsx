@@ -467,7 +467,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
               <dt>레이블</dt><dd>
                 <MultiPicker values={d.labels ?? []} options={pdata.labels ?? []}
                   emptyLabel="레이블 추가" addLabel="레이블 추가" searchPlaceholder="레이블 검색"
-                  onChange={(v) => patch({ labels: v })} /></dd>
+                  onChange={(v) => { const before = d.labels ?? []; patch({ labelsAdd: v.filter((x) => !before.includes(x)), labelsRemove: before.filter((x) => !v.includes(x)) }); }} /></dd>
               <dt>담당자</dt><dd>
                 <SelectPicker value={d.assignee_id == null ? '' : String(d.assignee_id)} items={assigneeItems} searchable width={280}
                   display={<><Avatar name={d.assignee_name} /><span>{d.assignee_name ?? '미지정'}</span></>}

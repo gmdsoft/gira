@@ -681,6 +681,11 @@ app.patch('/api/issue/:key', async (req, reply) => {
   }
   if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
   if ('labels' in b) sets.push(`labels = ${p(Array.isArray(b.labels) ? b.labels : [])}`);
+  // 레이블 더하기·빼기만 (화면을 연 뒤 다른 사람·자동 처리가 바꾼 레이블을 덮어쓰지 않는다)
+  if (!('labels' in b) && (Array.isArray(b.labelsAdd) || Array.isArray(b.labelsRemove))) {
+    const clean = (a) => (Array.isArray(a) ? a : []).map((x) => String(x).trim()).filter(Boolean).slice(0, 50);
+    sets.push(`labels = (SELECT coalesce(array_agg(DISTINCT l ORDER BY l), '{}') FROM unnest(array_cat(labels, ${p(clean(b.labelsAdd))}::text[])) l WHERE NOT (l = ANY(${p(clean(b.labelsRemove))}::text[])))`);
+  }
   if ('components' in b) sets.push(`components = ${p(Array.isArray(b.components) ? b.components : [])}`);
   if ('resolution' in b) sets.push(`resolution = ${p(b.resolution || null)}`);
   if ('fixVersions' in b) sets.push(`fix_versions = ${p(Array.isArray(b.fixVersions) ? b.fixVersions : [])}`);
@@ -724,7 +729,7 @@ app.patch('/api/issue/:key', async (req, reply) => {
       [issue.id, req.access.userId, JSON.stringify(items)]);
   }
   // 레이블만 바뀐 경우(관리자 승인 = needs-approval 제거 등)에도 개발참여 자동 처리를 깨운다
-  if ('labels' in b && issue.issue_key?.startsWith('GIRA-')) kickDevFlow();
+  if (('labels' in b || 'labelsAdd' in b || 'labelsRemove' in b) && issue.issue_key?.startsWith('GIRA-')) kickDevFlow();
   return { ok: true };
 });
 

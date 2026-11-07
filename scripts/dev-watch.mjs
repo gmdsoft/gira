@@ -35,13 +35,19 @@ async function requestApproval(it) {
   const to = await approverEmails(query);
   if (to.length) {
     await enqueueMail(query, { to, subject: `[Gira] 승인 요청: ${it.key} ${it.summary}`, url: issueUrl(it.key), issueId: it.id,
-      note: '개발 명세서 범위를 넘는 개발참여 이슈입니다. 진행해도 되면 이슈에서 needs-approval 레이블을 지워 주세요. 진행하지 않으려면 이슈를 닫거나 보류로 옮겨 주세요.' });
+      note: '개발 명세서 범위를 넘는 개발참여 이슈입니다. 진행해도 되면 이슈에 \'승인\'이라고 댓글을 달아 주세요(needs-approval 레이블을 지워도 됩니다). 진행하지 않으려면 이슈를 닫거나 보류로 옮겨 주세요.' });
   }
   gi(it.key, ['--assign', owner && !owner.isAgent ? 'default' : 'none', '--label', `+${L.approvalAsked}`, '--comment',
     owner && !owner.isAgent
-      ? `관리자 승인 대기 — 프로젝트 기본 담당자(${owner.name})에게 할당하고 ${to.length ? '메일을 보냈습니다' : '메일 주소가 없어 메일은 보내지 못했습니다'}. 승인되면(needs-approval 레이블 제거) 자동으로 처리를 시작합니다.`
-      : '관리자 승인 대기 — 프로젝트 기본 담당자가 없어 할당하지 않았습니다. 승인되면(needs-approval 레이블 제거) 자동으로 처리를 시작합니다.']);
+      ? `관리자 승인 대기 — 프로젝트 기본 담당자(${owner.name})에게 할당하고 ${to.length ? '메일을 보냈습니다' : '메일 주소가 없어 메일은 보내지 못했습니다'}. 진행해도 되면 이 이슈에 "승인"이라고 댓글을 달아 주세요(needs-approval 레이블을 지워도 됩니다). 승인되면 자동으로 처리를 시작합니다.`
+      : '관리자 승인 대기 — 프로젝트 기본 담당자가 없어 할당하지 않았습니다. 진행해도 되면 이 이슈에 "승인"이라고 댓글을 달아 주세요(needs-approval 레이블을 지워도 됩니다). 승인되면 자동으로 처리를 시작합니다.']);
   log(`${it.key} 승인 요청 → ${owner && !owner.isAgent ? `${owner.name} ${to.join(', ')}` : '(기본 담당자 없음, 미할당)'}`);
+}
+
+// 승인 댓글 → 레이블 정리 (다음 차례에 process로 처리된다)
+function approve(it) {
+  gi(it.key, ['--label', `-${L.approval},+${L.approved}`, '--comment', '승인 확인 — 자동 처리를 시작합니다.']);
+  log(`${it.key} 승인 댓글 확인`);
 }
 
 async function finalize(it) {
@@ -97,6 +103,7 @@ try {
     done.add(next.key + next.action);
     try {
       if (next.action === 'request-approval') await requestApproval(next);
+      else if (next.action === 'approve') approve(next);
       else if (next.action === 'finalize') await finalize(next);
       else {
         runs++;

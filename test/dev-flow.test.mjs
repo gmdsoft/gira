@@ -147,3 +147,13 @@ test('현황 권한: 사이트 관리자·GIRA 기본 담당자·GIRA 프로젝�
   assert.equal(await canSeeDevFlow(q, role(null), { userId: 5, isAdmin: false }), false);
   assert.equal(await canSeeDevFlow(q, role('admin'), null), false);
 });
+
+test('승인 댓글: 승인 담당자의 "승인" 댓글이면 approve, 부정·보류 표현은 아님', async () => {
+  const { isApprovalText } = await import('../scripts/lib/dev-flow.mjs');
+  for (const t of ['승인', '승인합니다', '승인. 진행해 주세요', 'Approved']) assert.equal(isApprovalText(t), true, t);
+  for (const t of ['', '미승인', '승인 안 함', '승인 불가', '반려합니다', '보류해 주세요', '좋아요']) assert.equal(isApprovalText(t), false, t);
+  const asked = { key: 'GIRA-1', type: '작업', statusName: '해야 할 일', statusCategory: 'new', labels: ['dev-chat', L.approval, L.approvalAsked], lastCommentByAgent: false };
+  assert.equal(classify({ ...asked, lastCommentApproves: true }), 'approve');
+  assert.equal(classify({ ...asked, lastCommentApproves: false }), null);
+  assert.equal(classify({ ...asked, labels: ['dev-chat', L.approval], lastCommentApproves: true }), 'request-approval', '요청 전에는 먼저 요청');
+});
