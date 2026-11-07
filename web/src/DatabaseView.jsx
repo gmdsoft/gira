@@ -4,7 +4,7 @@ import { ExportDialog, ImportDialog } from './DatabaseIO.jsx';
 import { searchRows } from './database-io.mjs';
 import React, { useEffect, useRef, useState } from 'react';
 import { hydrateIssueCard } from './issue-card.js';
-import { list, plain, cellText, viewRows, databaseValue } from './database-model.mjs';
+import { list, plain, cellText, viewRows, databaseValue, CALCS, calcOptions, calculate } from './database-model.mjs';
 import './database.css';
 import './whiteboard-ui.css';
 import { WbIcon } from './whiteboard-icons.jsx';
@@ -81,6 +81,9 @@ export default function DatabaseView({ page }) {
   const numKey = `gonf.db.numbers.${page.id}`;
   const [showNumbers, setShowNumbers] = useState(() => { try { return localStorage.getItem(numKey) === '1'; } catch { return false; } });
   const toggleNumbers = () => setShowNumbers((v) => { try { localStorage.setItem(numKey, v ? '0' : '1'); } catch { /* 무시 */ } return !v; });
+  // 계산 줄 선택: 편집 권한이 있으면 보기 설정(view.calculations)에, 없으면 이 브라우저에 문서·보기별로 저장
+  const [, setCalcTick] = useState(0);
+  const calcKey = viewId => `gonf.db.calc.${page.id}.${viewId}`;
   const [issues, setIssues] = useState({});
   const [users, setUsers] = useState({});
   const issueKeys = new Set(), accountKeys = new Set();
@@ -128,6 +131,19 @@ export default function DatabaseView({ page }) {
     '-',
     { label: '보기 삭제', danger: true, disabled: !edit || data.views.length <= 1, onClick: () => { if (confirm(`'${view.name}' 보기를 삭제할까요? (데이터는 지워지지 않습니다)`)) { change(d => { d.views = d.views.filter(v => v.id !== view.id); }); setTab(null); } } },
   ];
+  const localCalcs = () => { try { return JSON.parse(localStorage.getItem(calcKey(view.id))) ?? {}; } catch { return {}; } };
+  const calcs = edit ? (view.calculations ?? {}) : { ...(view.calculations ?? {}), ...localCalcs() };
+  const setCalc = (fieldId, kind) => {
+    const next = { ...calcs }; if (kind) next[fieldId] = kind; else delete next[fieldId];
+    if (edit) { updateView({ calculations: next }); return; }
+    try { localStorage.setItem(calcKey(view.id), JSON.stringify(next)); } catch { /* 무시 */ }
+    setCalcTick(t => t + 1);
+  };
+  const calcCell = f => {
+    const kind = calcOptions(f).includes(calcs[f.id]) ? calcs[f.id] : '';
+    const result = kind ? calculate(kind, f, rows, value) : null;
+    return <td key={f.id} className="database-calc"><label><select aria-label={`${f.name} 계산`} value={kind} onChange={e => setCalc(f.id, e.target.value)}><option value="">{kind ? '계산 없음' : '계산'}</option>{calcOptions(f).map(k => <option key={k} value={k}>{CALCS[k]}</option>)}</select>{result != null && <b>{result}</b>}</label></td>;
+  };
   const addView = () => { const name = prompt('보기 이름'); if (!name?.trim()) return; const id = newId(); change(d => d.views.push({ id, name: name.trim(), type: 'table', hiddenFields: [], sort: [], filter: null, groupBy: null })); setTab(id); };
   const kind = status === '저장됨' ? 'saved' : status === '저장 중…' ? 'busy' : status === '저장 대기…' ? 'dirty' : 'error';
   const reload = async () => {
@@ -182,7 +198,7 @@ export default function DatabaseView({ page }) {
       {edit && <button className="database-tab-add" title="보기 추가" aria-label="보기 추가" onClick={addView}><WbIcon name="plus" /></button>}
       <span className="database-search"><WbIcon name="search" /><input type="search" placeholder="데이터베이스 검색" aria-label="데이터베이스 검색" value={search} onChange={e => setSearch(e.target.value)} /></span>
     </div>
-    <div className="database-scroll">{view.type === 'table' ? <table><thead><tr>{showNumbers && <th className="database-num">#</th>}{editing && <th>행 관리</th>}{fields.map(f => <th key={f.id} style={{ minWidth: f.width ?? 160 }}>{f.name}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={r.id}>{showNumbers && <td className="database-num">{i + 1}</td>}{editing && <td>{rowTools(r)}</td>}{fields.map(f => <td key={f.id}>{cell(r, f)}</td>)}</tr>)}</tbody></table>
+    <div className="database-scroll">{view.type === 'table' ? <table><thead><tr>{showNumbers && <th className="database-num">#</th>}{editing && <th>행 관리</th>}{fields.map(f => <th key={f.id} style={{ minWidth: f.width ?? 160 }}>{f.name}</th>)}</tr></thead><tbody>{rows.map((r, i) => <tr key={r.id}>{showNumbers && <td className="database-num">{i + 1}</td>}{editing && <td>{rowTools(r)}</td>}{fields.map(f => <td key={f.id}>{cell(r, f)}</td>)}</tr>)}</tbody><tfoot><tr>{showNumbers && <td className="database-num" />}{editing && <td />}{fields.map(calcCell)}</tr></tfoot></table>
       : view.type === 'board' ? <div className="database-board">{groups.map(g => <section key={g.id ?? 'empty'}><h3>{g.label}</h3>{rows.filter(r => !group || (g.id === null ? !list(value(r, group)).length : list(value(r, group)).includes(g.id))).map(card)}</section>)}</div>
       : <div className="database-gallery">{rows.map(card)}</div>}
       {!rows.length && <p className="muted database-empty">{search ? `'${search}'에 맞는 항목이 없습니다.` : '항목이 없습니다.'}</p>}</div>

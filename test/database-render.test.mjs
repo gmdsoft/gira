@@ -17,6 +17,7 @@ test('표·카드·보드 읽기 전용 렌더 스모크', async () => {
       assert.ok(html.includes('읽기 전용 — 원본에서 이관됨'));
       assert.ok(html.includes(type === 'table' ? '<table' : type === 'board' ? 'database-board' : 'database-gallery'));
       assert.ok(html.includes('role="tab"'));
+      if (type === 'table') assert.ok(html.includes('<tfoot>') && html.includes('database-calc'));
       assert.ok(!html.includes('contenteditable'));
     }
   } finally { await vite.close(); }

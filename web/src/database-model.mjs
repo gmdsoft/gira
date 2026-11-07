@@ -38,3 +38,23 @@ export function databaseValue(row, field, issues) {
   const key = field.jiraField === 'issuetype' ? 'type' : field.jiraField;
   return list(row.cells[field.issueField]).flatMap(v => list(issues[v.k]?.[key]));
 }
+
+// 표 아래 계산 줄: 모든 열은 개수·빈칸·채운 칸, 숫자 열은 합계·평균·최소·최대
+export const CALCS = { count: '항목 개수', empty: '빈칸', filled: '채운 칸', sum: '합계', avg: '평균', min: '최솟값', max: '최댓값' };
+const NUMERIC_CALCS = ['sum', 'avg', 'min', 'max'];
+export const calcOptions = field => Object.keys(CALCS).filter(k => field?.type === 'n' || !NUMERIC_CALCS.includes(k));
+const isEmpty = v => v == null || v === '' || (Array.isArray(v) && !v.length);
+const toNumber = v => typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : null;
+const fmt = n => Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+// 결과는 표시용 문자열 (값이 없으면 '—'), 열 형식에 맞지 않는 계산은 null
+export function calculate(kind, field, rows, value = (row, f) => row.cells[f.id]) {
+  if (!field || !calcOptions(field).includes(kind)) return null;
+  const values = rows.map(r => value(r, field));
+  if (kind === 'count') return fmt(rows.length);
+  if (kind === 'empty') return fmt(values.filter(isEmpty).length);
+  if (kind === 'filled') return fmt(values.filter(v => !isEmpty(v)).length);
+  const nums = values.flatMap(v => list(v).map(toNumber)).filter(n => n !== null);
+  if (!nums.length) return '—';
+  const sum = nums.reduce((a, b) => a + b, 0);
+  return fmt({ sum, avg: sum / nums.length, min: Math.min(...nums), max: Math.max(...nums) }[kind]);
+}
