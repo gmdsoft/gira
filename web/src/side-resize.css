@@ -1,0 +1,9 @@
+/* 사이드바 폭 조절 손잡이 (GIRA-80) — 사이드바 경계선 위에 겹쳐 놓는 얇은 띠 */
+.side-resizer { flex: none; align-self: stretch; width: 8px; margin: 0 -4px; position: relative; z-index: 5;
+  cursor: col-resize; touch-action: none; outline: none; }
+.side-resizer::after { content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px; background: transparent; transition: background .12s; }
+.side-resizer:hover::after, .side-resizer:focus-visible::after, body.side-resizing .side-resizer::after { background: var(--accent, #0c66e4); }
+/* Gonfluence: 사이드바가 화면에 붙어 있으므로 손잡이도 같이 붙인다 */
+.side-resizer.gs-resizer { align-self: flex-start; position: sticky; top: 48px; height: calc(100vh - 48px); }
+body.side-resizing { cursor: col-resize; user-select: none; }
+@media (max-width: 600px) { .side-resizer { display: none; } }

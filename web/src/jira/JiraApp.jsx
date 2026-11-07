@@ -10,6 +10,7 @@ import { LoginGate, NewIssueModal } from './modals.jsx';
 import { DevChatPage, openDevChat } from '../dev-feedback-ui.jsx';
 import { AccessGate, SettingsHub, NewProjectModal } from './perm.jsx';
 import Sidebar from './Sidebar.jsx';
+import { useSideWidth, SideResizer } from '../side-resize.jsx';
 import { NotifyBell } from '../notify-ui.jsx';
 import { AiHelpPanel, AiSearchBar } from '../ai-ui.jsx';
 import HomeView from './Home.jsx';
@@ -69,6 +70,8 @@ export default function JiraApp() {
   const [showProjectCreate, setShowProjectCreate] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const mobile = useMobile();
+  const sideRef = useRef(null);
+  const [sideWidth, setSideWidth] = useSideWidth('jira.sideWidth');
   const [sideOpen, setSideOpen] = useState(() => !window.matchMedia('(max-width: 600px)').matches && loadSideOpen());
   useEffect(() => { if (mobile) setSideOpen(false); }, [mobile, project, view, selKey, boardId, home]);
   const [recent, setRecent] = useState(loadRecent);
@@ -454,10 +457,11 @@ export default function JiraApp() {
       <div className="mobile-notice">모바일은 보기 전용입니다. 편집은 데스크톱에서 이용하세요.</div>
       <div className="shell">
         {mobile && sideOpen && <button className="mobile-shade" aria-label="메뉴 닫기" onClick={() => setSideOpen(false)} />}
-        {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
+        {sideOpen && <><Sidebar navRef={sideRef} style={!mobile && sideWidth ? { width: sideWidth } : undefined} meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent.slice(0, 5)} home={home} onHome={gotoHome}
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
-          onDevFeedback={openDevChat} onDevFlow={meta.devFlow ? () => window.open('/dev-flow', '_blank') : undefined} onCreateProject={!mobile && me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
+          onDevFeedback={openDevChat} onDevFlow={meta.devFlow ? () => window.open('/dev-flow', '_blank') : undefined} onCreateProject={!mobile && me?.can_create ? () => setShowProjectCreate(true) : undefined} />
+          {!mobile && <SideResizer sideRef={sideRef} width={sideWidth} setWidth={setSideWidth} />}</>}
         <div className="content">
           {home ? <><Collections filters={savedFilters} onFilter={applySaved} onRefresh={async () => setSavedFilters(await api('/api/filters'))} /><HomeView me={me} meta={meta} recent={recent} onIssue={openIssue}
             onProjView={gotoProjView} onBoard={gotoBoard}

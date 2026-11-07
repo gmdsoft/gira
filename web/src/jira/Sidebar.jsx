@@ -13,7 +13,7 @@ const readKeys = (name) => { try { const v = JSON.parse(localStorage.getItem(nam
 const saveKeys = (name, v) => { try { localStorage.setItem(name, JSON.stringify(v)); } catch { /* 무시 */ } };
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent, home, onHome,
-  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback, onDevFlow, onCreateProject }) {
+  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback, onDevFlow, onCreateProject, navRef, style }) {
   const [open, setOpen] = useState(() => new Set([project]));
   useEffect(() => { setOpen((s) => s.has(project) ? s : new Set(s).add(project)); }, [project]);
   const toggle = (pk) => setOpen((s) => { const n = new Set(s); n.has(pk) ? n.delete(pk) : n.add(pk); return n; });
@@ -51,7 +51,7 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
   const hiddenCount = projects.length - starList.length - recentList.length;
 
   return (
-    <nav id="sidebar">
+    <nav id="sidebar" ref={navRef} style={style}>
       <div className="snav">
         <div className={`sitem snav-top${home ? ' on' : ''}`} onClick={onHome} title="홈 — 내 할당 이슈·최근 본 항목·바로가기">
           <IconHome size={16} /><span className="strunc">홈</span><IconChevronRight size={14} className="sarrow" /></div>
