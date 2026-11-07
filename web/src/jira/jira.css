@@ -1027,3 +1027,34 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .issue-watchers { position: relative; }
 .issue-watchers-panel { position: absolute; top: 28px; left: 0; z-index: 20; min-width: 220px; max-height: 320px; overflow-y: auto; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px #0002; }
 .issue-watchers-panel > div { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+
+/* 개발참여 자동 처리 현황 (/dev-flow) */
+.df-page { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+.df-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.df-head h1 { font-size: 22px; margin: 0; }
+.df-sp { flex: 1; }
+.df-card { border: 1px solid var(--line, #dfe1e6); border-radius: 8px; background: var(--panel); padding: 14px 16px; margin-bottom: 14px; }
+.df-card h2 { font-size: 15px; margin: 0 0 2px; display: flex; align-items: center; gap: 8px; }
+.df-help { margin: 0 0 8px; font-size: 12.5px; }
+.df-count { font-size: 12px; font-weight: 600; background: var(--hover); border-radius: 10px; padding: 1px 8px; }
+.df-status { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+.df-status > div { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.df-state { font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 6px; }
+.df-state::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #8590a2; }
+.df-state.ok::before { background: #22a06b; }
+.df-state.warn { color: #a54800; }
+.df-state.warn::before { background: #e2b203; }
+.df-table { width: 100%; }
+.df-table td { vertical-align: top; padding: 7px 8px; }
+.df-key { white-space: nowrap; width: 90px; font-weight: 600; }
+.df-sum { font-size: 13.5px; }
+.df-meta { font-size: 12px; margin-top: 2px; }
+.df-servers { white-space: nowrap; }
+.df-servers a { display: block; font-size: 12.5px; }
+.df-dead { color: var(--dim, #8590a2) !important; text-decoration: line-through; }
+.df-when { white-space: nowrap; width: 90px; font-size: 12px; }
+.df-log td { font-size: 12.5px; padding: 4px 8px; }
+.df-attention { border-color: #f87168; }
+.df-attention h2 { color: #c9372c; }
+.df-running { border-color: var(--accent); }
+@media (max-width: 720px) { .df-servers a { white-space: normal; } .df-when { width: auto; } }

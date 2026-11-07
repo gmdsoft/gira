@@ -100,8 +100,11 @@ try {
       else if (next.action === 'finalize') await finalize(next);
       else {
         runs++;
+        const started = Date.now();
         const code = runAgent(next, next.action);
-        if (await stillRunning(next.key)) {
+        const failed = await stillRunning(next.key);
+        log(`${next.key} ${next.action} — claude 끝 (${Math.round((Date.now() - started) / 60000)}분, ${failed ? '실패' : '정상'})`);
+        if (failed) {
           gi(next.key, ['--label', `-${L.running},+${L.failed}`, '--comment', `자동 처리가 정상적으로 끝나지 않았습니다 (종료 코드 ${code ?? '시간 초과'}). 관리자가 확인한 뒤 agent-failed 레이블을 지우면 다시 시도합니다.`]);
           log(`${next.key} 처리 실패로 표시`);
         }

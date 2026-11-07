@@ -1,3 +1,4 @@
+import DevFlowPage from './DevFlowPage.jsx';
 import { quickFilterJql } from '../../../server/src/jira-collections.mjs';
 import Collections from './Collections.jsx';
 import { useMobile } from '../mobile.js';
@@ -109,7 +110,7 @@ export default function JiraApp() {
       const proj = route?.project ?? m.projects[0]?.key ?? '';
       setProject(proj);
       if (route) { setView(route.view); setSelKey(route.selKey); setBoardId(route.boardId); }
-      setHome(!route && location.pathname !== '/dev-chat'); // 주소가 프로젝트·이슈가 아니면 홈
+      setHome(!route && !['/dev-chat', '/dev-flow'].includes(location.pathname)); // 주소가 프로젝트·이슈가 아니면 홈
       setSavedFilters(await api('/api/filters'));
       setAuthed(true);
     } catch (e) {
@@ -207,6 +208,8 @@ export default function JiraApp() {
   if (location.pathname === '/dev-chat') {
     return <DevChatPage api={api} appName="Gira" btn="plain" btnPrimary="primary" />;
   }
+  // 개발참여 자동 처리 현황 (관리자·GIRA 프로젝트 관리자·기본 담당자 — 서버가 다시 확인한다)
+  if (location.pathname === '/dev-flow') return <DevFlowPage />;
   const projectCreated = async (created) => {
     setShowProjectCreate(false);
     nav(`/projects/${encodeURIComponent(created.key)}/list`);
@@ -454,7 +457,7 @@ export default function JiraApp() {
         {sideOpen && <Sidebar meta={meta} project={project} view={view} boardId={boardId}
           pdata={pdata} savedFilters={savedFilters} savedSel={savedSel} recent={recent.slice(0, 5)} home={home} onHome={gotoHome}
           onProjView={gotoProjView} onBoard={gotoBoard} onBoards={gotoBoardsDefault} onIssue={openIssue} onFilter={applySaved}
-          onDevFeedback={openDevChat} onCreateProject={!mobile && me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
+          onDevFeedback={openDevChat} onDevFlow={meta.devFlow ? () => window.open('/dev-flow', '_blank') : undefined} onCreateProject={!mobile && me?.can_create ? () => setShowProjectCreate(true) : undefined} />}
         <div className="content">
           {home ? <><Collections filters={savedFilters} onFilter={applySaved} onRefresh={async () => setSavedFilters(await api('/api/filters'))} /><HomeView me={me} meta={meta} recent={recent} onIssue={openIssue}
             onProjView={gotoProjView} onBoard={gotoBoard}

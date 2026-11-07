@@ -43,7 +43,9 @@ export function orderActions(items) {
 // GIRA 프로젝트의 열린(+검토 중 완료된) 개발참여 이슈와 마지막 댓글 작성자
 export async function loadFlowIssues(query) {
   const { rows } = await query(
-    `SELECT i.id, i.issue_key AS key, i.summary, i.priority, i.labels, i.reporter_id, t.name AS type,
+    `SELECT i.id, i.issue_key AS key, i.summary, i.priority, i.labels, i.reporter_id, i.updated_at, t.name AS type,
+            (SELECT display_name FROM users WHERE id = i.assignee_id) AS assignee,
+            (SELECT display_name FROM users WHERE id = i.reporter_id) AS reporter,
             s.name AS status_name, s.category AS status_category,
             (SELECT u.confluence_account_id = $1 FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
               WHERE c.issue_id = i.id ORDER BY c.created_at DESC, c.id DESC LIMIT 1) AS last_by_agent
@@ -52,6 +54,7 @@ export async function loadFlowIssues(query) {
       WHERE $2 = ANY(i.labels)`, [AGENT_ACCOUNT, L.source]);
   return rows.map((r) => ({
     id: r.id, key: r.key, summary: r.summary, priority: r.priority, labels: r.labels ?? [], reporterId: r.reporter_id,
+    updatedAt: r.updated_at, assignee: r.assignee, reporter: r.reporter,
     type: r.type, statusName: r.status_name, statusCategory: r.status_category,
     lastCommentByAgent: r.last_by_agent == null ? null : !!r.last_by_agent,
   }));
