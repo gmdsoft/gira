@@ -2,11 +2,14 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { whiteboardSvg } from './whiteboard-svg.mjs';
 import { WbIcon } from './whiteboard-icons.jsx';
 import './whiteboard-ui.css';
+import MenuButton from './MenuButton.jsx';
+import { WhiteboardExportDialog } from './WhiteboardExport.jsx';
 // 편집기(Excalidraw)는 화이트보드를 편집하거나 편집본을 볼 때만 불러온다
 const WhiteboardBoard = lazy(() => import('./WhiteboardBoard.jsx'));
 
 // 이관 원본 형식을 그대로 그리는 정적 보기 (원본과 같은 모양)
-function SvgView({ data, actions }) {
+function SvgView({ data, actions, title }) {
+  const [exporting, setExporting] = useState(false);
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
   const [pan, setPan] = useState(false);
   const drag = useRef(null);
@@ -33,6 +36,16 @@ function SvgView({ data, actions }) {
     backgroundSize: `${G}px ${G}px, ${G}px ${G}px, ${g}px ${g}px, ${g}px ${g}px`,
     backgroundPosition: `${ox}px ${oy}px`,
   };
+  // 내보내기용 SVG: 화면용 100% 크기 대신 실제 크기 + 흰 바탕
+  const renderExport = async (format) => {
+    const vb = /viewBox="([-\d.\s]+)"/.exec(svg)?.[1].trim().split(/\s+/).map(Number) ?? [0, 0, 1000, 800];
+    const [x, y, w, h] = vb;
+    const text = svg.replace('width="100%" height="100%"', `width="${w}" height="${h}"`)
+      .replace(/(<svg[^>]*>)/, `$1<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#ffffff"/>`);
+    if (format === 'svg') return { blob: new Blob([text], { type: 'image/svg+xml' }), width: w, height: h };
+    const { rasterBoard } = await import('./whiteboard-raster.mjs');
+    return rasterBoard(data, format === 'jpg' ? 'image/jpeg' : 'image/png');
+  };
   // 가운데 기준 확대/축소 (버튼)
   const zoomBy = (f) => setView(v => { const scale = Math.min(20, Math.max(.1, v.scale * f)); return { scale, x: v.x * scale / v.scale, y: v.y * scale / v.scale }; });
   return <div className="wb-frame">
@@ -49,12 +62,14 @@ function SvgView({ data, actions }) {
         </div>
         <button className="wb-btn" title="보드 전체가 보이게" onClick={() => setView({ x: 0, y: 0, scale: 1 })}><WbIcon name="fit" /><span className="wb-label">전체 맞춤</span></button>
         <button className="wb-btn" aria-pressed={pan} title={pan ? '텍스트 선택으로 전환' : '끌어서 화면 이동'} onClick={() => setPan(!pan)}><WbIcon name="hand" /><span className="wb-label">끌어서 이동</span></button>
+        <MenuButton label="더 보기" items={[{ label: '내보내기 (PNG · JPG · PDF · SVG)', icon: 'download', onClick: () => setExporting(true) }]} />
         {actions && <><span className="wb-sep" />{actions}</>}
       </div>
     </div>
     <div ref={viewport} className="wb-canvas wb-grid" style={{ height: '70vh', overflow: 'hidden', ...grid, touchAction: pan ? 'none' : 'auto', cursor: pan ? 'grab' : 'text' }}
       onPointerDown={e => { if (!pan || e.button !== 0) return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, view }; }}
       onPointerMove={e => { if (drag.current) { const d = drag.current; setView({ ...d.view, x: d.view.x + e.clientX - d.x, y: d.view.y + e.clientY - d.y }); } }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
+      {exporting && <WhiteboardExportDialog title={title} canSelect={false} render={renderExport} onClose={() => setExporting(false)} />}
       <div style={{ width: '100%', height: '100%', transform: `translate(${view.x}px,${view.y}px) scale(${view.scale})`, userSelect: pan ? 'none' : 'text' }} dangerouslySetInnerHTML={{ __html: svg }} />
     </div>
   </div>;
@@ -72,8 +87,8 @@ export default function WhiteboardView({ page }) {
       : editing || edited
         ? <Suspense fallback={<div className="wb-frame"><div className="wb-toolbar"><span className="wb-status busy">화이트보드 편집기를 불러오는 중…</span></div></div>}>
           <WhiteboardBoard key={editing ? 'edit' : `view-${board.version}`} pageId={page.id} data={board.data} version={board.version} editing={editing}
-            editAction={editBtn} onSaved={(version, data) => setBoard({ version, data })} onClose={() => setEditing(false)} />
+            title={page.title} editAction={editBtn} onSaved={(version, data) => setBoard({ version, data })} onClose={() => setEditing(false)} />
         </Suspense>
-        : <SvgView data={board.data} actions={editBtn} />}
+        : <SvgView data={board.data} actions={editBtn} title={page.title} />}
   </article>;
 }

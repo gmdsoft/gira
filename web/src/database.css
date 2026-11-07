@@ -6,8 +6,8 @@
 
 /* 보기 탭 */
 .database-tabs { display: flex; gap: 6px; padding: 10px 14px; flex-wrap: wrap; border-top: 1px solid var(--border); }
-.database-tabs button { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text2); padding: 5px 12px; cursor: pointer; font: inherit; font-size: 13px; }
-.database-tabs button:hover { background: var(--hover); color: var(--text); }
+.database-tabs button[role=tab] { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text2); padding: 5px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.database-tabs button[role=tab]:hover { background: var(--hover); color: var(--text); }
 .database-tabs [aria-selected=true] { color: var(--accent); border-color: var(--accent); background: var(--sel); font-weight: 600; }
 
 /* 표 */
@@ -49,3 +49,18 @@
 .database-view td [role=button] small { color: var(--muted2); }
 .database-row-tools { display: flex; gap: 4px; }
 .database-row-tools button { white-space: nowrap; padding: 3px 8px; }
+
+/* 보기 탭 메뉴·보기 추가·검색·항목 번호 */
+.database-tabs { align-items: center; }
+.database-tab { display: inline-flex; align-items: center; }
+.database-tab.on > button[role=tab] { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; padding-right: 8px; }
+.database-tab-menu { display: inline-grid; place-items: center; height: 100%; min-height: 30px; padding: 0 6px; border: 1px solid var(--accent); border-left: 0; border-radius: 0 16px 16px 0; background: var(--sel); color: var(--accent); cursor: pointer; }
+.database-tab-menu svg { width: 14px; height: 14px; }
+.database-tab-add { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 1px dashed var(--border); border-radius: 50%; background: none; color: var(--text2); cursor: pointer; }
+.database-tab-add:hover { background: var(--hover); color: var(--text); }
+.database-tab-add svg { width: 14px; height: 14px; }
+.database-search { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; padding: 0 8px; background: var(--panel); color: var(--text2); }
+.database-search svg { width: 14px; height: 14px; }
+.database-search input { border: 0 !important; background: none !important; padding: 6px 0 !important; width: 180px; color: var(--text); outline: none; }
+.database-num { width: 44px; text-align: right !important; color: var(--muted2); font-variant-numeric: tabular-nums; }
+.database-empty { padding: 16px; }
