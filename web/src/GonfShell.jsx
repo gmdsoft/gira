@@ -1,7 +1,7 @@
 import { TemplatePicker } from './templates.jsx';
 import { useMobile } from './mobile.js';
 // Gonfluence 공통 틀: 상단 바 + 왼쪽 사이드바 (Gira와 같은 구성 — Confluence의 새 내비게이션에 대응)
-// 사이드바: 홈·별표·앱·스페이스 만들기 / 스페이스(펼치면 문서 트리, + 로 문서·폴더 만들기) / 최근 항목 /
+// 사이드바: 홈·별표·앱·스페이스 만들기 / 스페이스(즐겨찾기·최근 방문 스페이스만, '모든 스페이스 보기'로 나머지 — 펼치면 문서 트리, + 로 문서·폴더 만들기) / 최근 항목 /
 //           구분선 · Gira / 구분선 · 개발용 메뉴. 트리의 문서는 다른 문서·폴더·스페이스 위로 끌어 옮길 수 있다.
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
@@ -20,6 +20,13 @@ import {
 export { SpaceAvatar, spaceColor };
 
 const readRecent = () => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } };
+// 최근에 들어간 스페이스 key (최근 것이 앞) — 사이드바 접힌 목록에 쓴다 (GIRA-76)
+const RECENT_SPACES = 'gonf.recentSpaces';
+const STARRED_SPACES = 'gonf.starredSpaces';
+const RECENT_MAX = 5;
+const readKeys = (name) => { try { const v = JSON.parse(localStorage.getItem(name) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+const readRecentSpaces = () => readKeys(RECENT_SPACES);
+const readStarredSpaces = () => readKeys(STARRED_SPACES);
 
 // 설정(톱니) 메뉴: 테마 선택 + '설정…'(허브 팝업) — Gira와 동일 구성
 export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole, onMeChanged, onSpaceIconChanged }) {
@@ -89,9 +96,35 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
   useEffect(() => { try { localStorage.setItem('gonf.side', sideOpen ? '1' : '0'); } catch { /* 무시 */ } }, [sideOpen]);
   const loadSpaces = useCallback(() => api('/api/spaces').then(setSpaces).catch(() => {}), []);
   useEffect(() => { loadSpaces(); }, [loadSpaces]);
-  const currentSpace = spaces.find((sp) => sp.key === route.spaceKey) ?? null;
-  const otherSpaces = spaces.filter((sp) => sp.key !== route.spaceKey);
-  const visibleSpaces = currentSpace ? [currentSpace, ...(allSpaces ? otherSpaces : [])] : spaces;
+  // 최근 들어간 스페이스 기록 (GIRA-76)
+  const [recentSpaces, setRecentSpaces] = useState(readRecentSpaces);
+  useEffect(() => {
+    if (!route.spaceKey) return;
+    setRecentSpaces((prev) => {
+      if (prev[0] === route.spaceKey) return prev;
+      const next = [route.spaceKey, ...prev.filter((k) => k !== route.spaceKey)].slice(0, 20);
+      try { localStorage.setItem(RECENT_SPACES, JSON.stringify(next)); } catch { /* 무시 */ }
+      return next;
+    });
+  }, [route.spaceKey]);
+  // 즐겨찾기한 스페이스 (이 브라우저에 저장) — 사이드바 접힌 목록의 첫 기준 (GIRA-76)
+  const [starred, setStarred] = useState(readStarredSpaces);
+  const toggleStar = (key) => setStarred((prev) => {
+    const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+    try { localStorage.setItem(STARRED_SPACES, JSON.stringify(next)); } catch { /* 무시 */ }
+    return next;
+  });
+  // 접힌 상태(간단히 보기)의 기준: ① 즐겨찾기 스페이스 전부 ② 최근 방문 스페이스(현재 스페이스 포함, 최대 RECENT_MAX개).
+  // 둘 다 비어 있으면(처음 쓰는 사용자) 목록 앞쪽 RECENT_MAX개. 각 묶음 안의 순서는 전체 목록 순서라 이동해도 자리가 바뀌지 않는다.
+  const known = new Set(spaces.map((sp) => sp.key));
+  const starKeys = new Set(starred.filter((k) => known.has(k)));
+  const recentKeys = new Set(recentSpaces.filter((k) => known.has(k) && !starKeys.has(k)).slice(0, RECENT_MAX));
+  if (route.spaceKey && known.has(route.spaceKey) && !starKeys.has(route.spaceKey)) recentKeys.add(route.spaceKey);
+  const noBasis = starKeys.size === 0 && recentKeys.size === 0;
+  if (noBasis) for (const sp of spaces.slice(0, RECENT_MAX)) recentKeys.add(sp.key);
+  const starSpaces = spaces.filter((sp) => starKeys.has(sp.key));
+  const recentList = spaces.filter((sp) => recentKeys.has(sp.key));
+  const hiddenCount = spaces.length - starSpaces.length - recentList.length;
   // 현재 스페이스로 들어가면 펼친다
   useEffect(() => { if (route.spaceKey) setOpen((s) => (s.has(route.spaceKey) ? s : new Set(s).add(route.spaceKey))); }, [route.spaceKey]);
 
@@ -188,7 +221,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
             </div>
 
             <div className="gs-head">스페이스</div>
-            {visibleSpaces.map((sp) => {
+            {(() => { const renderSpace = (sp) => {
               const opened = open.has(sp.key);
               const cur = sp.key === route.spaceKey;
               const canWrite = !mobile && sp.role && sp.role !== 'viewer';
@@ -204,6 +237,12 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                       onClick={(e) => { e.stopPropagation(); toggle(sp.key); }}>{opened ? <IconChevronDown size={14} /> : <IconChevronRight size={14} />}</button>
                     <SpaceAvatar space={sp} className="gs-sav" />
                     <span className="gs-trunc" title={`${sp.name} (${sp.key})`}>{sp.name}</span>
+                    {!mobile && (
+                      <button className={`gs-plus gs-star${starKeys.has(sp.key) ? ' on' : ''}`}
+                        title={starKeys.has(sp.key) ? '즐겨찾기 해제' : '즐겨찾기 — 간단히 보기에서 항상 보임'}
+                        aria-pressed={starKeys.has(sp.key)}
+                        onClick={(e) => { e.stopPropagation(); toggleStar(sp.key); }}><IconStar size={14} /></button>
+                    )}
                     {canWrite && (
                       <span className="gs-plus-wrap" onClick={(e) => e.stopPropagation()}>
                         <button className="gs-plus" title="이 스페이스에 만들기 (문서·폴더)" onClick={() => setPlusMenu((k) => (k === sp.key ? null : sp.key))}><IconPlus size={14} /></button>
@@ -236,13 +275,23 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                   )}
                 </div>
               );
-            })}
+            };
+            if (allSpaces) return spaces.map(renderSpace);
+            return <>
+              {starSpaces.length > 0 && <div className="gs-subhead">즐겨찾기</div>}
+              {starSpaces.map(renderSpace)}
+              {recentList.length > 0 && <div className="gs-subhead" title={noBasis ? '방문 기록이 없어 목록 앞쪽을 보여 줍니다' : undefined}>{noBasis ? '스페이스' : '최근 방문'}</div>}
+              {recentList.map(renderSpace)}
+            </>;
+            })()}
 
-            {currentSpace && otherSpaces.length > 0 && (
-              <button type="button" className="gs-item gs-allspaces" onClick={() => setAllSpaces((v) => !v)}>
+            {hiddenCount > 0 && (
+              <button type="button" className="gs-item gs-allspaces" aria-expanded={allSpaces}
+                title={allSpaces ? '즐겨찾기·최근 방문 스페이스만 보기' : `나머지 스페이스 ${hiddenCount}개 더 보기`}
+                onClick={() => setAllSpaces((v) => !v)}>
                 <IconSpace size={16} />
-                <span className="gs-trunc">모든 스페이스</span>
-                <span className="gs-key">{otherSpaces.length}</span>
+                <span className="gs-trunc">{allSpaces ? '간단히 보기' : '모든 스페이스 보기'}</span>
+                {!allSpaces && <span className="gs-key">+{hiddenCount}</span>}
                 {allSpaces ? <IconChevronDown size={14} className="gs-arrow" /> : <IconChevronRight size={14} className="gs-arrow" />}
               </button>
             )}
