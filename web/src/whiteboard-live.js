@@ -37,7 +37,7 @@ export function useWhiteboardLive({ pageId, editing, apiRef }) {
         selectedElementIds: Object.fromEntries((c.selected ?? []).map((id) => [id, true])) });
     }
     api.updateScene({ collaborators: map });
-    setState((s) => ({ ...s, clients: [...others.current.values()].map(({ clientId: id, name, color, canEdit }) => ({ clientId: id, name, color, canEdit })) }));
+    setState((s) => ({ ...s, clients: [...others.current.values()].map(({ clientId: id, name, color, canEdit, editing: e }) => ({ clientId: id, name, color, canEdit, editing: e })) }));
   }, [apiRef]);
 
   const flush = useCallback(async () => {
@@ -98,7 +98,7 @@ export function useWhiteboardLive({ pageId, editing, apiRef }) {
   useEffect(() => {
     if (!pageId) return undefined;
     let closed = false;
-    const es = new EventSource(`/api/content/${pageId}/whiteboard/live?client=${clientId.current}`);
+    const es = new EventSource(`/api/content/${pageId}/whiteboard/live?client=${clientId.current}${editing ? '&mode=edit' : ''}`);
     const on = (name, fn) => es.addEventListener(name, (ev) => { try { fn(JSON.parse(ev.data)); } catch (e) { console.warn('whiteboard live', name, e); } });
     on('init', async (d) => {
       // 편집기가 준비될 때까지 기다린다

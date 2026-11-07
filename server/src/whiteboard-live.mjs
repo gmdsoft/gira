@@ -62,7 +62,7 @@ export function createLiveHub({ loadBoard, persist, now = () => Date.now(), auto
     return r;
   }
 
-  const info = (c) => ({ clientId: c.clientId, userId: c.userId, name: c.name, color: c.color, canEdit: c.canEdit, pointer: c.pointer ?? null, selected: c.selected ?? null });
+  const info = (c) => ({ clientId: c.clientId, userId: c.userId, name: c.name, color: c.color, canEdit: c.canEdit, editing: c.editing, pointer: c.pointer ?? null, selected: c.selected ?? null });
   function send(c, event, data) {
     try { c.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch { /* 끊긴 연결은 close에서 정리 */ }
   }
@@ -91,12 +91,12 @@ export function createLiveHub({ loadBoard, persist, now = () => Date.now(), auto
   }
 
   // SSE 연결 하나 = 참여자 하나. write(text)는 스트림에 쓰는 함수.
-  async function join(id, { clientId, userId, name, canEdit, write }) {
+  async function join(id, { clientId, userId, name, canEdit, editing = false, write }) {
     const r = await room(id);
     const old = r.clients.get(clientId);
     if (old && old.userId !== userId) throw Object.assign(new Error('client id 충돌'), { status: 409 });
     const color = old?.color ?? COLORS[r.colorNext++ % COLORS.length];
-    const c = { clientId, userId, name, canEdit, write, color, pointer: null, selected: null };
+    const c = { clientId, userId, name, canEdit, editing: !!(editing && canEdit), write, color, pointer: null, selected: null };
     r.clients.set(clientId, c);
     send(c, 'init', {
       you: info(c), version: r.version, seed: r.seed && r.elements.size === 0, background: r.background,
@@ -215,7 +215,7 @@ export function registerWhiteboardLive(app, { requireAccess, query, getDb, reind
     write.end = () => raw.end();
     req.raw.on('close', () => { hub.leave(id, req.query.client, write).catch(() => {}); });
     try {
-      await hub.join(id, { clientId: req.query.client, userId: req.access.userId, name: u?.display_name ?? '알 수 없는 사용자', canEdit: !!acc.edit, write });
+      await hub.join(id, { clientId: req.query.client, userId: req.access.userId, name: u?.display_name ?? '알 수 없는 사용자', canEdit: !!acc.edit, editing: req.query.mode === 'edit', write });
     } catch (e) {
       raw.write(`event: fatal\ndata: ${JSON.stringify({ error: e.message })}\n\n`);
       raw.end();

@@ -52,7 +52,7 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
     : live.savedAt ? { text: `자동 저장됨 ${time(live.savedAt)} · 버전 ${live.version}`, kind: 'saved' }
     : { text: `실시간 공동 편집 · 버전 ${live.version ?? version}`, kind: '' };
   const people = live.clients.length > 0 && <span className="wb-people" aria-label="함께 보는 사람">
-    {live.clients.slice(0, 6).map((c) => <span key={c.clientId} className="wb-person" style={{ background: c.color }} title={`${c.name}님 — ${c.canEdit ? '편집 가능' : '보기 전용'}`}>{(c.name ?? '?').slice(0, 1)}</span>)}
+    {live.clients.slice(0, 6).map((c) => <span key={c.clientId} className="wb-person" style={{ background: c.color }} title={`${c.name}님 — ${c.editing ? '편집 중' : '보는 중'}`}>{(c.name ?? '?').slice(0, 1)}</span>)}
     {live.clients.length > 6 && <span className="wb-person more" title={live.clients.slice(6).map((c) => c.name).join(', ')}>+{live.clients.length - 6}</span>}
   </span>;
   // 내보내기: 보드 전체 또는 선택한 요소(묶인 글자·프레임 안 요소 포함)
@@ -92,7 +92,7 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
       : <div className="wb-toolbar">
         <div className="wb-left">
           <span className="wb-badge"><WbIcon name="history" />버전 {live.version ?? version}</span>
-          {people ? <>{people}<span className="wb-note">{live.clients.some((c) => c.canEdit) ? '함께 편집 중 — 변경이 바로 보입니다' : '함께 보는 중'}</span></>
+          {people ? <>{people}<span className="wb-note">{live.clients.some((c) => c.editing) ? '함께 편집 중 — 변경이 바로 보입니다' : '함께 보는 중'}</span></>
             : <span className="wb-note">휠로 확대/축소, 스페이스바를 누른 채 끌어서 이동</span>}
         </div>
         <div className="wb-right">{moreMenu}{editAction}</div>
