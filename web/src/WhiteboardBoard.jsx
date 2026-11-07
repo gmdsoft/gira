@@ -7,9 +7,9 @@ import { WhiteboardExportDialog, MAX_EXPORT_PX } from './WhiteboardExport.jsx';
 import '@excalidraw/excalidraw/index.css';
 import { toExcalidrawScene, sceneForSave } from './whiteboard-excalidraw.mjs';
 import { WbIcon } from './whiteboard-icons.jsx';
+import { useWhiteboardLive } from './whiteboard-live.js';
 
-const versionSum = (elements) => elements.reduce((n, e) => n + (e.version ?? 0) + (e.isDeleted ? 1 : 0), 0);
-
+// 실시간 공동 편집(GIRA-77): 보기·편집 모두 같은 방에 참여한다. 편집 내용은 바로 다른 사람에게 보이고 서버가 자동 저장한다.
 export default function WhiteboardBoard({ pageId, title, data, version, editing, editAction, onSaved, onClose }) {
   const [exporting, setExporting] = useState(null); // null | { selected }
   const scene = useMemo(() => {
@@ -18,48 +18,43 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
     return { ...s, elements: restoreElements(s.elements, null, { refreshDimensions: true, repairBindings: true }) };
   }, [data]);
   const api = useRef(null);
-  const baseline = useRef(null);
-  const ver = useRef(version);
-  const [dirty, setDirty] = useState(false);
-  const [status, setStatus] = useState(null); // { text, kind: busy|saved|error }
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { ver.current = version; }, [version]);
+  const live = useWhiteboardLive({ pageId, editing, apiRef: api });
+  const readOnly = editing && live.connected && !live.canEdit;
 
-  const onChange = useCallback((elements) => {
-    if (!editing) return;
-    const sum = versionSum(elements);
-    if (baseline.current == null) { baseline.current = sum; return; }
-    setDirty(sum !== baseline.current);
-  }, [editing]);
+  const onChange = useCallback((elements, appState, files) => { live.queueLocal(elements, files); }, [live.queueLocal]);
 
-  const save = useCallback(async () => {
-    const ex = api.current; if (!ex || busy) return;
-    setBusy(true); setStatus({ text: '저장 중…', kind: 'busy' });
-    try {
-      const body = sceneForSave(ex.getSceneElementsIncludingDeleted(), ex.getFiles(), ex.getAppState());
-      const r = await fetch(`/api/content/${pageId}/whiteboard`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ baseVersion: ver.current, data: body }) });
-      const j = await r.json().catch(() => ({}));
-      if (r.status === 409) { setStatus({ text: '다른 사람이 먼저 저장했습니다 — 내 변경을 복사해 두고 다시 불러오세요', kind: 'error' }); return; }
-      if (!r.ok) { setStatus({ text: '저장 실패: ' + (j.error ?? r.status), kind: 'error' }); return; }
-      ver.current = j.version; baseline.current = versionSum(ex.getSceneElementsIncludingDeleted()); setDirty(false);
-      setStatus({ text: `저장됨 · 버전 ${j.version}`, kind: 'saved' });
-      onSaved?.(j.version, { ...body, plainText: undefined });
-    } catch (e) { setStatus({ text: '저장 실패: ' + e.message, kind: 'error' }); } finally { setBusy(false); }
-  }, [pageId, busy, onSaved]);
+  // 저장 결과를 페이지 상태에 반영 (버전 기록·편집 종료 뒤 보기)
+  const lastVersion = useRef(version);
+  useEffect(() => {
+    const ex = api.current;
+    if (!live.version || live.version === lastVersion.current || !ex) return;
+    lastVersion.current = live.version;
+    onSaved?.(live.version, sceneForSave(ex.getSceneElementsIncludingDeleted(), ex.getFiles(), ex.getAppState()));
+  }, [live.version, onSaved]);
 
-  // Ctrl/⌘+S 저장, 저장 안 한 채 떠나면 경고
+  const save = useCallback(() => { if (editing && live.canEdit) live.saveNow(); }, [editing, live.canEdit, live.saveNow]);
+
+  // Ctrl/⌘+S 지금 저장, 아직 못 보낸 변경이 있으면 떠날 때 경고
   useEffect(() => {
     if (!editing) return undefined;
     const key = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); } };
-    const leave = (e) => { if (dirty) { e.preventDefault(); e.returnValue = ''; } };
+    const leave = (e) => { if (live.unsent) { e.preventDefault(); e.returnValue = ''; } };
     window.addEventListener('keydown', key, true); window.addEventListener('beforeunload', leave);
     return () => { window.removeEventListener('keydown', key, true); window.removeEventListener('beforeunload', leave); };
-  }, [editing, dirty, save]);
+  }, [editing, live.unsent, save]);
 
-  // 상태 글자: 진행·오류가 우선, 그다음 변경 여부
-  const shown = status?.kind === 'busy' || status?.kind === 'error' ? status
-    : dirty ? { text: '저장하지 않은 변경 있음', kind: 'dirty' }
-    : status ?? { text: '변경 없음', kind: '' };
+  // 상태 글자: 연결·오류가 우선, 그다음 저장 상태
+  const time = (t) => new Date(t).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  const shown = live.error ? { text: live.error, kind: 'error' }
+    : !live.connected ? { text: '실시간 연결 중…', kind: 'busy' }
+    : live.saving ? { text: '저장 중…', kind: 'busy' }
+    : live.unsent ? { text: '보내는 중…', kind: 'dirty' }
+    : live.savedAt ? { text: `자동 저장됨 ${time(live.savedAt)} · 버전 ${live.version}`, kind: 'saved' }
+    : { text: `실시간 공동 편집 · 버전 ${live.version ?? version}`, kind: '' };
+  const people = live.clients.length > 0 && <span className="wb-people" aria-label="함께 보는 사람">
+    {live.clients.slice(0, 6).map((c) => <span key={c.clientId} className="wb-person" style={{ background: c.color }} title={`${c.name}님 — ${c.canEdit ? '편집 가능' : '보기 전용'}`}>{(c.name ?? '?').slice(0, 1)}</span>)}
+    {live.clients.length > 6 && <span className="wb-person more" title={live.clients.slice(6).map((c) => c.name).join(', ')}>+{live.clients.length - 6}</span>}
+  </span>;
   // 내보내기: 보드 전체 또는 선택한 요소(묶인 글자·프레임 안 요소 포함)
   const selectedIds = () => { const sel = api.current?.getAppState().selectedElementIds ?? {}; return new Set(Object.keys(sel).filter((k) => sel[k])); };
   const renderExport = async (format, area) => {
@@ -79,24 +74,26 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
     return { blob, width: bmp.width, height: bmp.height };
   };
   const moreMenu = <MenuButton label="더 보기" items={[{ label: '내보내기 (PNG · JPG · PDF · SVG)', icon: 'download', onClick: () => setExporting({ selected: selectedIds().size }) }]} />;
-  const close = () => { if (dirty && !confirm('저장하지 않은 변경이 있습니다. 편집을 끝낼까요?')) return; onClose?.(); };
+  const close = () => { onClose?.(); }; // 못 보낸 변경은 나갈 때 보내고, 마지막 사람이 나가면 서버가 저장한다
   return <div className="wb-frame">
     {editing
       ? <div className="wb-toolbar">
         <div className="wb-left">
-          <span className="wb-badge is-edit"><WbIcon name="pencil" />편집 중</span>
+          <span className="wb-badge is-edit"><WbIcon name="pencil" />{readOnly ? '보기 전용' : '편집 중'}</span>
           <span role="status" className={`wb-status ${shown.kind}`}>{shown.text}</span>
+          {people}
         </div>
         <div className="wb-right">
           {moreMenu}
           <button className="wb-btn" onClick={close}><WbIcon name="close" /><span className="wb-label">편집 종료</span></button>
-          <button className="wb-btn primary" onClick={save} disabled={busy || !dirty} title="저장 (Ctrl+S)"><WbIcon name="check" />저장<kbd>Ctrl S</kbd></button>
+          <button className="wb-btn primary" onClick={save} disabled={live.saving || !live.connected || !live.canEdit} title="변경은 자동 저장됩니다. 지금 바로 새 버전으로 저장 (Ctrl+S)"><WbIcon name="check" />지금 저장<kbd>Ctrl S</kbd></button>
         </div>
       </div>
       : <div className="wb-toolbar">
         <div className="wb-left">
-          <span className="wb-badge"><WbIcon name="history" />버전 {version}</span>
-          <span className="wb-note">휠로 확대/축소, 스페이스바를 누른 채 끌어서 이동</span>
+          <span className="wb-badge"><WbIcon name="history" />버전 {live.version ?? version}</span>
+          {people ? <>{people}<span className="wb-note">{live.clients.some((c) => c.canEdit) ? '함께 편집 중 — 변경이 바로 보입니다' : '함께 보는 중'}</span></>
+            : <span className="wb-note">휠로 확대/축소, 스페이스바를 누른 채 끌어서 이동</span>}
         </div>
         <div className="wb-right">{moreMenu}{editAction}</div>
       </div>}
@@ -113,8 +110,10 @@ export default function WhiteboardBoard({ pageId, title, data, version, editing,
             a.scrollToContent(els, { fitToViewport: true, viewportZoomFactor: 0.95, maxZoom: 1, animate: false });
           }, 0);
         }}
-        initialData={{ elements: scene.elements, files: scene.files, appState: { ...scene.appState, viewModeEnabled: !editing, currentItemRoughness: 0, currentItemFontFamily: 2 }, scrollToContent: true }}
-        viewModeEnabled={!editing}
+        initialData={{ elements: scene.elements, files: scene.files, appState: { ...scene.appState, viewModeEnabled: !editing || readOnly, currentItemRoughness: 0, currentItemFontFamily: 2 }, scrollToContent: true }}
+        viewModeEnabled={!editing || readOnly}
+        isCollaborating
+        onPointerUpdate={live.sendPointer}
         gridModeEnabled
         langCode="ko-KR"
         onChange={onChange}

@@ -80,13 +80,13 @@ export default function WhiteboardView({ page }) {
   const [editing, setEditing] = useState(false);
   const edited = board.data?.format === 'excalidraw';
   const editBtn = page.canEdit && board.data
-    ? <button className="wb-btn primary" title="편집하면 새 버전으로 저장되고, 이전 버전은 버전 기록에 남습니다." onClick={() => setEditing(true)}><WbIcon name="pencil" />편집</button>
+    ? <button className="wb-btn primary" title="여러 사람이 함께 편집할 수 있습니다. 변경은 자동으로 새 버전에 저장되고, 이전 버전은 버전 기록에 남습니다." onClick={() => setEditing(true)}><WbIcon name="pencil" />편집</button>
     : null;
   return <article className="page page-full"><h1>🖊️ {page.title}</h1>
     {!board.data ? <p>화이트보드 스냅샷이 없습니다. 다시 이관해 주세요.</p>
       : editing || edited
         ? <Suspense fallback={<div className="wb-frame"><div className="wb-toolbar"><span className="wb-status busy">화이트보드 편집기를 불러오는 중…</span></div></div>}>
-          <WhiteboardBoard key={editing ? 'edit' : `view-${board.version}`} pageId={page.id} data={board.data} version={board.version} editing={editing}
+          <WhiteboardBoard key={editing ? 'edit' : 'view'} pageId={page.id} data={board.data} version={board.version} editing={editing}
             title={page.title} editAction={editBtn} onSaved={(version, data) => setBoard({ version, data })} onClose={() => setEditing(false)} />
         </Suspense>
         : <SvgView data={board.data} actions={editBtn} title={page.title} />}

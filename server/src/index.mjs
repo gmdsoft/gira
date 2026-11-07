@@ -1,5 +1,6 @@
 import { saveDatabase } from './database-edit.mjs';
 import { saveWhiteboard, emptyWhiteboard } from './whiteboard-edit.mjs';
+import { registerWhiteboardLive } from './whiteboard-live.mjs';
 import { registerPlantuml } from './plantuml.mjs';
 import { reportScope, reportNodes, mergeDetails, labelCounts, walk } from './macro-reports.mjs';
 import { resolveAvatar } from './avatar.mjs';
@@ -401,6 +402,9 @@ app.put('/api/content/:id/whiteboard', async (req, reply) => {
     throw e;
   } finally { client.release(); }
 });
+
+// 화이트보드 실시간 공동 편집 (GIRA-77): 참여 SSE + 변경 POST, 서버가 자동 저장
+const whiteboardLive = registerWhiteboardLive(app, { requireAccess, query, getDb, reindex });
 
 app.get('/api/content/:id/comments', async (req, reply) => {
   if (!await requireAccess(req, reply, req.params.id)) return;
@@ -1367,6 +1371,6 @@ console.log(`API http://localhost:${port}`);
 // 종료 시그널에서 연결을 정리 (docker stop 등)
 for (const sig of ['SIGTERM', 'SIGINT']) {
   process.once(sig, async () => {
-    try { await app.close(); await closeDb(); } finally { process.exit(0); }
+    try { await whiteboardLive.flush(); await app.close(); await closeDb(); } finally { process.exit(0); }
   });
 }

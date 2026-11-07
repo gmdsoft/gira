@@ -10,6 +10,16 @@ export function whiteboardPlainText(elements) {
     .join('\n');
 }
 
+// 실시간 편집(GIRA-77)으로 들어오는 요소·이미지 한 개 검사 — 저장 검증과 같은 규칙
+export function checkLiveElement(e) {
+  if (!e || typeof e !== 'object' || typeof e.id !== 'string' || typeof e.type !== 'string') throw new Error('잘못된 화이트보드 데이터: 요소 id·type 필요');
+  if (e.version != null && !Number.isFinite(e.version)) throw new Error('잘못된 화이트보드 데이터: version');
+  if (e.link != null && (typeof e.link !== 'string' || /^\s*(javascript|data|vbscript):/i.test(e.link))) throw new Error('잘못된 화이트보드 데이터: 허용되지 않는 링크');
+}
+export function checkLiveFile(f) {
+  if (!f || typeof f.dataURL !== 'string' || !SAFE_IMAGE.test(f.dataURL)) throw new Error('잘못된 화이트보드 데이터: 이미지는 png·jpeg·gif·webp·svg만');
+}
+
 export function validateWhiteboard(data) {
   if (!data || typeof data !== 'object' || data.format !== 'excalidraw' || !Array.isArray(data.elements)) throw new Error('잘못된 화이트보드 데이터');
   if (data.elements.length > MAX_ELEMENTS) throw new Error(`잘못된 화이트보드 데이터: 요소는 ${MAX_ELEMENTS}개까지`);
