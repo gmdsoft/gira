@@ -73,6 +73,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
   const [sideOpen, setSideOpen] = useState(() => { if (window.matchMedia('(max-width: 600px)').matches) return false; try { return localStorage.getItem('gonf.side') !== '0'; } catch { return true; } });
   useEffect(() => { if (mobile) setSideOpen(false); }, [mobile, route]);
   const [spaces, setSpaces] = useState([]);
+  const [allSpaces, setAllSpaces] = useState(false);
   const [open, setOpen] = useState(() => new Set(route.spaceKey ? [route.spaceKey] : []));
   const [trees, setTrees] = useState({}); // 현재 스페이스가 아닌, 펼친 스페이스의 트리
   const [plusMenu, setPlusMenu] = useState(null); // 스페이스 key — + 메뉴(문서/폴더)
@@ -86,6 +87,9 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
   useEffect(() => { try { localStorage.setItem('gonf.side', sideOpen ? '1' : '0'); } catch { /* 무시 */ } }, [sideOpen]);
   const loadSpaces = useCallback(() => api('/api/spaces').then(setSpaces).catch(() => {}), []);
   useEffect(() => { loadSpaces(); }, [loadSpaces]);
+  const currentSpace = spaces.find((sp) => sp.key === route.spaceKey) ?? null;
+  const otherSpaces = spaces.filter((sp) => sp.key !== route.spaceKey);
+  const visibleSpaces = currentSpace ? [currentSpace, ...(allSpaces ? otherSpaces : [])] : spaces;
   // 현재 스페이스로 들어가면 펼친다
   useEffect(() => { if (route.spaceKey) setOpen((s) => (s.has(route.spaceKey) ? s : new Set(s).add(route.spaceKey))); }, [route.spaceKey]);
 
@@ -181,7 +185,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
             </div>
 
             <div className="gs-head">스페이스</div>
-            {spaces.map((sp) => {
+            {visibleSpaces.map((sp) => {
               const opened = open.has(sp.key);
               const cur = sp.key === route.spaceKey;
               const canWrite = !mobile && sp.role && sp.role !== 'viewer';
@@ -227,6 +231,15 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                 </div>
               );
             })}
+
+            {currentSpace && otherSpaces.length > 0 && (
+              <button type="button" className="gs-item gs-allspaces" onClick={() => setAllSpaces((v) => !v)}>
+                <IconSpace size={16} />
+                <span className="gs-trunc">모든 스페이스</span>
+                <span className="gs-key">{otherSpaces.length}</span>
+                {allSpaces ? <IconChevronDown size={14} className="gs-arrow" /> : <IconChevronRight size={14} className="gs-arrow" />}
+              </button>
+            )}
 
             {recent.length > 0 && <>
               <div className="gs-head">최근 항목</div>
