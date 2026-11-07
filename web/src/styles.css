@@ -762,8 +762,12 @@ span.cf-macro-notice { display: inline-block; margin: 0 2px; padding: 1px 6px; }
 .devchat-head a { font-size: 13px; }
 .devchat-sp { flex: 1; }
 .devchat-list { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px; }
-.devchat-empty { margin: auto; text-align: center; color: var(--muted2); font-size: 14px; line-height: 1.7; max-width: 520px; }
-.devchat-ex { margin-top: 10px; font-size: 12.5px; }
+.devchat-empty { margin: auto; text-align: center; color: var(--muted2); font-size: 14px; line-height: 1.7; max-width: 760px; }
+/* 제목·문단 사이 한 줄 공백 */
+.devchat-empty p, .devchat-empty .devchat-flow { margin: 0 0 1.7em; }
+.devchat-empty > :last-child { margin-bottom: 0; }
+.devchat-title { font-weight: 700; font-size: 15px; }
+.devchat-ex { font-size: 12.5px; }
 .devchat-msg { display: flex; flex-direction: column; max-width: 86%; }
 .devchat-user { align-self: flex-end; align-items: flex-end; }
 .devchat-assistant, .devchat-error { align-self: flex-start; }
@@ -795,9 +799,10 @@ span.cf-macro-notice { display: inline-block; margin: 0 2px; padding: 1px 6px; }
 .devchat-attach:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .devchat-attach:disabled { opacity: .45; cursor: default; }
 .devchat-attach-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
-.devchat-flow { text-align: left; margin: 12px auto 4px; padding-left: 22px; font-size: 13px; line-height: 1.6; max-width: 460px; }
-.devchat-flow li { margin: 2px 0; }
-.devchat-note { display: block; font-size: 12.5px; }
+.devchat-flow { display: inline-block; text-align: left; padding-left: 22px; font-size: 13.5px; line-height: 1.7; }
+.devchat-flow li { margin: 2px 0; white-space: nowrap; }
+@media (max-width: 760px) { .devchat-flow li { white-space: normal; } }
+.devchat-note { font-size: 12.5px; }
 .devchat-drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .devchat-input { display: flex; gap: 8px; align-items: flex-end; }
 .devchat-input textarea { flex: 1; font: inherit; font-size: 14px; padding: 9px 11px; border: 1px solid var(--line2); border-radius: 8px; resize: none; background: var(--panel); color: var(--text); }
