@@ -20,9 +20,20 @@ function SvgView({ data }) {
     return () => node.removeEventListener('wheel', zoom);
   }, [data]);
   const svg = useMemo(() => data ? whiteboardSvg(data) : '', [data]);
+  // 바탕 격자 — 편집기(Excalidraw)와 같은 20px 칸, 5칸마다 굵은 선. 보드와 함께 이동·확대된다(중심 기준 scale)
+  const cw = viewport.current?.clientWidth ?? 0, ch = viewport.current?.clientHeight ?? 0;
+  const g = 20 * view.scale, G = g * 5;
+  const ox = cw / 2 * (1 - view.scale) + view.x, oy = ch / 2 * (1 - view.scale) + view.y;
+  const grid = {
+    backgroundColor: '#fff',
+    backgroundImage: ['linear-gradient(#dfe1e6 1px, transparent 1px)', 'linear-gradient(90deg, #dfe1e6 1px, transparent 1px)',
+      'linear-gradient(#f1f2f4 1px, transparent 1px)', 'linear-gradient(90deg, #f1f2f4 1px, transparent 1px)'].join(','),
+    backgroundSize: `${G}px ${G}px, ${G}px ${G}px, ${g}px ${g}px, ${g}px ${g}px`,
+    backgroundPosition: `${ox}px ${oy}px`,
+  };
   return <>
     <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}><button onClick={() => setView({ x: 0, y: 0, scale: 1 })}>전체 맞춤</button><button aria-pressed={pan} onClick={() => setPan(!pan)}>{pan ? '텍스트 선택' : '끌어서 이동'}</button><span>{Math.round(view.scale * 100)}%</span></div>
-    <div ref={viewport} style={{ height: '70vh', overflow: 'hidden', border: '1px solid #dfe1e6', background: '#fff', touchAction: pan ? 'none' : 'auto', cursor: pan ? 'grab' : 'text' }}
+    <div ref={viewport} className="wb-grid" style={{ height: '70vh', overflow: 'hidden', border: '1px solid #dfe1e6', ...grid, touchAction: pan ? 'none' : 'auto', cursor: pan ? 'grab' : 'text' }}
       onPointerDown={e => { if (!pan || e.button !== 0) return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, view }; }}
       onPointerMove={e => { if (drag.current) { const d = drag.current; setView({ ...d.view, x: d.view.x + e.clientX - d.x, y: d.view.y + e.clientY - d.y }); } }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
       <div style={{ width: '100%', height: '100%', transform: `translate(${view.x}px,${view.y}px) scale(${view.scale})`, userSelect: pan ? 'none' : 'text' }} dangerouslySetInnerHTML={{ __html: svg }} />

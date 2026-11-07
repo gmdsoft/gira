@@ -72,6 +72,7 @@ export default function WhiteboardBoard({ pageId, data, version, editing, onSave
         }}
         initialData={{ elements: scene.elements, files: scene.files, appState: { ...scene.appState, viewModeEnabled: !editing, currentItemRoughness: 0, currentItemFontFamily: 2 }, scrollToContent: true }}
         viewModeEnabled={!editing}
+        gridModeEnabled
         langCode="ko-KR"
         onChange={onChange}
         UIOptions={{ canvasActions: { loadScene: false, saveToActiveFile: false, export: { saveFileToDisk: true }, toggleTheme: false } }}
