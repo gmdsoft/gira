@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { list } from './database-model.mjs';
+import { uid } from './database-io.mjs';
 export const fieldTypes = { t:'텍스트', n:'숫자', d:'날짜', s:'선택/다중 선택', u:'사용자', h:'링크', ji:'Jira 이슈', pl:'문서 링크' };
-export const newId = () => crypto.randomUUID();
+export const newId = uid; // http에서도 동작 (crypto.randomUUID는 보안 연결에서만)
 export function CellEditor({ field, value, onChange }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -40,10 +41,6 @@ export function DatabaseTools({ data, view, change, setTab }) {
   return <div className="database-tools">
     <button onClick={() => change(d => d.rows.push({id:newId(), cells:{}}))}>행 추가</button>
     <button onClick={() => { const name = prompt('필드 이름'); if (name?.trim()) change(d => d.fields.push({id:newId(),name:name.trim(),type:'t',options:[]})); }}>필드 추가</button>
-    <button onClick={() => { const name = prompt('보기 이름'); if (name?.trim()) { const id = newId(); change(d => d.views.push({id,name:name.trim(),type:'table',hiddenFields:[],sort:[],filter:null,groupBy:null})); setTab(id); } }}>보기 추가</button>
-    <input aria-label="보기 이름" value={view.name} onChange={e => updateView({name:e.target.value})} />
-    <select aria-label="보기 형식" value={view.type} onChange={e => updateView({type:e.target.value})}><option value="table">표</option><option value="card">카드</option><option value="board">보드</option></select>
-    <button disabled={data.views.length === 1} onClick={() => change(d => { d.views = d.views.filter(v => v.id !== view.id); })}>보기 삭제</button>
     <label>보드 그룹 <select value={view.groupBy ?? ''} onChange={e => updateView({groupBy:e.target.value || null})}><option value="">없음</option>{data.fields.filter(f => f.type === 's').map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
     <label>정렬 <select value={view.sort?.[0]?.field ?? ''} onChange={e => updateView({sort:e.target.value ? [{field:e.target.value,ascending:true}] : []})}><option value="">없음</option>{data.fields.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select></label>
     <button onClick={() => updateView({sort:(view.sort ?? []).map(s => ({...s,ascending:!s.ascending}))})}>정렬 방향 {view.sort?.[0]?.ascending === false ? '↓' : '↑'}</button>
