@@ -1,7 +1,7 @@
 import { TemplatePicker } from './templates.jsx';
 import { useMobile } from './mobile.js';
 // Gonfluence 공통 틀: 상단 바 + 왼쪽 사이드바 (Gira와 같은 구성 — Confluence의 새 내비게이션에 대응)
-// 사이드바: 홈·별표·앱·스페이스 만들기 / 스페이스(펼치면 문서 트리, + 로 문서·폴더 만들기) / 최근 항목 /
+// 사이드바: 홈·별표·앱·스페이스 만들기 / 스페이스(현재·최근 스페이스만, '모든 스페이스 보기'로 나머지 — 펼치면 문서 트리, + 로 문서·폴더 만들기) / 최근 항목 /
 //           구분선 · Gira / 구분선 · 개발용 메뉴. 트리의 문서는 다른 문서·폴더·스페이스 위로 끌어 옮길 수 있다.
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
@@ -20,6 +20,10 @@ import {
 export { SpaceAvatar, spaceColor };
 
 const readRecent = () => { try { return JSON.parse(localStorage.getItem('gonf.recent') ?? '[]'); } catch { return []; } };
+// 최근에 들어간 스페이스 key (최근 것이 앞) — 사이드바 접힌 목록에 쓴다 (GIRA-76)
+const RECENT_SPACES = 'gonf.recentSpaces';
+const PINNED_MAX = 5;
+const readRecentSpaces = () => { try { const v = JSON.parse(localStorage.getItem(RECENT_SPACES) ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
 
 // 설정(톱니) 메뉴: 테마 선택 + '설정…'(허브 팝업) — Gira와 동일 구성
 export function SettingsMenu({ me, navigate, theme, setTheme, up, spaceKey, spaceRole, onMeChanged, onSpaceIconChanged }) {
@@ -89,9 +93,25 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
   useEffect(() => { try { localStorage.setItem('gonf.side', sideOpen ? '1' : '0'); } catch { /* 무시 */ } }, [sideOpen]);
   const loadSpaces = useCallback(() => api('/api/spaces').then(setSpaces).catch(() => {}), []);
   useEffect(() => { loadSpaces(); }, [loadSpaces]);
-  const currentSpace = spaces.find((sp) => sp.key === route.spaceKey) ?? null;
-  const otherSpaces = spaces.filter((sp) => sp.key !== route.spaceKey);
-  const visibleSpaces = currentSpace ? [currentSpace, ...(allSpaces ? otherSpaces : [])] : spaces;
+  // 최근 들어간 스페이스 기록 (GIRA-76)
+  const [recentSpaces, setRecentSpaces] = useState(readRecentSpaces);
+  useEffect(() => {
+    if (!route.spaceKey) return;
+    setRecentSpaces((prev) => {
+      if (prev[0] === route.spaceKey) return prev;
+      const next = [route.spaceKey, ...prev.filter((k) => k !== route.spaceKey)].slice(0, 20);
+      try { localStorage.setItem(RECENT_SPACES, JSON.stringify(next)); } catch { /* 무시 */ }
+      return next;
+    });
+  }, [route.spaceKey]);
+  // 접힌 상태에 보이는 스페이스: 현재 스페이스 + 최근 들어간 스페이스(최대 PINNED_MAX개, 기록이 없으면 목록 앞쪽).
+  // 순서는 전체 목록 순서를 그대로 따라 펼침/접힘·이동을 반복해도 자리가 바뀌지 않는다.
+  const known = new Set(spaces.map((sp) => sp.key));
+  const pinKeys = new Set(recentSpaces.filter((k) => known.has(k)).slice(0, PINNED_MAX));
+  if (pinKeys.size === 0) for (const sp of spaces.slice(0, PINNED_MAX)) pinKeys.add(sp.key);
+  if (route.spaceKey && known.has(route.spaceKey)) pinKeys.add(route.spaceKey);
+  const hiddenCount = spaces.filter((sp) => !pinKeys.has(sp.key)).length;
+  const visibleSpaces = allSpaces ? spaces : spaces.filter((sp) => pinKeys.has(sp.key));
   // 현재 스페이스로 들어가면 펼친다
   useEffect(() => { if (route.spaceKey) setOpen((s) => (s.has(route.spaceKey) ? s : new Set(s).add(route.spaceKey))); }, [route.spaceKey]);
 
@@ -238,11 +258,13 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
               );
             })}
 
-            {currentSpace && otherSpaces.length > 0 && (
-              <button type="button" className="gs-item gs-allspaces" onClick={() => setAllSpaces((v) => !v)}>
+            {hiddenCount > 0 && (
+              <button type="button" className="gs-item gs-allspaces" aria-expanded={allSpaces}
+                title={allSpaces ? '자주 쓰는 스페이스만 보기' : `나머지 스페이스 ${hiddenCount}개 더 보기`}
+                onClick={() => setAllSpaces((v) => !v)}>
                 <IconSpace size={16} />
-                <span className="gs-trunc">모든 스페이스</span>
-                <span className="gs-key">{otherSpaces.length}</span>
+                <span className="gs-trunc">{allSpaces ? '간단히 보기' : '모든 스페이스 보기'}</span>
+                {!allSpaces && <span className="gs-key">+{hiddenCount}</span>}
                 {allSpaces ? <IconChevronDown size={14} className="gs-arrow" /> : <IconChevronRight size={14} className="gs-arrow" />}
               </button>
             )}
