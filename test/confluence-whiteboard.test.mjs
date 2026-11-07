@@ -88,3 +88,15 @@ test('아이콘 도형은 위 끝(bp#.y)과 중심(p#)으로 크기를 잡고, �
   assert.equal(p.icon, 'person'); assert.equal(p.h, 120); assert.equal(p.y, -60); assert.equal(p.x + p.w / 2, 0);
   assert.match(whiteboardSvg(data), /<circle/);
 });
+test('경유점이 있는 커넥터는 그 좌표를 지나는 직각 꺾은선으로', () => {
+  const data = normalizeWhiteboard({
+    board: {
+      a: { t: 'shape', sh: 1 }, b: { t: 'shape', sh: 1 },
+      line: { t: 'connector', se: 'a', sa: { left: 1, top: 0.5 }, te: 'b', ta: { left: 1, top: 0.5 }, sc: 1, ec: 2 },
+      w: { t: 'pathWaypoint', pi: 'line', ax: 0 },
+    },
+    dimensions: [{ key: 'p#a', val: [0, 0] }, { key: 's#a', val: [100, 40] }, { key: 'p#b', val: [-100, 300] }, { key: 's#b', val: [100, 40] }, { key: 'p#w', val: [200, 99] }],
+    paths: [{ key: 's#line', val: [0, 0] }, { key: 'e#line', val: [0, 0] }, { key: 'se#line', val: '' }],
+  });
+  assert.equal(data.connectors[0].path, 'M 50 0 L 200 0 L 200 300 L -50 300');
+});

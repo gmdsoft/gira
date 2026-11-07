@@ -111,7 +111,9 @@ export function normalizeWhiteboard(source) {
       // 아이콘: bp#.y가 위 끝, p#가 중심 — 높이는 그 두 배, 너비는 기본 비율대로
       icon = ICON_SHAPES[e.sh] ?? 'generic';
       const center = rawP ?? p, h = bp && center[1] > bp[1] ? 2 * (center[1] - bp[1]) : (rawS?.[1] ?? 80);
-      s = [rawS ? rawS[0] * h / rawS[1] : h * 0.78, h]; p = center;
+      // 너비는 bs#의 너비 (원본 커넥터가 붙는 좌우 끝이 여기에 맞는다)
+      const bw = pair(dims.get('bs#' + id))?.[0];
+      s = [bw > 2 ? bw : rawS ? rawS[0] * h / rawS[1] : h * 0.78, h]; p = center;
     }
     p = [p[0] - s[0] / 2, p[1] - s[1] / 2];
     const points = (e.pt ?? []).map(pair).filter(Boolean);
@@ -125,12 +127,20 @@ export function normalizeWhiteboard(source) {
   for (const e of elements) if (e.attachment) { const parent = byId.get(e.attachment.parentId), offset = pair(e.attachment.offset); if (parent && offset) { e.x = parent.x + offset[0]; e.y = parent.y + offset[1]; } }
   // 요소에 붙은 커넥터는 붙은 지점(sa/ta: 요소 안 비율 위치)에서 다시 잇는다
   const anchor = (el, a) => a && Number.isFinite(a.left) && Number.isFinite(a.top) ? [el.x + el.w * a.left, el.y + el.h * a.top] : null;
+  // 경유점(pathWaypoint): 사용자가 끌어 놓은 꺾임 위치. ax 0 = 세로 구간이 지나는 x, ax 1 = 가로 구간이 지나는 y (p#에 좌표)
+  const waypoints = new Map();
+  for (const [wid, w] of Object.entries(board)) if (w?.t === 'pathWaypoint' && w.pi) { const at = pair(dims.get('p#' + wid)); if (at) waypoints.set(w.pi, { axis: w.ax === 1 ? 1 : 0, at }); }
   for (const [c, e, segments] of rawConnectors) {
     const from = byId.get(e.se), to = byId.get(e.te);
     const start = from && anchor(from, e.sa), end = to && anchor(to, e.ta);
-    if (!start && !end) continue;
+    const wp = waypoints.get(c.id);
+    if (!start && !end && !wp) continue;
     c.start = start ?? c.start; c.end = end ?? c.end;
-    Object.assign(c, fitConnectorRoute(c.start, c.end, segments, SIDE_ANGLE(e.sa)));
+    if (wp) {
+      const [sx, sy] = c.start, [ex, ey] = c.end;
+      const pts = wp.axis === 0 ? [c.start, [wp.at[0], sy], [wp.at[0], ey], c.end] : [c.start, [sx, wp.at[1]], [ex, wp.at[1]], c.end];
+      Object.assign(c, { waypoints: pts, path: pts.map((p, i) => `${i ? 'L' : 'M'} ${p[0]} ${p[1]}`).join(' ') });
+    } else Object.assign(c, fitConnectorRoute(c.start, c.end, segments, SIDE_ANGLE(e.sa)));
   }
   for (const e of elements) if (e.type === 'pathLabel' && (e.w <= 1 || !dims.has('s#' + e.id))) { const path = connectors.find(c => c.id === e.pathId); if (path) { e.w = Math.max(80, e.text.length * 7); e.h = 40; e.x = (path.start[0] + path.end[0]) / 2 - e.w / 2; e.y = (path.start[1] + path.end[1]) / 2 - 20; } }
   return { elements, connectors, order, plainText: elements.map(e => [e.text, e.sectionTitle, e.type === 'image' ? e.filename : ''].filter(Boolean).join(' ')).filter(Boolean).join('\n') };
