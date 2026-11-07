@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { normalizeWhiteboard, fetchWhiteboard, fetchWhiteboardExtras, fitConnectorRoute, canvasText, canvasRich, roundedPath, whiteboardImageName } from '../scripts/lib/confluence-whiteboard.mjs';
 import { whiteboardSvg, whiteboardBounds } from '../web/src/whiteboard-svg.mjs';
+import { routeOrthogonal } from '../scripts/lib/whiteboard-route.mjs';
 function fixture() {
   const doc = new Y.Doc(), board = doc.getMap('board');
   const color = new Uint8Array(12), view = new DataView(color.buffer); [120, 200, 255].forEach((c, i) => view.setFloat32(i * 4, c));
@@ -59,8 +60,8 @@ test('자유 그리기·회전 경계·커넥터 라벨과 빈 텍스트', () =>
 test('스냅샷 GET 실패를 빈 보드로 저장하지 않는다', async () => {
   await assert.rejects(fetchWhiteboard('bad', { site: 'https://example.test', get: async p => p.includes('tenant_info') ? { cloudId: 'x' } : p.includes('session') ? [{ data: { access: { token: 'test' } } }] : { referenceId: 'test' }, fetchImpl: async () => new Response('', { status: 403 }) }), /collab 403/);
 });
-test('붙은 커넥터는 요소의 붙은 지점에서 다시 잇고, 꺾임 방향은 유지한다', () => {
-  // 저장된 경로(s#·e#·se#)는 옛 배치 기준이라 끝점이 요소와 어긋나 있다
+test('붙은 커넥터는 요소의 붙은 지점에서 다시 잇고, 낡은 경로는 붙은 면 방향으로 다시 찾는다', () => {
+  // 저장된 경로(s#·e#·se#)는 옛 배치 기준이라 끝점이 요소와 어긋나 있다 — 원본처럼 다시 그린다 (GIRA-78)
   const data = normalizeWhiteboard({
     board: {
       a: { t: 'shape', sh: 1 }, b: { t: 'shape', sh: 1 },
@@ -71,7 +72,7 @@ test('붙은 커넥터는 요소의 붙은 지점에서 다시 잇고, 꺾임 �
   });
   const c = data.connectors[0];
   assert.deepEqual(c.start, [100, 120]); assert.deepEqual(c.end, [350, 300]);
-  assert.equal(c.path, 'M 100 120 L 100 290 Q 100 300 110 300 L 350 300');
+  assert.equal(c.path, 'M 100 120 L 100 292 Q 100 300 108 300 L 350 300'); // 아래로 나가 왼쪽 면으로 들어간다
   assert.equal(c.dashed, true);
 });
 test('맞출 수 없는 경로는 직각 꺾은선으로', () => {
@@ -170,4 +171,47 @@ test('이미지 원본·댓글 GET: media 토큰(iss = 클라이언트 id)과 co
   // media 토큰이 없으면 이미지는 손실로 남기고 계속
   const none = await fetchWhiteboardExtras('77', data, { get: async () => ({ results: [] }), fetchImpl: async () => assert.fail('호출 안 함') });
   assert.deepEqual(none.losses, ['이미지 2개: media 토큰 없음']);
+});
+
+// ---- GIRA-78 검토 반영: 화살표·글자 상자 위치 ----
+test('저장된 경로가 지금 배치와 맞으면 그대로, 지워진 요소에 붙은 커넥터는 그리지 않는다', () => {
+  const data = normalizeWhiteboard({
+    board: {
+      a: { t: 'shape', sh: 1 }, b: { t: 'shape', sh: 1 },
+      ok: { t: 'connector', se: 'a', sa: { left: 1, top: 0.5 }, te: 'b', ta: { left: 0, top: 0.5 }, ec: 2 },
+      gone: { t: 'connector', se: 'a', sa: { left: 1, top: 0.5 }, te: 'deleted', ta: { left: 0, top: 0.5 }, ec: 2 },
+    },
+    dimensions: [{ key: 'p#a', val: [0, 0] }, { key: 's#a', val: [100, 40] }, { key: 'p#b', val: [300, 0] }, { key: 's#b', val: [100, 40] }],
+    paths: [{ key: 's#ok', val: [50, 0] }, { key: 'e#ok', val: [250, 0] }, { key: 'se#ok', val: 'l,0,200' },
+      { key: 's#gone', val: [50, 0] }, { key: 'e#gone', val: [900, 500] }, { key: 'se#gone', val: 'l,0,850' }],
+  });
+  assert.deepEqual(data.connectors.map((c) => c.id), ['ok']);
+  assert.equal(data.connectors[0].path, 'M 50 0 L 250 0');
+});
+test('직각 길찾기: 사이에 있는 도형을 지나가지 않고 돌아간다', () => {
+  const box = { x: 100, y: -50, w: 100, h: 100 };
+  const pts = routeOrthogonal([0, 0], [300, 0], [1, 0], [-1, 0], [box]);
+  assert.deepEqual(pts[0], [0, 0]); assert.deepEqual(pts.at(-1), [300, 0]);
+  for (let k = 1; k < pts.length; k++) {
+    const [a, b] = [pts[k - 1], pts[k]];
+    assert.ok(a[0] === b[0] || a[1] === b[1], '직각');
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    assert.ok(!(mid[0] > box.x && mid[0] < box.x + box.w && mid[1] > box.y && mid[1] < box.y + box.h), '도형을 지나지 않음');
+  }
+});
+test('텍스트 상자는 p#가 s#(배율 전) 중심 — 낡은 bp#로 위로 밀려 위 블록과 겹치지 않는다', () => {
+  const data = normalizeWhiteboard({
+    board: { box: { t: 'shape', sh: 1 }, note: { t: 'text', tx: '설명\n둘째 줄', a: 0 } },
+    dimensions: [{ key: 'p#box', val: [0, 0] }, { key: 's#box', val: [160, 50] },
+      { key: 'p#note', val: [10, 77] }, { key: 's#note', val: [120, 104] }, { key: 'bp#note', val: [-33, 44] }, { key: 'bs#note', val: [34, 38] }, { key: 'fs#note', val: 2 }],
+  });
+  const box = data.elements.find((e) => e.id === 'box'), note = data.elements.find((e) => e.id === 'note');
+  assert.equal(note.y, box.y + box.h); // 블록 바로 아래에서 시작
+  assert.equal(note.x, -50); assert.equal(note.w, 240); assert.equal(note.h, 208);
+});
+test('도형 글자는 원본 정렬(a·va)을 따른다 — 서식 있는 글자도 가운데가 기본', () => {
+  const svg = whiteboardSvg({ elements: [{ id: 's', type: 'shape', x: 0, y: 0, w: 100, h: 40, text: '가', rich: [{ runs: [{ text: '가', b: true }] }], align: 1 },
+    { id: 't', type: 'shape', x: 0, y: 50, w: 100, h: 40, text: '나', align: 0, verticalAlign: 0 }], connectors: [] });
+  assert.match(svg, /justify-content:center;text-align:center/);
+  assert.match(svg, /justify-content:flex-start;text-align:left/);
 });

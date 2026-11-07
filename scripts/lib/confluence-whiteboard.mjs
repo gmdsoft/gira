@@ -1,4 +1,5 @@
 import { decodeCanvas } from '../research/canvas-decode.mjs';
+import { routeOrthogonal, routeViaLine, anchorDirection } from './whiteboard-route.mjs';
 
 const bytes = v => v && typeof v === 'object' ? Uint8Array.from(Object.values(v)) : null;
 const pair = v => v && [Number(v[0]), Number(v[1])].every(Number.isFinite) ? [Number(v[0]), Number(v[1])] : null;
@@ -182,6 +183,8 @@ export function normalizeWhiteboard(source) {
   for (const id of order) {
     const e = board[id];
     if (e.t === 'connector' || e.t === 'path') {
+      // 지워진 요소에 붙어 있던 커넥터는 원본 화면에 보이지 않는다(문서에만 남은 찌꺼기) — 그리면 엉뚱한 화살표가 겹친다
+      if ((e.se && !board[e.se]) || (e.te && !board[e.te])) continue;
       const start = pair(paths.get('s#' + id)), end = pair(paths.get('e#' + id)); if (!start || !end) continue;
       const c = { id, type: e.t, from: e.se, to: e.te, start, end, ...connectorRoute(start, end, paths.get('se#' + id)), color: canvasColor(e.c, '#42526e'), startArrow: e.sc === 2, endArrow: e.ec === 2, dashed: e.sts === 2 };
       connectors.push(c); rawConnectors.push([c, e, paths.get('se#' + id)]); continue;
@@ -191,7 +194,14 @@ export function normalizeWhiteboard(source) {
     let p = pair(dims.get('bp#' + id)) ?? pair(dims.get('p#' + id)) ?? [0, 0];
     let s = pair(dims.get('bs#' + id)) ?? pair(dims.get('s#' + id)) ?? [40, 40];
     // 텍스트 상자: s#는 글자 배율(fs#) 적용 전 크기다 — 실제 크기는 s# × fs#. bs#(경계)는 더 작아 큰 글자가 잘린다
-    if (e.t === 'text' && pair(dims.get('s#' + id))) { const fs = Number(dims.get('fs#' + id)) || 1; s = pair(dims.get('s#' + id)).map((v) => v * fs); }
+    // 위치는 p#가 s#(배율 전) 상자의 중심 — 왼쪽 위 = p# − s#/2, 거기서 배율만큼 커진다. bp#는 오래된 작은 경계(bs# 34×38 등)의
+    // 중심이라 그대로 쓰면 글자 상자가 위로 밀려 위의 블록과 겹친다 (33개 보드: 왼쪽 위 = bp# − bs#/2 와 대부분 일치, GIRA-78)
+    const ts = e.t === 'text' && pair(dims.get('s#' + id)), tp = e.t === 'text' && pair(dims.get('p#' + id));
+    if (ts && ts[0] > 0 && ts[1] > 0) {
+      const fs = Number(dims.get('fs#' + id)) || 1;
+      s = ts.map((v) => v * fs);
+      if (tp) p = [tp[0] - ts[0] / 2 + s[0] / 2, tp[1] - ts[1] / 2 + s[1] / 2];
+    }
     let icon = null;
     const rawS = pair(dims.get('s#' + id)), rawP = pair(dims.get('p#' + id)), bp = pair(dims.get('bp#' + id));
     if (e.t === 'shape' && (ICON_SHAPES[e.sh] || (s[1] <= 2 && rawS && rawS[1] > 2))) {
@@ -217,17 +227,27 @@ export function normalizeWhiteboard(source) {
   // 경유점(pathWaypoint): 사용자가 끌어 놓은 꺾임 위치. ax 0 = 세로 구간이 지나는 x, ax 1 = 가로 구간이 지나는 y (p#에 좌표)
   const waypoints = new Map();
   for (const [wid, w] of Object.entries(board)) if (w?.t === 'pathWaypoint' && w.pi) { const at = pair(dims.get('p#' + wid)); if (at) waypoints.set(w.pi, { axis: w.ax === 1 ? 1 : 0, at }); }
+  const obstacles = elements.filter((el) => ['shape', 'sticky', 'image'].includes(el.type));
   for (const [c, e, segments] of rawConnectors) {
     const from = byId.get(e.se), to = byId.get(e.te);
     const start = from && anchor(from, e.sa), end = to && anchor(to, e.ta);
     const wp = waypoints.get(c.id);
     if (!start && !end && !wp) continue;
+    const raw = [c.start, c.end];
     c.start = start ?? c.start; c.end = end ?? c.end;
+    const near = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 2;
+    if (!wp && near(raw[0], c.start) && near(raw[1], c.end) && parseSegments(segments).length) continue; // 저장된 경로가 지금 배치와 맞으면 그대로
     if (wp) {
       const [sx, sy] = c.start, [ex, ey] = c.end;
-      const pts = wp.axis === 0 ? [c.start, [wp.at[0], sy], [wp.at[0], ey], c.end] : [c.start, [sx, wp.at[1]], [ex, wp.at[1]], c.end];
+      const boxes = obstacles.filter((b) => b !== from && b !== to);
+      const via = routeViaLine(c.start, c.end, start ? anchorDirection(e.sa) : null, end ? anchorDirection(e.ta) : null, wp, boxes);
+      const pts = via ?? (wp.axis === 0 ? [c.start, [wp.at[0], sy], [wp.at[0], ey], c.end] : [c.start, [sx, wp.at[1]], [ex, wp.at[1]], c.end]);
       Object.assign(c, { waypoints: pts, path: roundedPath(pts) });
-    } else Object.assign(c, fitConnectorRoute(c.start, c.end, segments, SIDE_ANGLE(e.sa)));
+    } else {
+      // 낡은 경로: 붙은 면 방향으로 나가고 들어오며 다른 도형을 피해 다시 찾는다 (원본도 열 때 다시 그린다)
+      const pts = routeOrthogonal(c.start, c.end, start ? anchorDirection(e.sa) : null, end ? anchorDirection(e.ta) : null, obstacles.filter((b) => b !== from && b !== to));
+      Object.assign(c, pts ? { waypoints: pts, path: roundedPath(pts) } : fitConnectorRoute(c.start, c.end, segments, SIDE_ANGLE(e.sa)));
+    }
   }
   for (const e of elements) if (e.type === 'pathLabel' && (e.w <= 1 || !dims.has('s#' + e.id))) { const path = connectors.find(c => c.id === e.pathId); if (path) { e.w = Math.max(80, e.text.length * 7); e.h = 40; e.x = (path.start[0] + path.end[0]) / 2 - e.w / 2; e.y = (path.start[1] + path.end[1]) / 2 - 20; } }
   return { elements, connectors, order, plainText: elements.map(e => [e.text, e.sectionTitle, e.type === 'image' ? e.filename : ''].filter(Boolean).join(' ')).filter(Boolean).join('\n') };

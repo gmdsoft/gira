@@ -44,12 +44,14 @@ export function richHtml(lines) {
     return `<div${style ? ` style="${style}"` : ''}>${mark ? `<span style="display:inline-block;width:1.2em;text-indent:0">${esc(mark)}</span>` : ''}${runs || '<br/>'}</div>`;
   }).join('');
 }
+// 도형·스티커 글자 정렬: 원본 a(0 왼쪽·1 가운데·2 오른쪽), va(0 위·1 가운데·2 아래) — 없으면 가운데
+const H_ALIGN = { 0: 'left', 1: 'center', 2: 'right' }, V_ALIGN = { 0: 'flex-start', 1: 'center', 2: 'flex-end' };
 const STAMPS = { fire: '🔥', success: '✅', heart: '❤️', like: '👍', question: '❓', star: '⭐' };
 // opts.contentId: 이관한 이미지 원본을 /api/att/<id>/<파일>로 표시. opts.comments: { ci → 댓글 수 } (원본 댓글 이관분)
 export function whiteboardSvg(data, opts = {}) {
   const bounds = whiteboardBounds(data), elements = new Map((data.elements ?? []).map(e => [e.id, e])), connectors = new Map((data.connectors ?? []).map(e => [e.id, e]));
   // 텍스트 요소는 원본처럼 왼쪽 위 정렬·줄바꿈 없이 내용 크기만큼 (상자 밖으로 넘쳐도 보이게)
-  const label = (e, text = e.text) => text ? `<foreignObject x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.type === 'text' ? ' style="overflow:visible"' : ''}><div xmlns="http://www.w3.org/1999/xhtml" style="${e.type === 'text' ? 'display:block;text-align:left;white-space:pre;' : e.rich ? 'display:flex;flex-direction:column;justify-content:center;text-align:left;white-space:pre-wrap;' : 'display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;'}overflow-wrap:anywhere;width:100%;height:100%;padding:4px;box-sizing:border-box;font:${14 * (e.fontScale || 1)}px sans-serif;color:${esc(e.textColor ?? "#172b4d")}">${e.rich && text === e.text ? richHtml(e.rich) : esc(text)}</div></foreignObject>` : '';
+  const label = (e, text = e.text) => text ? `<foreignObject x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.type === 'text' ? ' style="overflow:visible"' : ''}><div xmlns="http://www.w3.org/1999/xhtml" style="${e.type === 'text' ? 'display:block;text-align:left;white-space:pre;' : `display:flex;flex-direction:column;justify-content:${V_ALIGN[e.verticalAlign] ?? 'center'};text-align:${H_ALIGN[e.align] ?? 'center'};white-space:pre-wrap;`}overflow-wrap:anywhere;width:100%;height:100%;padding:4px;box-sizing:border-box;font:${14 * (e.fontScale || 1)}px sans-serif;color:${esc(e.textColor ?? "#172b4d")}">${e.rich && text === e.text ? richHtml(e.rich) : esc(text)}</div></foreignObject>` : '';
   const parts = [];
   for (const id of data.order ?? [...elements.keys(), ...connectors.keys()]) {
     const c = connectors.get(id);
