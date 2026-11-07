@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 const TYPE_ICON = { folder: '📁', whiteboard: '🖊️', database: '🗄️', embed: '🔗', live: '⚡', blogpost: '📰' };
 
@@ -46,6 +46,21 @@ function descendantsOf(node, children) {
   return out;
 }
 
+// el을 담은 가장 가까운 세로 스크롤 영역 안에서, 보이지 않을 때만 가운데쯤으로 옮긴다 (창 전체는 건드리지 않는다)
+function revealInScroller(el) {
+  if (!el) return;
+  let box = el.parentElement;
+  while (box && box !== document.body) {
+    const oy = getComputedStyle(box).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && box.scrollHeight > box.clientHeight) break;
+    box = box.parentElement;
+  }
+  if (!box || box === document.body) return;
+  const r = el.getBoundingClientRect(), b = box.getBoundingClientRect();
+  if (r.top >= b.top && r.bottom <= b.bottom) return;
+  box.scrollTop += r.top - b.top - (b.height - r.height) / 2;
+}
+
 function TreeNode({ node, children, spaceKey, currentId, navigate, onMove, depth, dnd }) {
   const kids = children.get(String(node.id)) ?? [];
   const isCurrent = String(node.id) === String(currentId);
@@ -57,6 +72,13 @@ function TreeNode({ node, children, spaceKey, currentId, navigate, onMove, depth
   useEffect(() => {
     if (isCurrent || hasDescendant(node, children, currentId)) setOpen(true);
   }, [currentId]);
+  // 현재 문서 줄이 사이드바 화면 밖이면 사이드바를 그 위치로 스크롤한다 (링크·즐겨찾기로 바로 들어온 경우)
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (!isCurrent) return undefined;
+    const t = setTimeout(() => revealInScroller(rowRef.current), 50); // 조상 펼침이 그려진 뒤
+    return () => clearTimeout(t);
+  }, [isCurrent, currentId]);
   const icon = TYPE_ICON[node.type];
   const navigable = ['page', 'live', 'database', 'whiteboard', 'embed', 'blogpost'].includes(node.type);
 
@@ -85,7 +107,7 @@ function TreeNode({ node, children, spaceKey, currentId, navigate, onMove, depth
 
   return (
     <div className="tree-node" style={{ '--depth': depth }}>
-      <div className={`tree-row ${isCurrent ? 'current' : ''} ${menu ? 'menu-open' : ''} ${dropOn ? 'drop-on' : ''}`} {...dragProps}>
+      <div ref={rowRef} className={`tree-row ${isCurrent ? 'current' : ''} ${menu ? 'menu-open' : ''} ${dropOn ? 'drop-on' : ''}`} {...dragProps}>
         {kids.length > 0
           ? <button className="tree-toggle" onClick={() => setOpen(!open)}>{open ? '▾' : '▸'}</button>
           : <span className="tree-toggle" />}

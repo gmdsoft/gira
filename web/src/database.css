@@ -1,8 +1,51 @@
-.database-tabs{display:flex;gap:8px;margin:20px 0;flex-wrap:wrap}.database-tabs button{border:1px solid #d8dce2;border-radius:20px;background:white;padding:7px 14px;cursor:pointer}.database-tabs [aria-selected=true]{color:#1769ee;border-color:#1769ee;background:#edf4ff}.database-scroll{overflow:auto;max-height:75vh;border:1px solid #ddd;border-radius:8px}.database-view table{border-collapse:collapse;width:100%;font-size:14px}.database-view th{position:sticky;top:0;background:#f7f8fa;z-index:1;text-align:left}.database-view td,.database-view th{border:1px solid #ddd;padding:12px;vertical-align:top;white-space:pre-wrap;overflow-wrap:anywhere;max-width:360px}.database-tag{display:inline-block;border-radius:3px;padding:1px 5px;margin:2px;font-size:12px;color:#26344b}.database-gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px;padding:12px}.database-card{border:1px solid #ddd;border-radius:5px;padding:12px;background:white;overflow-wrap:anywhere}.database-card>div{margin-bottom:12px}.database-card small{color:#67748a}.database-board{display:flex;gap:16px;padding:12px}.database-board>section{flex:0 0 270px;background:#f6f7f9;padding:10px}.database-board .database-card{margin-bottom:12px}.database-avatar{display:inline-block;border-radius:50%;background:#dce7ff;padding:2px 7px;margin-right:5px}.database-file{display:block;color:#68758a}.database-cover{min-height:80px;background:#f7f8fa;padding:12px}
-.database-tools { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; align-items:center; }
-.database-tools details { width:100%; }
-.database-tools details > div { display:flex; gap:6px; margin:6px 0; flex-wrap:wrap; }
-.database-view input, .database-view select { max-width:240px; padding:5px; }
-.database-view td [role=button] { min-height:24px; cursor:pointer; }
-.database-row-tools { display:flex; gap:4px; }
-.database-view [role=status] { margin:0 12px; }
+/* 데이터베이스 보기 — 색은 사이트 테마 변수(styles.css :root / [data-theme=dark])를 따른다 */
+.database-frame { margin-top: 8px; }
+.database-history { border-top: 1px solid var(--border); padding: 8px 14px; max-height: 220px; overflow: auto; font-size: 13px; background: var(--bg-subtle); }
+.database-history > div { display: flex; gap: 12px; padding: 3px 0; flex-wrap: wrap; }
+.database-history .muted { font-size: 12px; }
+
+/* 보기 탭 */
+.database-tabs { display: flex; gap: 6px; padding: 10px 14px; flex-wrap: wrap; border-top: 1px solid var(--border); }
+.database-tabs button { border: 1px solid var(--border); border-radius: 16px; background: var(--panel); color: var(--text2); padding: 5px 12px; cursor: pointer; font: inherit; font-size: 13px; }
+.database-tabs button:hover { background: var(--hover); color: var(--text); }
+.database-tabs [aria-selected=true] { color: var(--accent); border-color: var(--accent); background: var(--sel); font-weight: 600; }
+
+/* 표 */
+.database-scroll { overflow: auto; max-height: 75vh; border-top: 1px solid var(--border); background: var(--panel); }
+.database-view table { border-collapse: collapse; width: 100%; font-size: 14px; color: var(--text); }
+.database-view th { position: sticky; top: 0; background: var(--bg-subtle); color: var(--text2); z-index: 1; text-align: left; font-weight: 600; }
+.database-view td, .database-view th { border: 1px solid var(--border); padding: 10px 12px; vertical-align: top; white-space: pre-wrap; overflow-wrap: anywhere; max-width: 360px; }
+.database-view tbody tr:hover td { background: var(--bg-subtle); }
+.database-view tr > :first-child { border-left: 0; }
+.database-view tr > :last-child { border-right: 0; }
+
+/* 선택지 태그: 원본 색(--tag)을 라이트는 그대로, 다크는 어둡게 섞어 쓴다 */
+.database-tag { display: inline-block; border-radius: 3px; padding: 1px 6px; margin: 2px; font-size: 12px; background: var(--tag, #dfe1e6); color: #26344b; }
+:root[data-theme="dark"] .database-tag { background: color-mix(in srgb, var(--tag, #dfe1e6) 32%, var(--panel)); color: var(--ink); }
+
+/* 카드·보드 */
+.database-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; padding: 12px; }
+.database-card { border: 1px solid var(--border); border-radius: 6px; padding: 12px; background: var(--panel); overflow-wrap: anywhere; }
+.database-card > div { margin-bottom: 12px; }
+.database-card small { color: var(--muted2); }
+.database-board { display: flex; gap: 16px; padding: 12px; }
+.database-board > section { flex: 0 0 270px; background: var(--bg-subtle); padding: 10px; border-radius: 6px; }
+.database-board .database-card { margin-bottom: 12px; }
+.database-avatar { display: inline-block; border-radius: 50%; background: var(--sel); color: var(--accent); padding: 2px 7px; margin-right: 5px; }
+.database-file { display: block; color: var(--muted2); }
+.database-cover { min-height: 80px; background: var(--bg-subtle); padding: 12px; }
+
+/* 편집 도구 */
+.database-tools { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 14px; align-items: center; border-top: 1px solid var(--border); background: var(--bg-subtle); font-size: 13px; }
+.database-tools label { display: inline-flex; align-items: center; gap: 6px; color: var(--text2); font-weight: 500; }
+.database-tools summary { cursor: pointer; color: var(--text2); }
+.database-tools details { width: 100%; }
+.database-tools details > div { display: flex; gap: 6px; margin: 6px 0; flex-wrap: wrap; }
+.database-tools button, .database-row-tools button { border: 1px solid var(--border); border-radius: 4px; background: var(--panel); color: var(--text2); padding: 4px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+.database-tools button:hover:not(:disabled), .database-row-tools button:hover { background: var(--hover); color: var(--text); }
+.database-tools button:disabled { opacity: .45; cursor: default; }
+.database-view input, .database-view select { max-width: 240px; padding: 5px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; font-size: 13px; }
+.database-view td [role=button] { min-height: 24px; cursor: pointer; }
+.database-view td [role=button] small { color: var(--muted2); }
+.database-row-tools { display: flex; gap: 4px; }
+.database-row-tools button { white-space: nowrap; padding: 3px 8px; }
