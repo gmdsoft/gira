@@ -789,7 +789,15 @@ span.cf-macro-notice { display: inline-block; margin: 0 2px; padding: 1px 6px; }
 .devchat-fsize { color: var(--text2); }
 .devchat-file-err { border-color: #de350b; color: #de350b; }
 .devchat-pending { margin: 0; }
-.devchat-attach { align-self: stretch; font-size: 16px; padding: 0 10px; }
+.devchat-attach { position: relative; flex: none; align-self: stretch; width: 46px; min-height: 46px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--line2); border-radius: 8px; background: var(--panel); color: var(--accent); cursor: pointer; transition: background .12s, border-color .12s; }
+.devchat-attach:hover:not(:disabled) { background: var(--sel); border-color: var(--accent); }
+.devchat-attach:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.devchat-attach:disabled { opacity: .45; cursor: default; }
+.devchat-attach-n { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
+.devchat-flow { text-align: left; margin: 12px auto 4px; padding-left: 22px; font-size: 13px; line-height: 1.6; max-width: 460px; }
+.devchat-flow li { margin: 2px 0; }
+.devchat-note { display: block; font-size: 12.5px; }
 .devchat-drop { outline: 2px dashed var(--accent); outline-offset: -6px; }
 .devchat-input { display: flex; gap: 8px; align-items: flex-end; }
 .devchat-input textarea { flex: 1; font: inherit; font-size: 14px; padding: 9px 11px; border: 1px solid var(--line2); border-radius: 8px; resize: none; background: var(--panel); color: var(--text); }
