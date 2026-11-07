@@ -74,7 +74,7 @@ export default function DatabaseView({ page }) {
   }, []);
   const rowTools = r => editing && <div className="database-row-tools">{[-1,1].map(step => <button key={step} aria-label={step < 0 ? '행 위로' : '행 아래로'} onClick={() => change(d => { const i = d.rows.findIndex(x => x.id === r.id), j = i + step; if (j >= 0 && j < d.rows.length) [d.rows[i],d.rows[j]] = [d.rows[j],d.rows[i]]; })}>{step < 0 ? '↑' : '↓'}</button>)}<button onClick={() => { if (confirm('행을 삭제할까요?')) change(d => { d.rows = d.rows.filter(x => x.id !== r.id); }); }}>행 삭제</button></div>;
   // 보기 링크(?view=…)로 들어오면 그 보기부터
-  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('view'));
+  const [tab, setTab] = useState(() => (typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('view')));
   const [search, setSearch] = useState('');
   const [dialog, setDialog] = useState(null); // 'export' | 'import'
   // 설정: 항목 번호 표시 (이 브라우저에 문서별로 저장)
