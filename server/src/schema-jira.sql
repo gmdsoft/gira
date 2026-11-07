@@ -18,6 +18,13 @@ CREATE TABLE IF NOT EXISTS jira_statuses (
   category text NOT NULL CHECK (category IN ('new','indeterminate','done'))
 );
 
+-- 프로젝트가 쓰는 상태 (원본 /project/{key}/statuses) — 상태 드롭다운 후보
+CREATE TABLE IF NOT EXISTS jira_project_statuses (
+  project_id bigint NOT NULL,
+  status_id bigint NOT NULL,
+  PRIMARY KEY (project_id, status_id)
+);
+
 CREATE TABLE IF NOT EXISTS jira_issue_types (
   id bigint PRIMARY KEY,
   name text NOT NULL,
