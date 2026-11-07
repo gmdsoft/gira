@@ -1,4 +1,5 @@
 import { kickDevFlow } from './dev-flow-kick.mjs';
+import { collectDevFlowStatus, canSeeDevFlow as canSeeDevFlowFor } from './dev-flow-status.mjs';
 import { adfPageLink } from './adf-page-links.mjs';
 import { canReadCollection, gadgetParams } from './jira-collections.mjs';
 import { addWatcher, watchIssuePeople } from './jira-watchers.mjs';
@@ -94,6 +95,7 @@ app.get('/', page);
 app.get('/for-you', page);                    // 홈 (추천 — 내 할당 이슈·최근 본 항목·바로가기)
 app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
 app.get('/dev-chat', page);                    // 개발참여 챗봇 (새 탭 전용 페이지)
+app.get('/dev-flow', page);                    // 개발참여 자동 처리 현황 (새 탭, 관리자·담당자 전용 — 데이터 API가 권한 확인)
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
 
 // 플레인 텍스트 → ADF 문서 (댓글·설명 입력용, 주소는 링크로) — server/src/linkify.mjs
@@ -210,7 +212,17 @@ app.get('/api/meta', async (req) => {
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
     resolutions: resolutions.rows.map((r) => r.resolution),
     customFields: (await query('SELECT * FROM jira_fields WHERE custom')).rows.filter(visibleField).map(f => ({ id: f.id, name: f.name })),
+    devFlow: await canSeeDevFlow(req.access), // 개발참여 자동 처리 현황 메뉴 표시 여부
   };
+});
+
+// ---------- 개발참여 자동 처리 현황 ----------
+const canSeeDevFlow = (access) => canSeeDevFlowFor(query, projectRole, access);
+app.get('/api/dev-flow/status', async (req, reply) => {
+  if (!await canSeeDevFlow(req.access)) {
+    return reply.code(403).send({ error: '자동 처리 현황은 관리자·GIRA 프로젝트 관리자·기본 담당자만 볼 수 있습니다' });
+  }
+  return collectDevFlowStatus(query);
 });
 
 // 프로젝트 관련 인물 — 보고·담당·처리(기록) 이력이 있는 사용자를 최근 활동순으로.

@@ -77,6 +77,14 @@ async function waitUp(port, ms = 40_000) {
   return false;
 }
 
+// 떠 있는(또는 꺼진) 테스트 서버 목록 — 현황 페이지·list 명령 공용
+export function list() {
+  return Object.entries(readState()).map(([key, e]) => ({
+    key, branch: e.branch, commit: e.commit, started: e.started,
+    apps: Object.entries(e.apps ?? {}).map(([app, s]) => ({ app: APPS[app]?.label ?? app, port: s.port, url: s.url, alive: alive(s.pid) })),
+  }));
+}
+
 export function stop(key) {
   const st = readState(); const cur = st[key];
   if (!cur) return [];

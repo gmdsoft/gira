@@ -128,17 +128,17 @@ export function DevChatPage({ api, giraOrigin = '', appName = 'Gira', btn = 'btn
         <div className="devchat-list" ref={listRef}>
           {!msgs.length && (
             <div className="devchat-empty">
-              <strong>거 참 많이 답답하시죠?</strong><br />
-              Gira·Gonfluence에 바라는 기능, 불편한 점, 버그를 편하게 말해 주세요.<br />
-              내용을 정리해 GIRA 개발 프로젝트에 이슈로 등록하면, 처리 에이전트가 바로 분석해 처리를 시작합니다.<br />
-              스크린샷이나 로그는 왼쪽 클립 버튼, 붙여넣기(Ctrl+V), 끌어놓기로 첨부할 수 있습니다.
+              <p className="devchat-title">거 참 많이 답답하시죠?</p>
+              <p>Gira·Gonfluence에 바라는 기능, 불편한 점, 버그를 편하게 말해 주세요.<br />
+                내용을 정리해 GIRA 개발 프로젝트에 이슈로 등록하면, 처리 에이전트가 바로 분석해 처리를 시작합니다.</p>
+              <p>스크린샷이나 로그는 왼쪽 클립 버튼, 붙여넣기(Ctrl+V), 끌어놓기로 첨부할 수 있습니다.</p>
               <ol className="devchat-flow">
-                <li>처리가 끝나면 이슈가 <b>검토</b>로 바뀌어 나에게 할당되고, 테스트 서버 링크를 메일·댓글로 받습니다.</li>
-                <li>테스트 서버에서 확인하고, 고칠 점은 이슈 <b>댓글</b>로 남기면 반영해 다시 검토를 요청합니다.</li>
-                <li>괜찮으면 "확인했습니다"라고 댓글을 달거나 <b>완료</b>로 바꾸세요. 개발 브랜치에 합쳐지고, 운영 반영은 관리자가 합니다.</li>
+                <li>처리가 끝나면 이슈가 <b>검토</b>로 바뀌고, 테스트 서버 링크를 메일·댓글로 받습니다.</li>
+                <li>테스트 서버에서 확인하고, 고칠 점을 이슈 <b>댓글</b>로 남기면 다시 반영합니다.</li>
+                <li>괜찮으면 "확인했습니다" 댓글을 달거나 <b>완료</b>로 바꾸면 개발 브랜치에 합쳐집니다.</li>
               </ol>
-              <span className="devchat-note">명세서 범위를 넘는 요청은 관리자 승인 후 시작됩니다.</span>
-              <div className="devchat-ex">예) "이슈 목록에서 마감일 순으로 정렬하고 싶어요" · "보드에서 카드를 끌면 가끔 원래 자리로 돌아가요"</div>
+              <p className="devchat-note">명세서 범위를 넘는 요청은 관리자 승인 후 시작되고, 운영 반영은 관리자가 합니다.</p>
+              <p className="devchat-ex">예) "이슈 목록에서 마감일 순으로 정렬하고 싶어요" · "보드에서 카드를 끌면 가끔 원래 자리로 돌아가요"</p>
             </div>
           )}
           {msgs.map((m, i) => (

@@ -30,6 +30,8 @@ CLAUDE.md의 작업 규칙(데이터 원칙, 테스트 데이터 정리, 공개 
 
 ## 2. 도구
 
+- 모든 도구(`scripts/…`)는 **감시기가 실행한 폴더(develop worktree, 처음 작업 디렉터리)에서** 실행한다.
+  이슈 worktree에는 `.env`·의존성이 없을 수 있다 — 테스트 서버 도구가 필요할 때 알아서 준비한다.
 - 이슈 읽기: `node scripts/gira-issue.mjs <KEY>` (설명·댓글·첨부 경로). 첨부(스크린샷·로그)는 열어 본다.
 - 기록: `node scripts/gira-issue.mjs <KEY> [--status 이름] [--label +a,-b] [--assign reporter|agent|none] [--comment "…"]`
 - 메일: 같은 명령에 `--mail reporter|approvers --subject "제목" [--note "안내 문장"] [--link "이름|주소"]`

@@ -5,7 +5,7 @@ import { IconClock, IconChevronRight, IconChevronDown, IconTable, IconBoard, Ico
 import { SPEC_URL, REPO_URL } from '../dev-feedback-ui.jsx';
 
 export default function Sidebar({ meta, project, view, boardId, pdata, savedFilters, savedSel, recent, home, onHome,
-  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback, onCreateProject }) {
+  onProjView, onBoard, onBoards, onIssue, onFilter, onDevFeedback, onDevFlow, onCreateProject }) {
   const [open, setOpen] = useState(() => new Set([project]));
   useEffect(() => { setOpen((s) => s.has(project) ? s : new Set(s).add(project)); }, [project]);
   const toggle = (pk) => setOpen((s) => { const n = new Set(s); n.has(pk) ? n.delete(pk) : n.add(pk); return n; });
@@ -72,6 +72,11 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         <div className="sitem snav-top" onClick={onDevFeedback} title="개발참여 챗봇 — 새 탭에서 열림 (신규 기능·수정·버그 제안)">
           <span className="sglyph">💡</span><span className="strunc">거 참 답답하네</span>
         </div>
+        {onDevFlow && (
+          <div className="sitem" onClick={onDevFlow} title="개발참여 이슈 자동 처리 현황 — 새 탭에서 열림 (관리자·담당자 전용)">
+            <span className="sglyph">🤖</span><span className="strunc">자동 처리 현황</span><span className="sext">↗</span>
+          </div>
+        )}
         <a className="sitem" href={SPEC_URL} target="_blank" rel="noreferrer" title="개발 명세서 열기">
           <span className="sglyph">📘</span><span className="strunc">개발 명세서</span><span className="sext">↗</span>
         </a>

@@ -33,7 +33,17 @@ const adfText = (doc) => {
 };
 const d = (t) => (t ? new Date(t).toISOString().slice(0, 16).replace('T', ' ') : '');
 
+// 값이 '-'로 시작해도 받는다 (예: --label -agent-running,+agent-failed — 레이블 제거 표기)
+const ARG_OPTS = ['status', 'comment', 'label', 'assign', 'mail', 'subject', 'note', 'link'];
+const argv = process.argv.slice(2).reduce((out, a, i, all) => {
+  const prev = all[i - 1];
+  if (prev && ARG_OPTS.includes(prev.replace(/^--/, '')) && !prev.includes('=') && a.startsWith('-') && !/^--[a-z]/.test(a)) {
+    out[out.length - 1] = `${prev}=${a}`; return out;
+  }
+  out.push(a); return out;
+}, []);
 const { values: opt, positionals } = parseArgs({
+  args: argv,
   allowPositionals: true,
   options: { status: { type: 'string' }, comment: { type: 'string' }, label: { type: 'string' }, assign: { type: 'string' },
     mail: { type: 'string' }, subject: { type: 'string' }, note: { type: 'string' }, link: { type: 'string', multiple: true } },

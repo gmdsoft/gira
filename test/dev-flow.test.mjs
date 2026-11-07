@@ -108,3 +108,42 @@ test('머지: feature → develop 머지·푸시, 충돌이면 되돌리고 알�
     assert.throws(() => mergeToDevelop(dev, 'feature/none', 'm'), /브랜치/);
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
+
+test('현황: 감시기 요약 줄만 읽고, 이슈를 단계별로 묶는다', async () => {
+  const { parseWatchLog, groupIssues } = await import('../server/src/dev-flow-status.mjs');
+  const log = parseWatchLog('캐시 갱신 ← 버전 15\n2026-11-07T12:27:28 GIRA-76 process — claude 실행\n**에이전트 출력**\n2026-11-07T12:30:00 GIRA-80 승인 요청 → 담당');
+  assert.deepEqual(log.map((l) => [l.key, l.text]), [['GIRA-76', 'process — claude 실행'], ['GIRA-80', '승인 요청 → 담당']]);
+  const base = { type: '작업', statusName: '해야 할 일', statusCategory: 'new', lastCommentByAgent: null };
+  const g = groupIssues([
+    { ...base, key: 'GIRA-1', labels: ['dev-chat', 'agent-running'] },
+    { ...base, key: 'GIRA-2', labels: ['dev-chat'] },
+    { ...base, key: 'GIRA-3', labels: ['dev-chat', 'agent-review'], statusName: '검토', statusCategory: 'indeterminate', lastCommentByAgent: true },
+    { ...base, key: 'GIRA-4', labels: ['dev-chat', 'needs-info'], lastCommentByAgent: true },
+    { ...base, key: 'GIRA-5', labels: ['dev-chat', 'needs-approval', 'approval-requested'] },
+    { ...base, key: 'GIRA-6', labels: ['dev-chat', 'agent-failed'] },
+    { ...base, key: 'GIRA-7', labels: ['dev-chat', 'agent-merged'], statusName: '완료', statusCategory: 'done' },
+    { ...base, key: 'GIRA-9', labels: ['dev-chat', 'agent-failed'], statusName: '완료', statusCategory: 'done' },
+    { ...base, key: 'GIRA-8', labels: ['dev-chat', 'agent-review'], statusName: '완료', statusCategory: 'done' },
+  ], [{ key: 'GIRA-3', apps: [{ app: 'Gonfluence', port: 4103, url: 'http://h:4103', alive: true }] }]);
+  const keys = (k) => g[k].map((x) => x.key);
+  assert.deepEqual(keys('running'), ['GIRA-1']);
+  assert.deepEqual(keys('queued'), ['GIRA-2', 'GIRA-8']);
+  assert.equal(g.queued.find((x) => x.key === 'GIRA-8').actionLabel, '머지');
+  assert.deepEqual(keys('review'), ['GIRA-3']); assert.equal(g.review[0].testServer[0].port, 4103);
+  assert.deepEqual(keys('waitingInfo'), ['GIRA-4']);
+  assert.deepEqual(keys('waitingApproval'), ['GIRA-5']);
+  assert.deepEqual(keys('attention'), ['GIRA-6']);
+  assert.deepEqual(keys('merged'), ['GIRA-7']);
+});
+
+test('현황 권한: 사이트 관리자·GIRA 기본 담당자·GIRA 프로젝트 관리자만', async () => {
+  const { canSeeDevFlow } = await import('../server/src/dev-flow-status.mjs');
+  const q = async () => ({ rows: [{ id: '10093', default_assignee_id: '28' }] });
+  const role = (r) => async () => r;
+  assert.equal(await canSeeDevFlow(q, role(null), { userId: 1, isAdmin: true }), true);
+  assert.equal(await canSeeDevFlow(q, role(null), { userId: 28, isAdmin: false }), true);
+  assert.equal(await canSeeDevFlow(q, role('admin'), { userId: 5, isAdmin: false }), true);
+  assert.equal(await canSeeDevFlow(q, role('editor'), { userId: 5, isAdmin: false }), false);
+  assert.equal(await canSeeDevFlow(q, role(null), { userId: 5, isAdmin: false }), false);
+  assert.equal(await canSeeDevFlow(q, role('admin'), null), false);
+});
