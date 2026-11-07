@@ -486,6 +486,22 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .macro-include > .doc { padding: 10px 14px; }
 .macro-details { border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; margin: 0.8em 0; }
 .macro-excerpt { margin: 0.4em 0; }
+/* GIRA-53: 검색 매크로 */
+.macro-search { display: flex; gap: 6px; margin: 0.6em 0; max-width: 420px; position: relative; flex-wrap: wrap; }
+.macro-search input { flex: 1; min-width: 160px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); color: var(--text); font: inherit; }
+.macro-search button { padding: 6px 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-subtle); color: var(--text); cursor: pointer; }
+.macro-livesearch.large { max-width: 640px; }
+.macro-livesearch.large input { padding: 10px 12px; font-size: 1.05em; }
+.macro-livesearch-results { flex-basis: 100%; list-style: none; margin: 0; padding: 4px 0; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.macro-livesearch-results li { padding: 4px 10px; }
+.macro-livesearch-excerpt { font-size: 12px; }
+/* GIRA-48: 내보내기 앱 표시(쪽 나눔 등)는 보기에서 숨기고, 편집기에서는 점선 한 줄로만 */
+.cf-macro-hidden { display: none; }
+.ProseMirror[contenteditable="true"] div.cf-macro-hidden { display: block; height: 0; border-top: 1px dashed var(--border); margin: 10px 0; position: relative; }
+.ProseMirror[contenteditable="true"] div.cf-macro-hidden::after { content: '쪽 나눔 (내보내기용)'; position: absolute; right: 0; top: -9px; font-size: 11px; color: var(--muted); background: var(--bg); padding: 0 4px; }
+.macro-body-only { margin: 0; }
+.cf-macro-notice { display: block; margin: 0.6em 0; padding: 6px 10px; border-radius: 6px; background: var(--bg-subtle); color: var(--muted); font-size: 12px; }
+span.cf-macro-notice { display: inline-block; margin: 0 2px; padding: 1px 6px; }
 .macro-contributors { color: var(--accent); }
 .decision-list { margin: 0.6em 0; }
 .decision-item { background: var(--bg-subtle); border-radius: 6px; padding: 8px 12px 8px 36px; margin: 4px 0; position: relative; }
@@ -1066,3 +1082,51 @@ body.col-resizing, body.col-resizing * { cursor: col-resize !important; user-sel
 .doc .media.media-layout-wrap-right { margin-left: 16px; margin-right: 0; }
 .doc::after { content: ''; display: block; clear: both; }
 .doc .media img.ProseMirror-selectednode, .doc .media.ProseMirror-selectednode img { outline: 1px solid #388bff; outline-offset: 4px; }
+
+/* Mermaid: 원본이 미리 그린 그림(코드 없는 원본) */
+.doc .mermaid-image { margin: 12px 0; text-align: center; }
+.doc .mermaid-image img { max-width: 100%; height: auto; }
+.doc .mermaid-image figcaption { color: var(--muted); font-size: 13px; margin-top: 6px; }
+
+.doc .mermaid-view { margin: 12px 0; min-width: 0; max-width: 100%; }
+.doc .mermaid-output { overflow-x: auto; padding: 8px; text-align: center; }
+/* Confluence처럼: 블록은 본문 폭 전체에 옅은 배경을 깔고, 다이어그램은 실제 크기로 가운데 */
+.doc .mermaid-view .mermaid-output { background: var(--code-block-bg, rgba(5, 21, 36, .06)); border-radius: 4px; padding: 16px; }
+.doc .mermaid-image { background: var(--code-block-bg, rgba(5, 21, 36, .06)); border-radius: 4px; padding: 16px; }
+/* 크기: Confluence처럼 다이어그램은 자연 크기(Mermaid가 넣는 max-width)로, 본문보다 크면 본문 폭에 맞춰 줄인다 — 확대하지 않는다.
+   원본이 미리 그린 PNG(고해상도)는 size 설정 폭으로 줄여 보인다 (Confluence 보통 ≈ 400px) */
+.doc .mermaid-output svg { height: auto; }
+.doc .mermaid-output img { max-width: 100%; height: auto; }
+.doc .mermaid-view[data-size="small"] .mermaid-output img { max-width: min(100%, 240px); }
+.doc .mermaid-view[data-size="medium"] .mermaid-output img, .doc .mermaid-view:not([data-size]) .mermaid-output img { max-width: min(100%, 400px); }
+.doc .mermaid-view details { margin-top: 8px; }
+.doc .mermaid-view summary { cursor: pointer; color: var(--muted); }
+.doc .mermaid-view button { margin-top: 6px; }
+.doc .mermaid-status, .doc .mermaid-caption { color: var(--muted); font-size: 13px; }
+.mermaid-scratch { position: absolute; left: -100000px; top: 0; width: 1000px; visibility: hidden; }
+/* 원문 보기·코드 복사는 다이어그램에 마우스를 올리거나(키보드로) 다가갈 때만 — Confluence처럼 평소엔 그림만 */
+.doc .mermaid-view > details, .doc .mermaid-view > button { opacity: 0; transition: opacity .15s; }
+.doc .mermaid-view:hover > details, .doc .mermaid-view:hover > button,
+.doc .mermaid-view:focus-within > details, .doc .mermaid-view:focus-within > button,
+.doc .mermaid-view > details[open], .doc .mermaid-view.has-error > details, .doc .mermaid-view.has-error > button { opacity: 1; }
+/* GIRA-55: 로드맵 계획 매크로 (정적 타임라인) */
+.roadmap { margin: 0.8em 0; overflow-x: auto; border: 1px solid var(--border); border-radius: 6px; }
+.roadmap-inner { min-width: 720px; }
+.roadmap-head { display: flex; height: 28px; border-bottom: 1px solid var(--border); }
+.roadmap-head .roadmap-lane-title { background: transparent; }
+.roadmap-lane { display: flex; border-bottom: 1px solid var(--border); }
+.roadmap-lane:last-child { border-bottom: 0; }
+.roadmap-lane-title { flex: 0 0 120px; display: flex; align-items: center; justify-content: center; padding: 4px 6px; font-size: 12px; font-weight: 600; text-align: center; overflow-wrap: anywhere; }
+.roadmap-scale, .roadmap-track { position: relative; flex: 1; }
+.roadmap-tick { position: absolute; top: 6px; font-size: 11px; color: var(--muted); padding-left: 4px; border-left: 1px solid var(--border); white-space: nowrap; }
+.roadmap-grid { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--border); }
+.roadmap-bar { position: absolute; height: 26px; line-height: 26px; padding: 0 8px; border-radius: 3px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; text-decoration: none; }
+a.roadmap-bar:hover { filter: brightness(1.1); }
+.roadmap-marker { position: absolute; top: 0; bottom: 0; border-left: 2px solid #de350b; }
+.roadmap-marker-label { position: absolute; top: 6px; font-size: 11px; color: #de350b; padding-left: 4px; white-space: nowrap; }
+.roadmap-empty { padding: 8px 12px; color: var(--muted); }
+.roadmap-head .roadmap-year { font-weight: 400; color: var(--muted); font-size: 11px; }
+/* GIRA-57: 옮길 수 없는 앱 안내 — 투표·설문 질문·선택지 */
+.cf-macro-notice-title { margin-top: 6px; font-weight: 600; color: var(--text); font-size: 13px; }
+.cf-macro-notice ul { margin: 4px 0; padding-left: 20px; color: var(--text); font-size: 13px; }
+.cf-macro-notice-sub { margin-top: 2px; font-size: 11px; }

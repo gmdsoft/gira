@@ -1,8 +1,13 @@
+import { saveDatabase } from './database-edit.mjs';
+import { registerPlantuml } from './plantuml.mjs';
+import { reportScope, reportNodes, mergeDetails, labelCounts, walk } from './macro-reports.mjs';
+import { resolveAvatar } from './avatar.mjs';
 // API 서버 (PoC).
 // - /api/* : 스페이스, 콘텐츠 트리, 본문(ProseMirror JSON), 댓글, 첨부 프록시
 // - /wiki/* : 기존 Confluence URL 호환 리다이렉트 (docs/architecture.md)
 // - web/dist 가 있으면 SPA 정적 서빙
 import Fastify from 'fastify';
+import { registerTemplates } from './templates.mjs';
 import fastifyStatic from '@fastify/static';
 import fastifyMultipart from '@fastify/multipart';
 import * as searchSvc from './search.mjs';
@@ -24,6 +29,7 @@ import { bodyDoc } from './markdown-doc.mjs';
 import { registerGiraCards } from './gira-cards.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
 import { registerAiAssist } from './ai-assist.mjs';
+import { linkifyDoc } from './linkify.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(here, '..', '..');
@@ -64,6 +70,8 @@ await app.register(fastifyMultipart, { limits: { fileSize: 100 * 1024 * 1024, fi
 
 // 로그인 세션 + /api/* 인증 훅 (라우트 선언보다 먼저 등록해야 훅이 적용된다)
 await registerAuth(app);
+registerPlantuml(app);
+registerTemplates(app);
 registerMyApiKeys(app); // 개인 API 키 셀프 발급
 registerAvatarRoutes(app); // 프로필 이미지 조회 + 개인 설정 업로드 프록시 (GIRA-20)
 registerSourceSync(app, { appName: 'gonfluence' }); // 원본 → 로컬 단방향 동기화 (매일 SOURCE_SYNC_AT, 기본 03:00 KST)
@@ -81,18 +89,20 @@ async function requireAccess(req, reply, contentId, need = 'view') {
 async function reindex(contentId) {
   try {
     const { rows } = await query(
-      `SELECT c.id, c.title, c.type, c.updated_at, s.key AS space_key, v.doc,
+      `SELECT c.id, c.title, c.type, c.updated_at, s.key AS space_key, v.doc, COALESCE(w.data->>'plainText', d.data::text) AS canvas_text,
               u.display_name AS author_name,
               coalesce((SELECT array_agg(l.name) FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = c.id), '{}') AS labels
          FROM content c JOIN spaces s ON s.id = c.space_id
          LEFT JOIN content_versions v ON v.content_id = c.id AND v.version = c.current_version
+         LEFT JOIN database_snapshots d ON d.content_id = c.id AND d.version = c.current_version
+         LEFT JOIN whiteboard_snapshots w ON w.content_id = c.id AND w.version = c.current_version
          LEFT JOIN users u ON u.id = c.author_id
         WHERE c.id = $1`, [contentId]);
     if (!rows.length) return;
     const r = rows[0];
     await searchSvc.indexContent({
       id: r.id, title: r.title, spaceKey: r.space_key, type: r.type,
-      labels: r.labels, authorName: r.author_name, updatedAt: r.updated_at, doc: r.doc,
+      labels: r.labels, authorName: r.author_name, updatedAt: r.updated_at, doc: r.doc, text: r.canvas_text,
     });
   } catch (e) {
     console.error('[search] 재색인 실패:', e.message);
@@ -327,6 +337,9 @@ app.get('/api/content/:id', async (req, reply) => {
       WHERE c.id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   const c = rows[0];
+  const canvas = ['database', 'whiteboard'].includes(c.type)
+    ? (await query(`SELECT data FROM ${c.type === 'whiteboard' ? 'whiteboard_snapshots' : 'database_snapshots'} WHERE content_id=$1 AND version=$2`, [c.id, c.current_version])).rows[0]?.data ?? null
+    : undefined;
   const { rows: ver } = await query(
     `SELECT v.version, v.doc, v.source_editor, v.created_at, u.display_name AS author_name
        FROM content_versions v LEFT JOIN users u ON u.id = v.author_id
@@ -343,13 +356,32 @@ app.get('/api/content/:id', async (req, reply) => {
   const childOk = await filterViewable(req.access, childRows.map((r) => r.id));
   return {
     children: childRows.filter((r) => childOk.has(String(r.id))),
-    canEdit: acc.edit, role: acc.role,
+    data: canvas,
+    currentVersion: c.current_version,
+    canEdit: !['whiteboard', 'embed'].includes(c.type) && acc.edit, role: acc.role, // 데이터베이스는 전용 편집 API 사용
     id: c.id, spaceKey: c.space_key, spaceName: c.space_name, parentId: c.parent_id,
     type: c.type, title: c.title, status: c.status, fullWidth: c.full_width, authorName: c.author_name,
     createdAt: c.created_at, updatedAt: c.updated_at, version: ver[0] ?? null,
     labels: labels.map((l) => l.name), attachments,
     commentCounts: Object.fromEntries(counts.map((r) => [r.kind, r.n])),
   };
+});
+
+app.put('/api/content/:id/database', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
+  if (!Number.isInteger(req.body?.baseVersion)) return reply.code(400).send({ error: 'baseVersion required' });
+  const client = await (await getDb()).connect();
+  try {
+    await client.query('BEGIN');
+    const result = await saveDatabase(client, { id: req.params.id, baseVersion: req.body.baseVersion, data: req.body.data, userId: req.access.userId });
+    await client.query(result.status === 200 ? 'COMMIT' : 'ROLLBACK');
+    if (result.status === 200) reindex(req.params.id);
+    return reply.code(result.status).send(result);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    if (e.message.startsWith('잘못된')) return reply.code(400).send({ error: e.message });
+    throw e;
+  } finally { client.release(); }
 });
 
 app.get('/api/content/:id/comments', async (req, reply) => {
@@ -404,8 +436,17 @@ app.get('/api/att/:contentId/:filename', async (req, reply) => {
 
 // ---------- 편집: 초안, 게시, 생성 ----------
 
+async function rejectCanvasEdit(id, reply) {
+  const { rows } = await query('SELECT type FROM content WHERE id=$1', [id]);
+  if (!['database', 'whiteboard', 'embed'].includes(rows[0]?.type)) return false;
+  reply.code(409).send({ error: `읽기 전용 — 원본에서 이관된 ${({ database: '데이터베이스', whiteboard: '화이트보드', embed: '임베드' })[rows[0].type]}입니다.` });
+  return true;
+}
+
+
 app.get('/api/content/:id/draft', async (req, reply) => {
   if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const { rows } = await query(`SELECT doc, title, base_version, updated_at FROM drafts WHERE content_id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'no draft' });
   return rows[0];
@@ -413,6 +454,7 @@ app.get('/api/content/:id/draft', async (req, reply) => {
 
 app.put('/api/content/:id/draft', async (req, reply) => {
   if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const { doc, title, baseVersion } = req.body;
   const userId = req.access.userId;
   await query(
@@ -462,6 +504,7 @@ app.delete('/api/content/:id/editing', async (req) => {
 app.post('/api/content/:id/publish', async (req, reply) => {
   const id = req.params.id;
   if (!await requireAccess(req, reply, id, 'edit')) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const { rows: cur } = await query(`SELECT current_version FROM content WHERE id = $1`, [id]);
   if (!cur.length) return reply.code(404).send({ error: 'not found' });
   const { rows: dr } = await query(`SELECT doc, title, base_version FROM drafts WHERE content_id = $1`, [id]);
@@ -494,11 +537,11 @@ app.post('/api/content/:id/publish', async (req, reply) => {
 app.post('/api/content', async (req, reply) => {
   const { spaceKey, parentId } = req.body ?? {};
   // 유형: 문서(page, 기본) 또는 폴더(folder — 본문 없이 문서를 묶는 용도, 제목 필수)
-  const type = req.body?.type === 'folder' ? 'folder' : 'page';
+  const type = ['folder', 'database'].includes(req.body?.type) ? req.body.type : 'page';
   let initialDoc;
   try { initialDoc = type === 'page' ? bodyDoc(req.body) : null; } catch (e) { return reply.code(400).send({ error: e.message }); }
   if (type === 'folder' && !req.body?.title?.trim()) return reply.code(400).send({ error: '폴더 이름을 입력하세요' });
-  const title = req.body?.title?.trim() || '제목 없는 문서';
+  const title = req.body?.title?.trim() || (type === 'database' ? '새 데이터베이스' : '제목 없는 문서');
   if (!spaceKey) return reply.code(400).send({ error: 'spaceKey required' });
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
   if (!sp.length) return reply.code(404).send({ error: 'space not found' });
@@ -506,6 +549,24 @@ app.post('/api/content', async (req, reply) => {
   if (!role || role === 'viewer') return reply.code(403).send({ error: '이 스페이스에 페이지를 만들 권한이 없습니다' });
   if (parentId != null && !await requireAccess(req, reply, parentId)) return;
   const userId = req.access.userId;
+  if (type === 'database') {
+    const client = await (await getDb()).connect();
+    let id;
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(`INSERT INTO content (id,space_id,parent_id,type,title,status,author_id,owner_id,current_version,created_at,updated_at)
+        VALUES (nextval('content_id_seq'),$1,$2,'database',$3,'current',$4,$4,1,now(),now()) RETURNING id`, [sp[0].id,parentId ?? null,title,userId]);
+      id = result.rows[0].id;
+      const data = { fields:[{id:'name',name:'이름',type:'t',options:[]}],rows:[],views:[{id:'table',name:'표',type:'table',hiddenFields:[],sort:[],filter:null,groupBy:null}] };
+      await client.query('INSERT INTO database_snapshots (content_id,version,data) VALUES ($1,1,$2)', [id,JSON.stringify(data)]);
+      await client.query(`INSERT INTO content_versions (content_id,version,doc,message,author_id,created_at) VALUES ($1,1,NULL,'데이터베이스 생성',$2,now())`, [id,userId]);
+      await client.query('COMMIT');
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
+    reindex(id);
+    notifyPage(req,id,'page.created');
+    return { id,spaceKey,type,version:1 };
+  }
   const { rows } = await query(
     `INSERT INTO content (id, space_id, parent_id, type, title, status, author_id, owner_id, current_version, created_at, updated_at)
      VALUES (nextval('content_id_seq'), $1, $2, $6, $3, 'current', $4, $4, $5, now(), now())
@@ -570,13 +631,15 @@ app.get('/api/content/:id/versions/:v', async (req, reply) => {
        FROM content_versions v LEFT JOIN users u ON u.id = v.author_id
       WHERE v.content_id = $1 AND v.version = $2`, [req.params.id, req.params.v]);
   if (!rows.length) return reply.code(404).send({ error: 'version not found' });
-  return rows[0];
+  const snapshot = await query('SELECT data FROM database_snapshots WHERE content_id=$1 AND version=$2', [req.params.id, req.params.v]);
+  return { ...rows[0], data: snapshot.rows[0]?.data };
 });
 
 // 과거 버전 복원 → 새 버전으로 게시
 app.post('/api/content/:id/restore', async (req, reply) => {
   const id = req.params.id;
   if (!await requireAccess(req, reply, id, 'edit')) return;
+  if (await rejectCanvasEdit(req.params.id, reply)) return;
   const v = Number(req.body?.version);
   if (!v) return reply.code(400).send({ error: 'version required' });
   const { rows } = await query(`SELECT doc FROM content_versions WHERE content_id = $1 AND version = $2`, [id, v]);
@@ -754,6 +817,7 @@ app.post('/api/content/:id/comments', async (req, reply) => {
       content: t.split(/\n+/).map((line) => ({ type: 'paragraph', content: [{ type: 'text', text: line }] })),
     };
   }
+  body = linkifyDoc(body); // 댓글 속 주소는 링크로 (입력창·인라인 댓글 모두)
   const k = kind === 'inline' ? 'inline' : 'footer';
   if (k === 'inline' && !inlineRef?.trim()) return reply.code(400).send({ error: 'inline 댓글은 inlineRef(선택한 텍스트)가 필요합니다' });
   const userId = req.access.userId;
@@ -802,12 +866,52 @@ app.post('/api/content/:id/labels', async (req, reply) => {
 
 // ---------- 매크로 렌더링용 조회 ----------
 
+// 현재 본문만 조회하며 권한 필터 뒤에 추출·집계한다.
+app.get('/api/macro-report/:kind', async (req, reply) => {
+  const { kind } = req.params;
+  if (!['content', 'details', 'tasks', 'decisions', 'labels', 'blog', 'index', 'recent'].includes(kind)) return reply.code(400).send({ error: 'unknown report' });
+  let params, scope;
+  try { params = JSON.parse(req.query.params || '{}'); scope = reportScope(params, req.query.space); }
+  catch (e) { return reply.code(400).send({ error: e.message }); }
+  const { rows } = await query(
+    `SELECT c.id, c.title, c.type, c.updated_at, s.key AS space_key,
+            u.display_name AS author_name, CASE WHEN $3::boolean THEN v.doc ELSE NULL END AS doc,
+            ARRAY(SELECT l.name FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = c.id) AS labels
+       FROM content c JOIN spaces s ON s.id = c.space_id
+       LEFT JOIN content_versions v ON v.content_id = c.id AND v.version = c.current_version
+       LEFT JOIN users u ON u.id = c.author_id
+      WHERE c.status = 'current' AND ($1::text[] = '{}' OR s.key = ANY($1::text[]))
+        AND ($2::text[] = '{}' OR EXISTS (SELECT 1 FROM content_labels cl JOIN labels l ON l.id = cl.label_id WHERE cl.content_id = c.id AND l.name = ANY($2::text[])))
+      ORDER BY c.updated_at DESC NULLS LAST`, [scope.spaces, scope.labels, ['details', 'tasks', 'decisions'].includes(kind)]);
+  const allowed = await filterViewable(req.access, rows.map(r => r.id));
+  let visible = rows.filter(r => allowed.has(String(r.id)));
+  if (kind === 'labels') return labelCounts(visible, params.excludedLabels);
+  if (kind === 'blog') visible = visible.filter(r => r.type === 'blogpost');
+  else visible = visible.filter(r => ['page', 'live'].includes(r.type));
+  if (kind === 'index') visible.sort((a, b) => a.title.localeCompare(b.title, 'ko'));
+  if (['details', 'tasks', 'decisions'].includes(kind)) {
+    const mentions = [];
+    for (const row of visible) walk(row.doc, n => { if (n.type === 'mention' && n.attrs?.accountId && !n.attrs.text) mentions.push(n); });
+    if (mentions.length) {
+      const { rows: users } = await query('SELECT confluence_account_id, display_name FROM users WHERE confluence_account_id = ANY($1::text[])', [[...new Set(mentions.map(n => n.attrs.accountId))]]);
+      const names = new Map(users.map(u => [u.confluence_account_id, u.display_name]));
+      for (const mention of mentions) mention.attrs.text = names.get(mention.attrs.accountId) || '알 수 없는 사용자';
+    }
+  }
+  if (kind === 'details') {
+    const merged = mergeDetails(visible, params.headings);
+    return { headings: merged.headings, rows: merged.records.map(r => ({ ...visible.find(p => p.id === r.id), doc: undefined, fields: r.fields })) };
+  }
+  if (kind === 'tasks' || kind === 'decisions') return visible.flatMap(r => reportNodes(r.doc, kind).map(item => ({ ...r, doc: undefined, ...item }))).slice(0, Math.min(500, Math.max(1, Number(params.pageSize) || 100)));
+  return visible.slice(0, kind === 'index' ? 500 : Math.min(500, Math.max(1, Number(params.max) || 100))).map(({ doc, ...r }) => r);
+});
+
 // profile 매크로: accountId → 사용자 표시 이름
 app.get('/api/users/:accountId', async (req, reply) => {
   const { rows } = await query(
-    `SELECT display_name, email FROM users WHERE confluence_account_id = $1`, [req.params.accountId]);
+    `SELECT id, display_name, email, avatar_key, avatar_external_url FROM users WHERE confluence_account_id = $1`, [req.params.accountId]);
   if (!rows.length) return reply.code(404).send({ error: 'user not found' });
-  return rows[0];
+  return { display_name: rows[0].display_name, email: rows[0].email, avatar_url: resolveAvatar(rows[0]) };
 });
 
 // recently-updated 매크로: 스페이스 최근 변경 페이지
@@ -1175,7 +1279,12 @@ app.post('/api/access-requests/:id/decide', async (req, reply) => {
 async function redirectToContent(reply, id) {
   const { rows } = await query(
     `SELECT c.id, s.key FROM content c JOIN spaces s ON s.id = c.space_id WHERE c.id = $1`, [id]);
-  if (!rows.length) return reply.code(404).send({ error: `content ${id} not migrated` });
+  // 아직 이관되지 않은 문서는 원본 Confluence로 보낸다 (Gira 원격 링크·예전 주소가 끊기지 않게, GIRA-66). 임시(302)라 이관 뒤엔 다시 여기로
+  if (!rows.length) {
+    if (!/^\d+$/.test(String(id))) return reply.code(404).send({ error: `content ${id} not migrated` });
+    const origin = (process.env.CONFLUENCE_BASE_URL ?? process.env.ATLASSIAN_SITE ?? 'https://gmdsoft.atlassian.net').replace(/\/$/, '');
+    return reply.redirect(`${origin}/wiki/pages/viewpage.action?pageId=${id}`, 302);
+  }
   return reply.redirect(`/s/${rows[0].key}/p/${rows[0].id}`, 301);
 }
 

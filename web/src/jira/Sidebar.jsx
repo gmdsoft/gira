@@ -58,7 +58,7 @@ export default function Sidebar({ meta, project, view, boardId, pdata, savedFilt
         <div className="shead2"><span>필터</span></div>
         {savedFilters.map((f) => (
           <div className={`sitem${savedSel === String(f.id) ? ' on' : ''}`} key={f.id} onClick={() => onFilter(String(f.id))}>
-            <IconFilter size={15} /><span className="strunc" title={f.name}>{f.name}</span>
+            <IconFilter size={15} /><span className="strunc" title={f.name}>{f.favourite ? '★ ' : ''}{f.name}</span>
           </div>))}
       </>}
       {/* 구분선 아래: 다른 앱(Gonfluence) — 같은 호스트의 3001 포트 */}

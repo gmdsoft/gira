@@ -1,3 +1,4 @@
+import { TemplatePicker } from './templates.jsx';
 import { useMobile } from './mobile.js';
 // Gonfluence 공통 틀: 상단 바 + 왼쪽 사이드바 (Gira와 같은 구성 — Confluence의 새 내비게이션에 대응)
 // 사이드바: 홈·별표·앱·스페이스 만들기 / 스페이스(펼치면 문서 트리, + 로 문서·폴더 만들기) / 최근 항목 /
@@ -77,6 +78,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
   const [trees, setTrees] = useState({}); // 현재 스페이스가 아닌, 펼친 스페이스의 트리
   const [plusMenu, setPlusMenu] = useState(null); // 스페이스 key — + 메뉴(문서/폴더)
   const [folderFor, setFolderFor] = useState(null); // 폴더 만들 스페이스
+  const [templateFor, setTemplateFor] = useState(null); // 템플릿으로 문서 만들 스페이스 (GIRA-52)
   const [createSpace, setCreateSpace] = useState(false);
   const [dropSpace, setDropSpace] = useState(null);
   const [q, setQ] = useState('');
@@ -129,7 +131,8 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
     if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '만들기 실패'); return; }
     const { id } = await res.json();
     setOpen((s) => new Set(s).add(sp.key));
-    if (type === 'page') navigate(`/s/${sp.key}/p/${id}/edit`);
+    if (type === 'database') { reloadTrees(); navigate(`/s/${sp.key}/p/${id}`); }
+    else if (type === 'page') navigate(`/s/${sp.key}/p/${id}/edit`);
     else if (space?.key === sp.key) reloadSpace?.();
     else loadTree(sp.key);
   };
@@ -204,6 +207,8 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                           <div className="menu-overlay" onClick={() => setPlusMenu(null)} />
                           <div className="page-menu gs-plus-menu">
                             <button onClick={() => { setPlusMenu(null); createIn(sp, 'page'); }}>📄 문서</button>
+                            <button onClick={() => { setPlusMenu(null); setTemplateFor(sp); }}>📋 템플릿으로 만들기</button>
+                            <button onClick={() => { setPlusMenu(null); createIn(sp, 'database'); }}>🗄️ 데이터베이스</button>
                             <button onClick={() => { setPlusMenu(null); setFolderFor(sp); }}>📁 폴더</button>
                           </div>
                         </>}
@@ -255,6 +260,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
         )}
         <main className="gmain" onClick={onContentClick}>{children}</main>
       </div>
+      {templateFor && <TemplatePicker spaceKey={templateFor.key} parentId={templateFor.parentId ?? null} navigate={navigate} onClose={() => setTemplateFor(null)} />}
       {folderFor && <FolderDialog spaceName={folderFor.name} onClose={() => setFolderFor(null)}
         onSubmit={(name) => { const sp = folderFor; setFolderFor(null); createIn(sp, 'folder', name); }} />}
       {showHelp && <AiHelpPanel appName="Gonfluence" view={route.view} onClose={() => setShowHelp(false)} />}

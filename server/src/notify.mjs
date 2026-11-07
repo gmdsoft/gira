@@ -10,6 +10,7 @@
 
 export const EVENT_LABELS = {
   'issue.created': '이슈 생성',
+  'issue.assigned': '담당자 지정',
   'issue.status': '상태 변경',
   'issue.done': '처리 완료',   // 상태가 '완료' 분류로 바뀐 때만 (상태 변경보다 좁다)
   'issue.comment': '이슈 댓글',
@@ -21,7 +22,7 @@ const MAX_ATTEMPTS = 5;
 // SSRF 방지: Teams 웹훅은 Microsoft 웹훅 호스트만 허용
 const TEAMS_HOST = /(^|\.)(webhook\.office\.com|logic\.azure\.com|powerplatform\.com|powerautomate\.com)$/i;
 const EMAIL = /^[^\s@,]+@[^\s@,]+\.[^\s@,]+$/;
-const ROLE_TOKENS = ['@assignee', '@reporter', '@author'];
+const ROLE_TOKENS = ['@assignee', '@reporter', '@author', '@watchers'];
 
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
@@ -100,7 +101,9 @@ export function createNotifier({ query, app, env = process.env, log = console, f
         if (r.channel === 'teams') target = r.target || env.TEAMS_WEBHOOK_URL || '';
         else {
           const { emails, roles } = parseEmailTarget(r.target);
-          const ids = roles.map((k) => ev.people?.[k]).filter(Boolean).map(Number).filter((id) => id !== Number(ev.actorId));
+          // 행동한 사람에게는 보내지 않는다 — 단 '이슈 생성'은 등록 확인 안내라 보고자 본인이 등록해도 보낸다
+          const selfOk = ev.event === 'issue.created';
+          const ids = roles.flatMap((k) => k === 'watchers' ? (ev.watchers ?? []).filter(id => Number(id) !== Number(ev.actorId)) : [ev.people?.[k]]).filter(Boolean).map(Number).filter((id) => selfOk || id !== Number(ev.actorId));
           if (ids.length) {
             const { rows } = await query(`SELECT email FROM users WHERE id = ANY($1::bigint[]) AND email IS NOT NULL AND active`, [ids]);
             emails.push(...rows.map((x) => x.email));
@@ -251,7 +254,7 @@ export function createNotifier({ query, app, env = process.env, log = console, f
       } else {
         const { emails, roles, bad } = parseEmailTarget(target);
         if (bad.length) return { error: `잘못된 받는 사람: ${bad.join(', ')}` };
-        if (!emails.length && !roles.length) return { error: '받는 사람(메일 주소 또는 @assignee·@reporter·@author)을 넣으세요' };
+        if (!emails.length && !roles.length) return { error: '받는 사람(메일 주소 또는 @assignee·@reporter·@author·@watchers)을 넣으세요' };
         target = [...emails, ...roles.map((x) => `@${x}`)].join(', ');
       }
       return { events, channel: b.channel, target };

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { syncWatchers } from './lib/jira-watchers.mjs';
 // Jira Cloud → 새 서비스 DB 임포터 (PoC: 프로젝트 단위, 최신 상태만).
 // 읽기 전용 GET 요청만 사용한다. 변경 이력(changelog)·워크로그는 PoC 범위 밖.
 // 대형 프로젝트(1만+ 이슈)를 위해 페이지 단위로 수집·적재한다 (메모리에 전체를 들지 않음).
@@ -6,6 +7,11 @@
 //
 // 사용법: node scripts/jira-import-project.mjs --project SIMSIM [--wipe] [--since <ISO 시각>]
 
+import { jiraGet } from './lib/jira-source-get.mjs';
+import { syncRemoteLinks } from './lib/jira-remote-links.mjs';
+import { syncWorklogs } from './lib/jira-worklogs.mjs';
+import { fillMediaIds } from './lib/jira-media.mjs';
+import { syncNameAliases } from './lib/jira-name-aliases.mjs';
 import { parseArgs } from 'node:util';
 import { query, closeDb } from '../server/src/db.mjs';
 
@@ -35,21 +41,7 @@ function sinceClause() {
 const SITE = (process.env.ATLASSIAN_SITE ?? '').replace(/\/$/, '');
 const AUTH = 'Basic ' + Buffer.from(`${process.env.ATLASSIAN_EMAIL}:${process.env.ATLASSIAN_API_TOKEN}`).toString('base64');
 
-async function get(pathOrUrl, attempt = 0) {
-  const url = pathOrUrl.startsWith('http') ? pathOrUrl : SITE + pathOrUrl;
-  const res = await fetch(url, { headers: { Authorization: AUTH, Accept: 'application/json' } });
-  if ((res.status === 429 || res.status >= 500) && attempt < 5) {
-    const wait = Number(res.headers.get('retry-after')) * 1000 || 1000 * 2 ** attempt;
-    await new Promise((r) => setTimeout(r, wait));
-    return get(pathOrUrl, attempt + 1);
-  }
-  if (!res.ok) {
-    const err = new Error(`${res.status} ${res.statusText} — GET ${url}`);
-    err.status = res.status;
-    throw err;
-  }
-  return res.json();
-}
+const get = jiraGet(SITE, AUTH);
 
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
@@ -117,11 +109,41 @@ for (const t of project.issueTypes ?? []) {
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, subtask = EXCLUDED.subtask`,
     [t.id, t.name, !!t.subtask, t.description ?? null]);
 }
+await syncNameAliases(get, query); // GIRA-67: 원본 필터 JQL의 번역 전 상태·유형 이름
+await query(`ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS schema_custom text`);
+await query(`ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '[]'`);
+async function pages(path) {
+  const values = [];
+  for (let startAt = 0; ;) {
+    const page = await get(`${path}${path.includes('?') ? '&' : '?'}startAt=${startAt}&maxResults=100`);
+    values.push(...(page.values ?? []));
+    startAt += page.values?.length ?? 0;
+    if (page.isLast || !page.values?.length || startAt >= page.total) return values;
+  }
+}
 for (const f of fields) {
+  let contexts = null;
+  if (f.custom && /:(select|radiobuttons|multicheckboxes|multiselect)$/.test(f.schema?.custom ?? '')) {
+    try {
+      const base = `/rest/api/3/field/${encodeURIComponent(f.id)}/context`;
+      contexts = await pages(base);
+      for (const c of contexts) {
+        c.options = await pages(`${base}/${c.id}/option`);
+        c.projectIds = c.isGlobalContext ? [] : (await pages(`${base}/projectmapping?contextId=${c.id}`)).map(m => m.projectId);
+        c.issueTypeIds = c.isAnyIssueType ? [] : (await pages(`${base}/issuetypemapping?contextId=${c.id}`)).map(m => m.issueTypeId);
+      }
+    } catch (e) {
+      // 컨텍스트 조회 권한이 없으면 기존 선택지를 보존하고 값 이관은 계속한다.
+      console.warn(`  ${f.id} 선택지 조회 실패 (HTTP ${e.status ?? '오류'}): 기존 선택지 보존`);
+      contexts = null;
+    }
+  }
   await query(
-    `INSERT INTO jira_fields (id, name, custom, schema_type) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
-    [f.id, f.name, !!f.custom, f.schema?.type ?? null]);
+    `INSERT INTO jira_fields (id, name, custom, schema_type, schema_custom, options) VALUES ($1, $2, $3, $4, $5, COALESCE($6::jsonb, '[]'::jsonb))
+     ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, custom = EXCLUDED.custom,
+       schema_type = EXCLUDED.schema_type, schema_custom = EXCLUDED.schema_custom,
+       options = COALESCE($6::jsonb, jira_fields.options)`,
+    [f.id, f.name, !!f.custom, f.schema?.type ?? null, f.schema?.custom ?? null, contexts ? JSON.stringify(contexts) : null]);
 }
 for (const v of versions) {
   await query(
@@ -260,14 +282,14 @@ for (;;) {
       `INSERT INTO jira_issues
          (id, project_id, issue_key, issue_type_id, status_id, summary, description_adf,
           priority, resolution, assignee_id, reporter_id, sprint_id, labels, fix_versions, components,
-          created_at, updated_at, resolved_at, fields_raw)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+          created_at, updated_at, resolved_at, fields_raw, rank, due_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::date)
        ON CONFLICT (id) DO UPDATE SET
          status_id = EXCLUDED.status_id, summary = EXCLUDED.summary,
          description_adf = EXCLUDED.description_adf, priority = EXCLUDED.priority,
          resolution = EXCLUDED.resolution, assignee_id = EXCLUDED.assignee_id, sprint_id = EXCLUDED.sprint_id,
          labels = EXCLUDED.labels, fix_versions = EXCLUDED.fix_versions, components = EXCLUDED.components,
-         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw
+         updated_at = EXCLUDED.updated_at, resolved_at = EXCLUDED.resolved_at, fields_raw = EXCLUDED.fields_raw, rank = EXCLUDED.rank, due_date = EXCLUDED.due_date
        WHERE jira_issues.project_id = EXCLUDED.project_id`,
       [iss.id, project.id, iss.key, f.issuetype?.id ?? null, f.status?.id ?? null,
        f.summary ?? '(제목 없음)', f.description ? JSON.stringify(f.description) : null,
@@ -275,7 +297,7 @@ for (;;) {
        uid(f.assignee), uid(f.reporter), sprintId,
        f.labels ?? [], names(f.fixVersions), names(f.components),
        f.created ?? null, f.updated ?? null, f.resolutiondate ?? null,
-       JSON.stringify(rawRest)]);
+       JSON.stringify(rawRest), f.customfield_10019 ?? null, /^\d{4}-\d{2}-\d{2}/.test(f.duedate ?? '') ? f.duedate.slice(0, 10) : null]);
     knownIds.add(Number(iss.id));
     if (f.parent?.id) parentPairs.push([Number(iss.id), Number(f.parent.id)]);
 
@@ -311,6 +333,16 @@ for (;;) {
       linkCount++;
     }
   }
+
+  await syncWatchers(issues, { get, query, ensureUsers, uid });
+  await syncRemoteLinks(issues, { get, query });
+  await syncWorklogs(issues, { get, query, ensureUsers, uid }); // GIRA-71
+
+  const pendingMedia = await query(`SELECT a.id FROM jira_attachments a
+    WHERE a.issue_id = ANY($1::bigint[]) AND (a.media_id IS NULL OR a.media_id = '')`, [issues.map((i) => i.id)]);
+  const mediaResult = await fillMediaIds(pendingMedia.rows, { query, site: SITE, auth: AUTH });
+  if (mediaResult.failed) process.exitCode = 1;
+  console.log('  첨부 미디어', mediaResult);
 
   total += issues.length;
   console.log(`  ${total}건 적재...`);

@@ -1,8 +1,11 @@
+import WhiteboardView from './WhiteboardView.jsx';
+import DatabaseView from './DatabaseView.jsx';
 import { useMobile } from './mobile.js';
 import CommentComposer from './comment-composer.jsx';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { generateHTML } from '@tiptap/html';
+import { linkifyDoc } from '../../server/src/linkify.mjs'; // 댓글 속 주소 → 링크 (서버와 같은 규칙)
 import { extensions } from './extensions.js';
 import { api, hydrateDoc } from './api.js';
 import { hydrateMacros } from './macros.js';
@@ -132,6 +135,9 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
   if (error) return <div className="page-error">불러오기 실패: {error}</div>;
   if (!page) return <div className="page-loading">불러오는 중…</div>;
 
+  if (page.type === 'whiteboard') return <WhiteboardView key={page.id} page={page} />;
+  if (page.type === 'database') return <DatabaseView key={page.id} page={page} />;
+
   const setStatus = async (status, confirmMsg) => {
     if (confirmMsg && !confirm(confirmMsg)) return;
     const res = await fetch(`/api/content/${page.id}/status`, {
@@ -172,8 +178,10 @@ export default function PageView({ pageId, navigate, reloadSpace }) {
         <div className="page-title-row">
           <h1>{page.type === 'live' && <span className="live-badge">LIVE</span>}{page.title}</h1>
           <div className="page-actions">
-            <button className="btn btn-primary"
-              onClick={() => navigate(`/s/${page.spaceKey}/p/${page.id}/edit`)}>편집</button>
+            {page.type === 'embed'
+              ? <span className="muted" title="원본 Confluence의 스마트 링크 임베드 — 주소만 이관됨">읽기 전용 임베드</span>
+              : <button className="btn btn-primary"
+                  onClick={() => navigate(`/s/${page.spaceKey}/p/${page.id}/edit`)}>편집</button>}
             <PageMenu page={page} navigate={navigate} reloadSpace={reloadSpace}
               onPresent={() => setPresent(true)} onMove={() => setMoveOpen(true)}
               onRestrict={() => setRestrictOpen(true)} setStatus={setStatus} />
@@ -436,7 +444,7 @@ function Doc({ page, navigate }) {
 function Comment({ comment, pageId }) {
   const html = useMemo(() => {
     if (!comment.doc) return '';
-    try { return generateHTML(hydrateDoc(structuredClone(comment.doc), pageId), extensions); }
+    try { return generateHTML(hydrateDoc(linkifyDoc(structuredClone(comment.doc)), pageId), extensions); }
     catch { return '<em>(렌더링 불가)</em>'; }
   }, [comment, pageId]);
   return (

@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS jira_statuses (
   name text NOT NULL,
   category text NOT NULL CHECK (category IN ('new','indeterminate','done'))
 );
+-- 원본 Jira의 번역 전 이름(untranslatedName, 예: 'In Progress') — 원본 필터 JQL이 이 이름을 쓴다
+ALTER TABLE jira_statuses ADD COLUMN IF NOT EXISTS alias text;
 
 CREATE TABLE IF NOT EXISTS jira_issue_types (
   id bigint PRIMARY KEY,
@@ -24,6 +26,7 @@ CREATE TABLE IF NOT EXISTS jira_issue_types (
   subtask boolean NOT NULL DEFAULT false,
   description text
 );
+ALTER TABLE jira_issue_types ADD COLUMN IF NOT EXISTS alias text; -- 번역 전 이름(예: 'Bug')
 
 -- 필드 사전: UI에서 customfield_* 를 사람이 읽을 이름으로 표시하기 위한 매핑
 CREATE TABLE IF NOT EXISTS jira_fields (
@@ -205,3 +208,86 @@ CREATE TABLE IF NOT EXISTS jira_web_links (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS jira_web_links_issue ON jira_web_links(issue_id);
+
+ALTER TABLE jira_attachments ADD COLUMN IF NOT EXISTS media_id text;
+CREATE INDEX IF NOT EXISTS jira_attachments_media_id ON jira_attachments(media_id);
+
+-- GIRA-65: 원본 형식과 컨텍스트별 선택지. 기존 설치에도 적용한다.
+ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS schema_custom text;
+ALTER TABLE jira_fields ADD COLUMN IF NOT EXISTS options jsonb NOT NULL DEFAULT '[]';
+
+-- JS searchValues와 동일하게 값의 의미 있는 잎만 검색한다(옵션 id 등 메타데이터 제외).
+CREATE OR REPLACE FUNCTION jira_custom_search(value jsonb) RETURNS text[]
+LANGUAGE sql IMMUTABLE AS $$
+  WITH RECURSIVE leaves(v) AS (
+    SELECT value
+    UNION ALL
+    SELECT child.v FROM leaves l CROSS JOIN LATERAL (
+      SELECT a.value AS v FROM jsonb_array_elements(CASE WHEN jsonb_typeof(l.v) = 'array' THEN l.v ELSE '[]'::jsonb END) a
+      UNION ALL
+      SELECT o.value FROM jsonb_each(CASE WHEN jsonb_typeof(l.v) = 'object' THEN l.v ELSE '{}'::jsonb END) o
+      WHERE o.key IN ('value', 'displayName', 'accountId', 'name', 'text', 'content', 'start', 'end')
+    ) child
+  ) SELECT COALESCE(array_agg(v #>> '{}') FILTER (WHERE jsonb_typeof(v) IN ('string', 'number', 'boolean') AND v #>> '{}' <> ''), ARRAY[]::text[]) FROM leaves;
+$$;
+
+-- GIRA-66: 원본 원격 링크 (로컬 링크는 source_id NULL)
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS source_id text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS app_type text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS app_name text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS relationship text;
+ALTER TABLE jira_web_links ADD COLUMN IF NOT EXISTS icon_url text;
+CREATE UNIQUE INDEX IF NOT EXISTS jira_web_links_source ON jira_web_links(source_id);
+-- Rank migration: only missing values are backfilled; local reorderings survive startup.
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS rank text;
+UPDATE jira_issues SET rank = fields_raw->>'customfield_10019'
+ WHERE rank IS NULL AND fields_raw->>'customfield_10019' IS NOT NULL;
+CREATE INDEX IF NOT EXISTS jira_issues_project_rank_idx
+ ON jira_issues (project_id, rank COLLATE "C", issue_key);
+
+-- GIRA-71: 작업 로그 (원본 id 유지, 로컬은 1e12 이상)
+CREATE TABLE IF NOT EXISTS jira_worklogs (
+  id bigint PRIMARY KEY,
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  author_id bigint REFERENCES users(id),
+  started_at timestamptz NOT NULL,
+  time_spent_seconds int NOT NULL CHECK (time_spent_seconds > 0),
+  comment_adf jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS jira_worklogs_issue ON jira_worklogs(issue_id, started_at);
+CREATE SEQUENCE IF NOT EXISTS jira_worklog_id_seq START 1000000000000;
+-- GIRA-71: 기한 (원본 duedate 소급 — 비어 있는 행만, 이후 편집은 이 열)
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS due_date date;
+UPDATE jira_issues SET due_date = (fields_raw->>'duedate')::date
+ WHERE due_date IS NULL AND fields_raw->>'duedate' ~ '^\d{4}-\d{2}-\d{2}';
+
+-- GIRA-67 원본 보드·필터·대시보드
+ALTER TABLE jira_boards ADD COLUMN IF NOT EXISTS estimation jsonb;
+CREATE TABLE IF NOT EXISTS jira_board_quickfilters (
+ id bigserial PRIMARY KEY, board_id bigint NOT NULL REFERENCES jira_boards(id) ON DELETE CASCADE,
+ source_id bigint UNIQUE NOT NULL, name text NOT NULL, jql text NOT NULL,
+ description text, position int NOT NULL DEFAULT 0
+);
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS source_id bigint UNIQUE;
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS jql text;
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS share jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE jira_filters ADD COLUMN IF NOT EXISTS favourite_count int NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS jira_filter_favourites (
+ filter_id bigint REFERENCES jira_filters(id) ON DELETE CASCADE,
+ user_id bigint REFERENCES users(id), PRIMARY KEY(filter_id,user_id)
+);
+CREATE TABLE IF NOT EXISTS jira_dashboards (
+ id bigserial PRIMARY KEY, source_id bigint UNIQUE NOT NULL, name text NOT NULL,
+ owner_id bigint REFERENCES users(id), share jsonb NOT NULL DEFAULT '[]', gadgets jsonb NOT NULL DEFAULT '[]'
+);
+ALTER TABLE jira_filters ALTER COLUMN owner_id DROP NOT NULL;
+-- GIRA-69: 최초 이관 시각은 증분 재실행에서도 유지한다.
+ALTER TABLE jira_issues ADD COLUMN IF NOT EXISTS watchers_imported_at timestamptz;
+CREATE TABLE IF NOT EXISTS jira_issue_watchers (
+  issue_id bigint NOT NULL REFERENCES jira_issues(id) ON DELETE CASCADE,
+  user_id bigint NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (issue_id, user_id)
+);

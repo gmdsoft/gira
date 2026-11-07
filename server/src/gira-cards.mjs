@@ -16,6 +16,18 @@ export function registerGiraCards(app, { giraUrl = process.env.GIRA_URL ?? 'http
   // 이관되지 않은 프로젝트의 이슈는 Gira에 없으므로 원본 Jira로 보낸다 (예전 링크 동작 유지)
   const JIRA_ORIGIN = (process.env.JIRA_BASE_URL ?? 'https://gmdsoft.atlassian.net').replace(/\/$/, '');
 
+  app.get('/api/gira/stats', async (req, reply) => {
+    reply.header('Cache-Control', 'private, no-store');
+    try {
+      const search = new URLSearchParams(req.query);
+      const res = await fetch(`${giraBaseUrl()}/api/stats?${search}`, {
+        headers: authHeaders(req), redirect: 'error', signal: AbortSignal.timeout(15000),
+      });
+      const data = await res.json();
+      return reply.code(res.status).send({ ...data, searchBase: `${giraPublicUrl(req)}/projects/${encodeURIComponent(data.project ?? '_')}/list` });
+    } catch { return reply.code(502).send({ error: 'Gira 차트 데이터를 가져올 수 없습니다.' }); }
+  });
+
   app.get('/api/gira/issues/:key/open', async (req, reply) => {
     const { key } = req.params;
     if (!validIssueKey(key)) return reply.code(400).send({ error: '잘못된 이슈 키' });
@@ -42,7 +54,11 @@ export function registerGiraCards(app, { giraUrl = process.env.GIRA_URL ?? 'http
       });
       if (!res.ok) return { key };
       const issue = await res.json();
-      return { key, summary: issue.summary, status: issue.status_name, statusCategory: issue.status_category, type: issue.type_name };
+      return {
+        key, summary: issue.summary, status: issue.status_name, statusCategory: issue.status_category, type: issue.type_name,
+        assignee: issue.assignee_name, reporter: issue.reporter_name, priority: issue.priority,
+        updated: issue.updated_at, created: issue.created_at, resolution: issue.resolution, fixVersions: issue.fix_versions,
+      };
     } catch {
       return { key };
     }

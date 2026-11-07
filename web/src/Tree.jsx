@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 
-const TYPE_ICON = { folder: '📁', whiteboard: '🖊️', database: '🗄️', embed: '🔗', live: '⚡' };
+const TYPE_ICON = { folder: '📁', whiteboard: '🖊️', database: '🗄️', embed: '🔗', live: '⚡', blogpost: '📰' };
 
 // 끌어 옮기기: 끌고 있는 문서 { id, title, spaceKey, parentId, descendants:Set } — dragover에서는 dataTransfer를
 // 읽을 수 없어 모듈 변수로 둔다. 스페이스 이름 줄(GonfShell)도 Tree.dragging()으로 확인한다.
@@ -58,7 +58,7 @@ function TreeNode({ node, children, spaceKey, currentId, navigate, onMove, depth
     if (isCurrent || hasDescendant(node, children, currentId)) setOpen(true);
   }, [currentId]);
   const icon = TYPE_ICON[node.type];
-  const navigable = node.type === 'page' || node.type === 'live';
+  const navigable = ['page', 'live', 'database', 'whiteboard', 'embed', 'blogpost'].includes(node.type);
 
   // 놓을 수 있는 곳: 자기 자신, 자기 하위, 지금 부모가 아닌 문서·폴더
   const canDrop = () => dnd && dragging && String(dragging.id) !== String(node.id)

@@ -1,3 +1,10 @@
+import { adfPageLink } from './adf-page-links.mjs';
+import { canReadCollection, gadgetParams } from './jira-collections.mjs';
+import { addWatcher, watchIssuePeople } from './jira-watchers.mjs';
+import { remoteLinkView } from './jira-remote-links.mjs';
+import { scheduleFields, parseDuration } from './jira-schedule.mjs';
+import { rankBetween, RANK_COLUMN } from './jira-rank.mjs';
+import { normalizeCustomFields, validateCustomPatch, visibleField, displayValue, HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // Jira PoC 앱 서버. 이관된 jira_* 테이블 조회 + 기본 쓰기(이슈/댓글/첨부/스프린트/필터).
 // 원본 Jira Cloud API는 읽기 전용(GET, 첨부 프록시)으로만 쓴다 — 쓰기는 전부 로컬 DB.
 // 인증은 Confluence 앱과 동일(auth.mjs, 테스트 계정 로그인) — 같은 DB 세션 쿠키를 공유한다.
@@ -14,12 +21,14 @@ import { query, DATA_DIR, configureDb, closeDb } from './db.mjs';
 import { registerAuth } from './auth.mjs';
 import { projectRole, projectRoles } from './perm.mjs';
 import { registerMyApiKeys } from './me-keys.mjs';
-import { registerAvatarRoutes } from './avatar.mjs';
+import { resolveAvatar, registerAvatarRoutes } from './avatar.mjs';
 import { registerSelfMigrate } from './self-migrate.mjs';
 import { registerSourceSync } from './source-sync.mjs';
 import { exportProject, importProject } from './jira-package.mjs';
 import { registerDevChat } from './dev-chat.mjs';
+import { textToAdf } from './linkify.mjs';
 import { registerProjectCreate } from './jira-project-create.mjs';
+import { aggregate, decodeJql, requestedProjects } from './jira-stats.mjs';
 import { parseJql, JqlError } from './jql.mjs';
 import { createNotifier, publicBase } from './notify.mjs';
 import { registerAiAssist } from './ai-assist.mjs';
@@ -86,13 +95,7 @@ app.get('/browse/:key', page);                 // Jira 호환 이슈 주소
 app.get('/dev-chat', page);                    // 개발참여 챗봇 (새 탭 전용 페이지)
 app.get('/projects/:pkey/:view', page);        // 프로젝트 뷰 주소 (list|table|board|backlog)
 
-// 플레인 텍스트 → 최소 ADF 문서 (PoC 입력용)
-const textToAdf = (text) => ({
-  type: 'doc', version: 1,
-  content: String(text ?? '').split('\n').map((line) => ({
-    type: 'paragraph', content: line ? [{ type: 'text', text: line }] : [],
-  })),
-});
+// 플레인 텍스트 → ADF 문서 (댓글·설명 입력용, 주소는 링크로) — server/src/linkify.mjs
 
 // 댓글 본문 = 글(문단) + 첨부 미디어(이미지면 인라인 표시). media.attrs.id에 Gira 첨부 id를 넣는다 (collection: 'gira').
 // 화면(adf.jsx)은 id로 먼저, 없으면 파일명(alt)으로 이슈 첨부를 찾는다 — 이관된 Jira 댓글은 파일명으로 찾는다.
@@ -115,13 +118,23 @@ async function commentAttachments(issueId, ids) {
 // ---------- 알림 (GIRA-14) ----------
 const notifier = createNotifier({ query, app: 'gira' });
 // 이슈 이벤트 → 알림. 제목은 '키 요약'(상태 변경이면 '이전 → 이후' 덧붙임) — 본문은 담지 않는다
+// 새 이슈: '이슈 등록' + 담당자가 정해져 있으면 '담당자 지정'
+async function notifyCreated(req, issueId) {
+  await watchIssuePeople(query, issueId);
+  notifyIssue(req, issueId, 'issue.created');
+  query(`SELECT assignee_id FROM jira_issues WHERE id = $1`, [issueId])
+    .then(({ rows }) => { if (rows[0]?.assignee_id) notifyIssue(req, issueId, 'issue.assigned'); })
+    .catch((e) => console.error('[notify]', e.message));
+}
 function notifyIssue(req, issueId, event, extra) {
   (async () => {
     const { rows } = await query(
       `SELECT i.issue_key, i.summary, i.project_id, i.assignee_id, i.reporter_id FROM jira_issues i WHERE i.id = $1`, [issueId]);
     const it = rows[0];
     if (!it) return;
+    const { rows: watchers } = await query('SELECT user_id FROM jira_issue_watchers WHERE issue_id = $1', [issueId]);
     await notifier.emit({
+      watchers: watchers.map(w => w.user_id),
       event, resourceType: 'project', resourceId: it.project_id,
       title: `${it.issue_key} ${it.summary}${extra ? ` (${extra})` : ''}`,
       path: `/browse/${encodeURIComponent(it.issue_key)}`, baseUrl: publicBase(req, 'GIRA_PUBLIC_URL'),
@@ -131,7 +144,7 @@ function notifyIssue(req, issueId, event, extra) {
 }
 
 async function issueByKey(key) {
-  const { rows } = await query(`SELECT id, project_id, issue_key FROM jira_issues WHERE issue_key = $1`, [key]);
+  const { rows } = await query(`SELECT id, project_id, issue_key, issue_type_id, rank FROM jira_issues WHERE issue_key = $1`, [key]);
   return rows[0] ?? null;
 }
 
@@ -187,6 +200,7 @@ app.get('/api/meta', async (req) => {
     statuses: statuses.rows, types: types.rows,
     assignees: assignees.rows, priorities: priorities.rows.map((r) => r.priority),
     resolutions: resolutions.rows.map((r) => r.resolution),
+    customFields: (await query('SELECT * FROM jira_fields WHERE custom')).rows.filter(visibleField).map(f => ({ id: f.id, name: f.name })),
   };
 });
 
@@ -237,6 +251,7 @@ app.get('/api/labels', async (req, reply) => {
 
 // 정렬 가능 컬럼 (화이트리스트 — 쿼리 문자열이 SQL에 직접 들어가지 않도록)
 const ISSUE_SORT_COLS = {
+  rank: RANK_COLUMN,
   key: `(split_part(i.issue_key, '-', 2))::bigint`,
   summary: 'i.summary',
   type: 't.name',
@@ -248,7 +263,63 @@ const ISSUE_SORT_COLS = {
   resolution: 'i.resolution',
   created: 'i.created_at',
   updated: 'i.updated_at',
+  resolved: 'i.resolved_at',
+  due: 'i.due_date',
 };
+
+const STATS_JOINS = `
+       FROM jira_issues i
+       JOIN jira_projects pr ON pr.id = i.project_id
+       LEFT JOIN jira_issue_types t ON t.id = i.issue_type_id
+       LEFT JOIN jira_statuses s ON s.id = i.status_id
+       LEFT JOIN users u ON u.id = i.assignee_id
+       LEFT JOIN users ur ON ur.id = i.reporter_id
+       LEFT JOIN jira_sprints sp ON sp.id = i.sprint_id
+       LEFT JOIN jira_issues p1 ON p1.id = i.parent_id
+       LEFT JOIN jira_issue_types pt1 ON pt1.id = p1.issue_type_id
+       LEFT JOIN jira_issues p2 ON p2.id = p1.parent_id
+       LEFT JOIN jira_issue_types pt2 ON pt2.id = p2.issue_type_id`;
+
+// JQL용 사용자 정의 필드 목록 (숨김 필드 제외) — 1분 캐시. 필드 id를 미리 풀어 행마다 jira_fields를 찾지 않게 한다 (GIRA-65)
+let customFieldCache = { at: 0, rows: null };
+async function jqlCustomFields() {
+  if (customFieldCache.rows && Date.now() - customFieldCache.at < 60000) return customFieldCache.rows;
+  const { rows } = await query(`SELECT id, name, schema_type FROM jira_fields
+    WHERE custom AND NOT (id = ANY($1::text[])) AND COALESCE(schema_custom, '') !~ $2`, [HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES.join('|')]);
+  customFieldCache = { at: Date.now(), rows };
+  return rows;
+}
+
+// JQL 'filter = 이름|id' 용 저장 필터 조회 — 볼 수 있는 원본 이관 필터만 (GIRA-67)
+async function jqlFilterLookup(req) {
+  const access = await collectionAccess(req);
+  const { rows } = await query(`SELECT source_id::text AS sid, name, jql, owner_id, share FROM jira_filters WHERE jql IS NOT NULL`);
+  const ok = rows.filter((r) => canReadCollection(r, access));
+  return (ref) => {
+    const v = String(ref);
+    return (ok.find((r) => r.sid === v) ?? ok.find((r) => r.name.toLowerCase() === v.toLowerCase()))?.jql ?? null;
+  };
+}
+
+app.get('/api/stats', async (req, reply) => {
+  reply.header('Cache-Control', 'private, no-store');
+  try {
+    const jql = decodeJql(String(req.query.jql ?? ''));
+    const params = [];
+    const p = v => { params.push(v); return `$${params.length}`; };
+    const roles = await projectRoles(req.access);
+    const scope = `i.project_id = ANY(${p([...roles.keys()])}::bigint[])`;
+    const parsed = jql.trim() ? parseJql(jql, { p, userId: req.access.userId, customFields: await jqlCustomFields(), filterJql: /\bfilter\b/i.test(jql) ? await jqlFilterLookup(req) : null }).where : 'TRUE';
+    const { rows } = await query(`SELECT i.issue_key, i.summary, i.created_at, i.resolved_at, i.resolution, i.labels, i.components, i.fix_versions, i.fields_raw,
+      pr.key AS project, s.name AS status, t.name AS issuetype, u.display_name AS assignee, ur.display_name AS reporter
+      ${STATS_JOINS} WHERE ${scope} AND (${parsed})`, params);
+    const projects = (await query('SELECT key FROM jira_projects')).rows.map(r => r.key.toUpperCase());
+    return { ...aggregate(rows, req.query), missingProjects: [...new Set(requestedProjects(jql).filter(k => !projects.includes(k.toUpperCase())))], project: rows[0]?.project ?? null };
+  } catch (e) {
+    if (e instanceof JqlError || /지원하지 않는|잘못된 JQL/.test(e.message)) return reply.code(400).send({ error: e.message });
+    throw e;
+  }
+});
 
 app.get('/api/issues', async (req, reply) => {
   const { project, status, type, assignee, priority, sprint, q } = req.query;
@@ -265,7 +336,7 @@ app.get('/api/issues', async (req, reply) => {
   for (const one of [].concat(req.query.jql ?? [])) {
     if (!String(one).trim()) continue;
     try {
-      const r = parseJql(String(one), { p, userId: req.access.userId });
+      const r = parseJql(String(one), { p, userId: req.access.userId, customFields: await jqlCustomFields(), filterJql: /\bfilter\b/i.test(one) ? await jqlFilterLookup(req) : null });
       cond.push(r.where);
       if (r.order) jqlOrder = r.order;
     } catch (e) {
@@ -306,7 +377,7 @@ app.get('/api/issues', async (req, reply) => {
   const total = (await query(
     `SELECT count(*)::int AS n ${JOINS} WHERE ${cond.join(' AND ')}`, params)).rows[0].n;
   const { rows } = await query(
-    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at,
+    `SELECT i.id, i.issue_key, i.summary, i.priority, i.resolution, i.created_at, i.updated_at, i.fields_raw, i.project_id, i.issue_type_id,
             i.resolved_at, i.sprint_id, i.parent_id, i.labels, i.fix_versions, i.assignee_id,
             t.name AS type_name, t.subtask,
             s.id AS status_id, s.name AS status_name, s.category AS status_category,
@@ -323,8 +394,15 @@ app.get('/api/issues', async (req, reply) => {
                  WHEN pt2.name = '에픽' THEN p2.fields_raw->>'customfield_10017' END AS epic_color
        ${JOINS}
       WHERE ${cond.join(' AND ')}
-      ORDER BY ${col} ${dir} NULLS LAST, i.id DESC
+      ORDER BY ${col} ${dir} NULLS LAST, i.issue_key ASC
       OFFSET ${offset} LIMIT ${limit}`, params);
+  const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
+  for (const row of rows) {
+    const fields = normalizeCustomFields(defs, row.fields_raw, row.project_id, row.issue_type_id);
+    row.customFields = fields.map(({ id, display }) => ({ id, display }));
+    row.storyPoints = fields.find(f => f.storyPoints)?.value ?? null;
+    delete row.fields_raw;
+  }
   return { total, rows };
 });
 
@@ -370,6 +448,20 @@ app.get('/api/home', async (req) => {
   };
 });
 
+// Gonfluence에 사용자 인증을 전달한다. 권한이 없으면 제목을 노출하지 않는다.
+app.get('/api/adf/page-link', async (req, reply) => {
+  reply.header('Cache-Control', 'private, no-store');
+  const headers = {};
+  if (req.headers.authorization) headers.authorization = req.headers.authorization;
+  if (req.cookies?.gmd_sid) headers.cookie = `gmd_sid=${encodeURIComponent(req.cookies.gmd_sid)}`;
+  const link = await adfPageLink(req.query.url, {
+    publicBase: process.env.GONFLUENCE_PUBLIC_URL ?? `${req.protocol}://${String(req.hostname).replace(/:\d+$/, '')}:3001`,
+    internalBase: process.env.GONFLUENCE_URL ?? process.env.GONFLUENCE_PUBLIC_URL ?? 'http://localhost:3001',
+    headers,
+  });
+  return link ?? reply.code(400).send({ error: '잘못된 문서 주소' });
+});
+
 app.get('/api/issue/:key', async (req, reply) => {
   const { rows } = await query(
     `SELECT i.*, t.name AS type_name, t.subtask, s.name AS status_name, s.category AS status_category,
@@ -389,13 +481,16 @@ app.get('/api/issue/:key', async (req, reply) => {
   const proj = await requireProjectId(req, reply, issue.project_id);
   if (!proj) return;
   issue.project_role = proj.role;
+  issue.customFields = normalizeCustomFields((await query('SELECT * FROM jira_fields WHERE custom')).rows, issue.fields_raw, issue.project_id, issue.issue_type_id);
+  // GIRA-71: 기한·시간 추적·영향 버전·환경 (원본 필드 그대로 fields_raw에 있다)
+  Object.assign(issue, scheduleFields(issue.fields_raw));
   delete issue.fields_raw;
 
-  const [comments, attachments, links, subtasks, history, weblinks] = await Promise.all([
+  const [comments, attachments, links, subtasks, history, weblinks, worklogs] = await Promise.all([
     query(`SELECT c.id, c.body_adf, c.created_at, u.display_name AS author_name
              FROM jira_comments c LEFT JOIN users u ON u.id = c.author_id
             WHERE c.issue_id = $1 ORDER BY c.created_at`, [issue.id]),
-    query(`SELECT id, filename, media_type, file_size, created_at FROM jira_attachments
+    query(`SELECT id, filename, media_type, media_id, file_size, created_at FROM jira_attachments
             WHERE issue_id = $1 ORDER BY created_at`, [issue.id]),
     query(`SELECT l.id, l.link_type, l.inward_issue, l.outward_issue,
                   ii.issue_key AS inward_key, ii.summary AS inward_summary,
@@ -415,13 +510,29 @@ app.get('/api/issue/:key', async (req, reply) => {
     query(`SELECT h.id, h.created_at, h.items, u.display_name AS author_name
              FROM jira_changelog h LEFT JOIN users u ON u.id = h.author_id
             WHERE h.issue_id = $1 ORDER BY h.created_at`, [issue.id]),
-    query(`SELECT w.id, w.url, w.title, w.created_at, u.display_name AS author_name
+    query(`SELECT w.*, u.display_name AS author_name
              FROM jira_web_links w LEFT JOIN users u ON u.id = w.author_id
             WHERE w.issue_id = $1 ORDER BY w.id`, [issue.id]),
+    query(`SELECT w.id, w.started_at, w.time_spent_seconds, w.comment_adf, w.created_at, u.display_name AS author_name
+             FROM jira_worklogs w LEFT JOIN users u ON u.id = w.author_id
+            WHERE w.issue_id = $1 ORDER BY w.started_at DESC`, [issue.id]),
   ]);
-  return { ...issue, comments: comments.rows, attachments: attachments.rows, links: links.rows,
-           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows };
+  const { rows: watchers } = await query(`SELECT u.id, u.display_name, u.avatar_key, u.avatar_external_url FROM jira_issue_watchers w JOIN users u ON u.id = w.user_id WHERE w.issue_id = $1 ORDER BY u.display_name, u.id`, [issue.id]);
+  return { ...issue, watchers: watchers.map(w => ({ id: w.id, display_name: w.display_name, avatar_url: resolveAvatar(w) })), watching: watchers.some(w => String(w.id) === String(req.access.userId)), comments: comments.rows, attachments: attachments.rows, links: links.rows,
+           subtasks: subtasks.rows, history: history.rows, weblinks: weblinks.rows.map(w => remoteLinkView(w, process.env.GONFLUENCE_PUBLIC_URL)),
+           worklogs: worklogs.rows };
 });
+
+for (const method of ['post', 'delete']) {
+  app[method]('/api/issue/:key/watch', async (req, reply) => {
+    const issue = await issueByKey(req.params.key);
+    if (!issue) return reply.code(404).send({ error: 'not found' });
+    if (!await requireProjectId(req, reply, issue.project_id)) return;
+    if (method === 'post') await addWatcher(query, issue.id, req.access.userId);
+    else await query('DELETE FROM jira_issue_watchers WHERE issue_id = $1 AND user_id = $2', [issue.id, req.access.userId]);
+    return { ok: true };
+  });
+}
 
 // ---------- 이슈 생성/수정 ----------
 
@@ -467,8 +578,23 @@ app.post('/api/issues', async (req, reply) => {
   // 완료 컬럼에서 바로 만든 경우 해결 시각도 기록
   await query(`UPDATE jira_issues SET resolved_at = now()
                 WHERE id = $1 AND (SELECT category FROM jira_statuses WHERE id = status_id) = 'done'`, [rows[0].id]);
-  notifyIssue(req, rows[0].id, 'issue.created');
+  await notifyCreated(req, rows[0].id);
   return { id: rows[0].id, issueKey: rows[0].issue_key };
+});
+
+// GIRA-71: 작업 로그 추가 (편집 권한자). timeSpent: '1h 30m' / '2d' / '45m' (1d = 8h, 1w = 5d — Jira 기본)
+app.post('/api/issue/:key/worklogs', async (req, reply) => {
+  const issue = await issueByKey(req.params.key);
+  if (!issue) return reply.code(404).send({ error: 'not found' });
+  if (!await requireProjectId(req, reply, issue.project_id, 'editor')) return;
+  const seconds = parseDuration(req.body?.timeSpent);
+  if (!seconds) return reply.code(400).send({ error: "소요 시간 형식: 예) 1h 30m, 2d, 45m" });
+  const started = req.body?.started ? new Date(req.body.started) : new Date();
+  if (Number.isNaN(started.getTime())) return reply.code(400).send({ error: '시작 시각이 올바르지 않습니다' });
+  const comment = typeof req.body?.comment === 'string' && req.body.comment.trim() ? textToAdf(req.body.comment.trim()) : null;
+  const { rows } = await query(`INSERT INTO jira_worklogs (id, issue_id, author_id, started_at, time_spent_seconds, comment_adf)
+    VALUES (nextval('jira_worklog_id_seq'), $1, $2, $3, $4, $5) RETURNING id`, [issue.id, req.access.userId, started.toISOString(), seconds, comment ? JSON.stringify(comment) : null]);
+  return { id: rows[0].id };
 });
 
 app.patch('/api/issue/:key', async (req, reply) => {
@@ -479,6 +605,33 @@ app.patch('/api/issue/:key', async (req, reply) => {
   const sets = [];
   const params = [issue.id];
   const p = (v) => { params.push(v); return `$${params.length}`; };
+  if ('rankBefore' in b || 'rankAfter' in b) {
+    if (('rankBefore' in b) === ('rankAfter' in b)) return reply.code(400).send({ error: 'rankBefore 또는 rankAfter 하나를 지정하세요' });
+    const before = 'rankBefore' in b;
+    const target = await issueByKey(String(before ? b.rankBefore : b.rankAfter).toUpperCase());
+    if (!target || target.project_id !== issue.project_id || target.id === issue.id) {
+      return reply.code(400).send({ error: '같은 프로젝트의 다른 이슈를 지정하세요' });
+    }
+    if (!target.rank) {
+      const { rows: last } = await query(`SELECT rank FROM jira_issues WHERE project_id = $1 AND rank IS NOT NULL
+        ORDER BY rank COLLATE "C" DESC LIMIT 1`, [issue.project_id]);
+      target.rank = rankBetween(last[0]?.rank ?? null, null);
+      await query('UPDATE jira_issues SET rank = $1 WHERE id = $2 AND rank IS NULL', [target.rank, target.id]);
+    }
+    const { rows } = await query(`SELECT rank FROM jira_issues
+      WHERE project_id = $1 AND id <> $2 AND rank COLLATE "C" ${before ? '<' : '>'} $3 COLLATE "C"
+      ORDER BY rank COLLATE "C" ${before ? 'DESC' : 'ASC'} LIMIT 1`, [issue.project_id, issue.id, target.rank]);
+    try {
+      sets.push(`rank = ${p(rankBetween(before ? rows[0]?.rank ?? null : target.rank, before ? target.rank : rows[0]?.rank ?? null))}`);
+    } catch (e) { return reply.code(409).send({ error: e.message }); }
+  }
+  if ('customFields' in b) {
+    const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
+    try {
+      const raw = validateCustomPatch(b.customFields, defs, issue.project_id, b.typeId ?? issue.issue_type_id);
+      sets.push(`fields_raw = COALESCE(fields_raw, '{}'::jsonb) || ${p(JSON.stringify(raw))}::jsonb`);
+    } catch (e) { return reply.code(400).send({ error: e.message }); }
+  }
   if ('statusId' in b) {
     sets.push(`status_id = ${p(b.statusId)}`);
     // done 카테고리로 이동하면 해결 시각 기록, 아니면 해제
@@ -497,8 +650,14 @@ app.patch('/api/issue/:key', async (req, reply) => {
     }
   }
   if ('assigneeId' in b) sets.push(`assignee_id = ${p(b.assigneeId || null)}`);
+  if ('reporterId' in b && b.reporterId) sets.push(`reporter_id = ${p(b.reporterId)}`); // 보고자 변경 (Jira처럼)
   if ('priority' in b) sets.push(`priority = ${p(b.priority || null)}`);
   if ('summary' in b && b.summary?.trim()) sets.push(`summary = ${p(b.summary.trim())}`);
+  // GIRA-71: 기한 (YYYY-MM-DD 또는 null)
+  if ('dueDate' in b) {
+    if (b.dueDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.dueDate))) return reply.code(400).send({ error: '기한은 YYYY-MM-DD 형식' });
+    sets.push(`due_date = ${p(b.dueDate)}::date`);
+  }
   if ('typeId' in b && b.typeId) sets.push(`issue_type_id = ${p(b.typeId)}`);
   if ('labels' in b) sets.push(`labels = ${p(Array.isArray(b.labels) ? b.labels : [])}`);
   if ('components' in b) sets.push(`components = ${p(Array.isArray(b.components) ? b.components : [])}`);
@@ -519,14 +678,24 @@ app.patch('/api/issue/:key', async (req, reply) => {
     `SELECT s.category FROM jira_issues i LEFT JOIN jira_statuses s ON s.id = i.status_id WHERE i.id = $1`, [issue.id])).rows[0]?.category;
   const catBefore = 'statusId' in b ? await categoryOf() : null;
   await query(`UPDATE jira_issues SET ${sets.join(', ')} WHERE id = $1`, params);
+  if ('assigneeId' in b && b.assigneeId) await addWatcher(query, issue.id, b.assigneeId);
   // 로컬 수정도 Jira처럼 기록(changelog)에 남긴다
   const after = await issueSnapshot(issue.id);
   const items = [];
+  if ('customFields' in b) {
+    const defs = (await query('SELECT * FROM jira_fields WHERE custom')).rows;
+    for (const id of Object.keys(b.customFields)) {
+      const old = before.fields_raw?.[id], value = after.fields_raw?.[id];
+      if (JSON.stringify(old) !== JSON.stringify(value)) items.push({ field: defs.find(f => f.id === id)?.name ?? id, fieldId: id, fromString: displayValue(old), toString: displayValue(value) });
+    }
+  }
   for (const [field, label] of Object.entries(SNAP_FIELDS)) {
     if (before[label] !== after[label]) items.push({ field, fromString: before[label], toString: after[label] });
   }
   if (before.desc_md5 !== after.desc_md5) items.push({ field: 'description', fromString: null, toString: null });
   if (before.status !== after.status) notifyIssue(req, issue.id, 'issue.status', `${before.status ?? '?'} → ${after.status ?? '?'}`);
+  // 담당자가 바뀌어 누군가에게 지정된 때 → 새 담당자에게 (담당자를 비운 경우는 알리지 않음)
+  if (before.assignee !== after.assignee && after.assignee) notifyIssue(req, issue.id, 'issue.assigned', after.assignee);
   // 처리 완료: '완료' 분류가 아니던 이슈가 완료로 바뀐 때 (완료 안에서 상태만 바뀐 건 제외)
   if ('statusId' in b && catBefore !== 'done' && await categoryOf() === 'done') notifyIssue(req, issue.id, 'issue.done', after.status ?? '완료');
   if (items.length) {
@@ -543,7 +712,7 @@ const SNAP_FIELDS = {
 };
 async function issueSnapshot(id) {
   const { rows } = await query(
-    `SELECT i.summary, i.priority, i.resolution,
+    `SELECT i.summary, i.priority, i.resolution, i.fields_raw,
             array_to_string(i.labels, ', ') AS labels, array_to_string(i.components, ', ') AS components,
             array_to_string(i.fix_versions, ', ') AS fix_versions,
             s.name AS status, t.name AS type, u.display_name AS assignee,
@@ -575,6 +744,7 @@ app.post('/api/issue/:key/comments', async (req, reply) => {
      VALUES (nextval('jira_comment_id_seq'), $1, $2, $3, now(), now()) RETURNING id`,
     [issue.id, JSON.stringify(body), req.access.userId]);
   await query(`UPDATE jira_issues SET updated_at = now() WHERE id = $1`, [issue.id]);
+  await addWatcher(query, issue.id, req.access.userId);
   notifyIssue(req, issue.id, 'issue.comment');
   return { id: rows[0].id };
 });
@@ -701,10 +871,11 @@ app.post('/api/issue/:key/weblinks', async (req, reply) => {
 
 app.delete('/api/weblinks/:id', async (req, reply) => {
   const { rows } = await query(
-    `SELECT w.id, w.issue_id, i.project_id FROM jira_web_links w JOIN jira_issues i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
+    `SELECT w.id, w.issue_id, w.source_id, i.project_id FROM jira_web_links w JOIN jira_issues i ON i.id = w.issue_id WHERE w.id = $1`, [req.params.id]);
   if (!rows.length) return reply.code(404).send({ error: 'not found' });
   if (!await requireProjectId(req, reply, rows[0].project_id, 'editor')) return;
-  await query(`DELETE FROM jira_web_links WHERE id = $1`, [rows[0].id]);
+  if (rows[0].source_id != null) return reply.code(403).send({ error: '원본 링크는 삭제할 수 없습니다' });
+  await query(`DELETE FROM jira_web_links WHERE id = $1 AND source_id IS NULL`, [rows[0].id]);
   return { ok: true };
 });
 
@@ -819,14 +990,14 @@ function validColumns(columns) {
 
 // 보드 필터(JQL) 유효성: 문법만 검사 (파라미터는 버린다)
 function jqlErrorOf(jql) {
-  try { parseJql(jql, { p: () => '$1', userId: 0 }); return null; }
+  try { parseJql(jql, { p: () => '$1', userId: 0, filterJql: () => 'ORDER BY key' }); return null; } // 저장 필터 참조는 실행 때 확인
   catch (e) { return e instanceof JqlError ? `JQL 오류: ${e.message}` : (() => { throw e; })(); }
 }
 
 app.get('/api/boards', async (req, reply) => {
   if (!await requireProject(req, reply, req.query.project)) return;
   const { rows } = await query(
-    `SELECT b.id, b.name, b.columns, b.type, b.jql, b.sub_jql FROM jira_boards b
+    `SELECT b.id, b.name, b.columns, b.type, b.jql, b.sub_jql, b.estimation, COALESCE((SELECT jsonb_agg(q ORDER BY q.position) FROM jira_board_quickfilters q WHERE q.board_id=b.id), '[]') AS quickfilters FROM jira_boards b
        JOIN jira_projects p ON p.id = b.project_id
       WHERE p.key = $1 ORDER BY b.id`, [req.query.project]);
   return rows;
@@ -877,10 +1048,45 @@ app.delete('/api/boards/:id', async (req, reply) => {
 
 // ---------- 저장 필터 ----------
 
+async function collectionAccess(req) {
+  const groups = (await query(`SELECT g.name FROM groups g JOIN user_groups ug ON ug.group_id=g.id WHERE ug.user_id=$1`, [req.access.userId])).rows.map(g=>g.name);
+  const roles = await projectRoles(req.access);
+  const projects = (await query('SELECT id,key FROM jira_projects WHERE id=ANY($1::bigint[])', [[...roles.keys()]])).rows;
+  return { userId: req.access.userId, groups, projects };
+}
 app.get('/api/filters', async (req) => {
-  const { rows } = await query(
-    `SELECT id, name, params FROM jira_filters WHERE owner_id = $1 ORDER BY name`, [req.access.userId]);
-  return rows;
+  const access = await collectionAccess(req);
+  const { rows } = await query(`SELECT f.*, EXISTS(SELECT 1 FROM jira_filter_favourites v WHERE v.filter_id=f.id AND v.user_id=$1) AS favourite FROM jira_filters f ORDER BY name`, [req.access.userId]);
+  return rows.filter(r=>canReadCollection(r,access)).map(r=>({...r,mine:String(r.owner_id)===String(req.access.userId)}));
+});
+app.put('/api/filters/:id/favourite', async (req, reply) => {
+  const row = (await query('SELECT * FROM jira_filters WHERE id=$1',[req.params.id])).rows[0];
+  if (!row || !canReadCollection(row,await collectionAccess(req))) return reply.code(404).send({error:'not found'});
+  if (req.body?.favourite) await query('INSERT INTO jira_filter_favourites(filter_id,user_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[row.id,req.access.userId]);
+  else await query('DELETE FROM jira_filter_favourites WHERE filter_id=$1 AND user_id=$2',[row.id,req.access.userId]);
+  return {ok:true};
+});
+app.get('/api/dashboards', async (req) => {
+  const access = await collectionAccess(req);
+  return (await query('SELECT id,name,owner_id,share FROM jira_dashboards ORDER BY name')).rows.filter(r=>canReadCollection(r,access));
+});
+app.get('/api/dashboards/:id', async (req, reply) => {
+  const access = await collectionAccess(req);
+  const row = (await query('SELECT * FROM jira_dashboards WHERE id=$1',[req.params.id])).rows[0];
+  if (!row || !canReadCollection(row,access)) return reply.code(404).send({error:'not found'});
+  const gadgets = [];
+  for (const g of row.gadgets) {
+    const params = gadgetParams(g);
+    let error = g.configurationError ?? null;
+    if (params?.filter && !/^\d+$/.test(params.filter)) error = '가젯 필터 설정을 해석할 수 없습니다';
+    else if (params?.filter) {
+      const filter = (await query('SELECT * FROM jira_filters WHERE source_id=$1',[params.filter])).rows[0];
+      if (!filter || !canReadCollection(filter,access)) error = '필터를 조회할 권한이 없거나 이관되지 않았습니다';
+      else params.jql = filter.jql;
+    } else if (params && !params.jql) error = '가젯 필터 설정이 없습니다';
+    gadgets.push({...g,params,error});
+  }
+  return {...row,gadgets};
 });
 
 app.post('/api/filters', async (req, reply) => {
@@ -926,15 +1132,17 @@ app.post('/api/dev-feedback', async (req, reply) => {
     `INSERT INTO jira_issues (id, project_id, issue_key, issue_type_id, status_id, summary,
        description_adf, labels, reporter_id, assignee_id, created_at, updated_at, fields_raw)
      VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now(), '{}')
-     RETURNING issue_key`,
+     RETURNING id, issue_key`,
     [pr[0].id, `${pr[0].key}-${mx[0].n}`, tp[0]?.id ?? null, st[0]?.id ?? null,
      `[${KINDS[kind]}] ${title.trim()}`, JSON.stringify(textToAdf(body)),
      ['dev-feedback', kind], req.access.userId, pr[0].default_assignee_id ?? null]);
+  await watchIssuePeople(query, rows[0].id);
   return { issueKey: rows[0].issue_key };
 });
 
 // 개발참여 챗봇 (자연어 요청·첨부 → 답변 + GIRA 이슈 등록까지) — dev-chat.mjs
-registerDevChat(app, { textToAdf });
+// 챗봇이 만든 이슈도 등록·담당자 지정 알림을 보낸다
+registerDevChat(app, { textToAdf, onIssueCreated: (req, id) => notifyCreated(req, id).catch(e => console.error('[watchers]', e.message)) });
 
 // ---------- 프로젝트 패키지 내보내기/가져오기 ----------
 

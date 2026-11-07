@@ -5,9 +5,11 @@
 // 모듈: import { convertStorage } from './convert-storage.mjs'
 // CLI : node scripts/convert-storage.mjs <storage.xhtml 파일>
 
+import { safeEmbedUrl, embedHeight } from '../shared/html-embed.mjs';
 import { parseDocument } from 'htmlparser2';
 import { decodeHTML } from 'entities';
 import { readFileSync } from 'node:fs';
+import { HIDDEN_MACROS, BODY_ONLY_MACROS, NOTICE_MACROS } from '../server/src/macro-kinds.mjs';
 
 // 새 서비스가 데이터로 렌더링할 동적 매크로. 그 외 미분류 매크로는 unsupported로 센다.
 const DYNAMIC_MACROS = new Set([
@@ -16,7 +18,7 @@ const DYNAMIC_MACROS = new Set([
   'content-report-table', 'attachments', 'change-history', 'roadmap', 'details', 'detailssummary',
   'profile', 'profile-picture', 'create-from-template', 'jirachart', 'widget', 'viewpdf', 'view-file',
   'viewdoc', 'viewxls', 'viewppt', 'multimedia', 'drawio', 'gliffy', 'plantuml', 'chart', 'vote', 'survey',
-  'excerpt', 'scroll-pagebreak', 'iframe', 'html',
+  'unmigrated-wiki-markup', 'excerpt', 'scroll-pagebreak', 'iframe', 'html',
 ]);
 const PANEL_TYPES = { info: 'info', note: 'note', tip: 'success', success: 'success', warning: 'warning', error: 'error', panel: 'custom' };
 
@@ -52,11 +54,24 @@ const plainBody = (node) => {
   return b == null ? null : textOf(b);
 };
 
-const text = (t, marks) => ({ type: 'text', text: t, ...(marks.length ? { marks } : {}) });
+// 같은 종류 마크는 안쪽 것만 남긴다(굵게 안의 굵게, 색 안의 색, 겹친 댓글) — 스키마는 마크 중복을 허용하지 않는다 (GIRA-75)
+const addMark = (marks, mark) => [...marks.filter((m) => m.type !== mark.type), mark];
+// 인라인 코드 마크는 다른 마크와 함께 쓸 수 없다(스키마 excludes) — 코드면 코드만
+const text = (t, marks) => {
+  const ms = marks.some((m) => m.type === 'code') ? marks.filter((m) => m.type === 'code') : marks;
+  return { type: 'text', text: t, ...(ms.length ? { marks: ms } : {}) };
+};
 const para = (content) => ({ type: 'paragraph', ...(content.length ? { content } : {}) });
+// 문단 안 매크로가 블록 노드가 되는 경우(구형 html 매크로, JQL 표 jira 매크로 등) 문단 밖으로 꺼낸다 (GIRA-75)
+const HOIST_BLOCKS = new Set(['htmlEmbed', 'jiraTable', 'panel', 'expand', 'codeBlock', 'cfMacro', 'mermaid', 'layout',
+  'linkCard', 'adfNode', 'horizontalRule', 'table', 'bulletList', 'orderedList', 'heading', 'blockquote']);
 
 export function convertStorage(xhtml) {
-  const stats = { tags: {}, unknownTags: {}, macros: {}, dynamicMacros: {}, unsupportedMacros: {} };
+  // hiddenMacros: 보기에서 숨기는 내보내기 앱 표시, noticeMacros: 옮길 수 없는 앱(안내로 대체) — 둘 다 '미지원'으로 세지 않는다
+  const stats = { tags: {}, unknownTags: {}, macros: {}, dynamicMacros: {}, unsupportedMacros: {}, hiddenMacros: {}, noticeMacros: {} };
+  // 매크로 이름별로 알맞은 통계 칸에 센다
+  const countMacro = (name, fallback) => inc(HIDDEN_MACROS.has(name) ? stats.hiddenMacros
+    : NOTICE_MACROS.has(name) ? stats.noticeMacros : fallback, name);
   const inc = (m, k) => (m[k] = (m[k] ?? 0) + 1);
 
   function inline(nodes, marks) {
@@ -69,7 +84,7 @@ export function convertStorage(xhtml) {
       }
       if (!isEl(n)) continue;
       inc(stats.tags, n.name);
-      const withMark = (mark) => out.push(...inline(n.children, [...marks, mark]));
+      const withMark = (mark) => out.push(...inline(n.children, addMark(marks, mark)));
       switch (n.name) {
         case 'strong': case 'b': withMark({ type: 'bold' }); break;
         case 'em': case 'i': withMark({ type: 'italic' }); break;
@@ -84,11 +99,11 @@ export function convertStorage(xhtml) {
         case 'mark':
         case 'span': {
           const style = n.attribs.style ?? '';
-          const next = [...marks];
+          let next = [...marks];
           const color = /(?:^|;)\s*color\s*:\s*([^;]+)/i.exec(style)?.[1];
           const background = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(style)?.[1];
-          if (color) next.push({ type: 'textColor', attrs: { color: color.trim() } });
-          if (background || n.name === 'mark') next.push({ type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
+          if (color) next = addMark(next, { type: 'textColor', attrs: { color: color.trim() } });
+          if (background || n.name === 'mark') next = addMark(next, { type: 'highlight', attrs: { color: background?.trim() || '#fff0b3' } });
           out.push(...inline(n.children, next));
           break;
         }
@@ -102,7 +117,7 @@ export function convertStorage(xhtml) {
           } });
           break;
         case 'ac:inline-comment-marker':
-          out.push(...inline(n.children, [...marks, { type: 'commentMark', attrs: { ref: dec(n.attribs['ac:ref'] ?? '') } }]));
+          out.push(...inline(n.children, addMark(marks, { type: 'commentMark', attrs: { ref: dec(n.attribs['ac:ref'] ?? '') } })));
           break;
         case 'ac:link': case 'ac:link-body': {
           const page = childEl(n, 'ri:page');
@@ -129,6 +144,17 @@ export function convertStorage(xhtml) {
           break;
         }
         case 'ac:image': out.push(imageNode(n)); break; // 인라인 위치의 이미지도 수용
+        case 'ac:adf-extension': {
+          // 문단 안의 앱 블록(스마트 버튼 등 inline-extension). 예전에는 속성 글자가 본문으로 새어 나왔다(GIRA-48)
+          const an = childEl(n, 'ac:adf-node');
+          const node = an ? adfNode(an) : null;
+          if (node?.type === 'cfMacro') out.push({ type: 'cfMacroInline', attrs: node.attrs });
+          else {
+            const fb = childEl(n, 'ac:adf-fallback');
+            if (fb && !childEl(fb, 'ac:adf-node')) out.push(...inline(fb.children, marks));
+          }
+          break;
+        }
         case 'ac:placeholder': break;
         default:
           inc(stats.unknownTags, n.name);
@@ -174,6 +200,10 @@ export function convertStorage(xhtml) {
     const params = macroParams(n);
     const rich = childEl(n, 'ac:rich-text-body');
     switch (name) {
+      case 'html':
+        return { type: 'htmlEmbed', attrs: { source: 'html', html: plainBody(n) ?? '', height: embedHeight(params.height) } };
+      case 'iframe':
+        return { type: 'htmlEmbed', attrs: { source: 'iframe', src: safeEmbedUrl(params.src?.['ri:value'] ?? params.src), width: params.width ?? null, height: embedHeight(params.height) } };
       case 'code': case 'noformat': {
         // ProseMirror는 빈 텍스트 노드를 허용하지 않는다 — 빈 코드 블록은 content 생략
         const code = (plainBody(n) ?? '').replace(/\r\n/g, '\n');
@@ -204,8 +234,21 @@ export function convertStorage(xhtml) {
         if (params.jqlQuery) return { type: 'jiraTable', attrs: { jql: params.jqlQuery, columns: params.columns ?? null, maximumIssues: params.maximumIssues ?? null } };
         return { type: 'jiraIssue', attrs: { key: typeof params.key === 'string' ? params.key : '' } };
       case 'mermaid': case 'mermaid-cloud': {
-        const code = plainBody(n) ?? params.code ?? null;
-        if (code) return { type: 'mermaid', attrs: {}, content: [{ type: 'text', text: code }] };
+        // 원본 형식 (GIRA-46):
+        //  A) Mermaid Chart 앱: 파라미터 diagramCode = Mermaid 코드, 본문(plain-text-body) = 미리 그린 PNG(base64)
+        //  B) Mermaid Chart 클라우드 문서(documentID): 코드 없이 본문에 PNG만
+        //  C) 예전 매크로: 본문 = Mermaid 코드
+        const body = (plainBody(n) ?? '').trim();
+        const png = /^iVBORw0KGgo[A-Za-z0-9+/=\s]+$/.test(body) ? `data:image/png;base64,${body.replace(/\s+/g, '')}` : null;
+        const code = (typeof params.diagramCode === 'string' && params.diagramCode.trim() ? params.diagramCode
+          : !png && body ? body : typeof params.code === 'string' ? params.code : '').replace(/\r\n/g, '\n').trim();
+        if (code || png) {
+          return { type: 'mermaid', attrs: {
+            image: png, // 코드가 없을 때(B)는 이 그림을 보여 준다, 코드가 있으면 렌더링 실패 시 대체 그림
+            size: typeof params.size === 'string' ? params.size : null,
+            caption: typeof params.caption === 'string' && params.caption.trim() ? params.caption.trim() : null,
+          }, ...(code ? { content: [{ type: 'text', text: code }] } : {}) };
+        }
         return cfMacro(name, params, rich, inlineCtx); // 첨부 기반 mermaid 매크로
       }
       case 'section': { // 구식 레이아웃: section > column
@@ -221,7 +264,10 @@ export function convertStorage(xhtml) {
         return { type: 'layout', content: [{ type: 'layoutSection', attrs: { kind: 'legacy' },
           content: [{ type: 'layoutColumn', content: ensureBlocks(rich ? blocks(rich.children) : []) }] }] };
       default: {
-        inc(DYNAMIC_MACROS.has(name) ? stats.dynamicMacros : stats.unsupportedMacros, name);
+        if (!BODY_ONLY_MACROS.has(name)) countMacro(name, DYNAMIC_MACROS.has(name) ? stats.dynamicMacros : stats.unsupportedMacros);
+        // 옮길 수 없는 앱 매크로도 본문 글(투표 선택지·설문 문항)은 안내와 함께 보여 줄 수 있게 보존 (GIRA-57)
+        if (['plantuml', 'unmigrated-wiki-markup'].includes(name)) params.__body = plainBody(n) ?? '';
+        if (NOTICE_MACROS.has(name)) { const pb = plainBody(n); if (pb?.trim()) params.__body = pb.trim().slice(0, 4000); }
         return cfMacro(name, params, rich, inlineCtx);
       }
     }
@@ -264,19 +310,32 @@ export function convertStorage(xhtml) {
       } else if (c.name === 'ac:adf-node') kids.push(adfNode(c));
       else if (c.name === 'ac:adf-content') kids.push(...blocks(c.children));
     }
-    if (type === 'extension') {
+    // inline-extension은 인라인 자리(ac:adf-extension이 문단 안)에서 cfMacroInline으로 바뀐다 — inline() 참고
+    if (type === 'extension' || type === 'inline-extension') {
       const key = String(attrs['extension-key'] ?? '');
+      if (key.endsWith('hmpcost-html-macro-pro')) {
+        const guest = attrs.parameters?.['guest-params'] ?? attrs['guest-params'] ?? {};
+        const encoded = String(guest.body ?? '').replace(/\s/g, '');
+        // Buffer.from는 잘못된 base64도 허용하므로 정규 형식과 UTF-8을 검사한다.
+        let html = '';
+        if (/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          try { html = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(encoded, 'base64')); } catch {}
+        }
+        return { type: 'htmlEmbed', attrs: { source: 'hmp', html, height: embedHeight(guest.height) } };
+      }
       const shortName = key.split('/').pop() || 'extension';
-      inc(stats.unsupportedMacros, 'adf-ext:' + shortName);
+      countMacro('adf-ext:' + shortName, stats.unsupportedMacros);
       return { type: 'cfMacro', attrs: { name: 'adf-ext:' + shortName, params: attrs, dynamic: false } };
     }
     if (type === 'panel')
       return { type: 'panel', attrs: { panelType: attrs['panel-type'] || 'info', title: null, bgColor: null }, content: ensureBlocks(kids) };
-    if (type !== 'decision-list' && type !== 'decision-item') inc(stats.unsupportedMacros, 'adf:' + type);
+    // bodied-extension(Scroll Ignore 등 앱이 본문을 감싼 것)은 보기에서 본문만 그리므로 미지원으로 세지 않는다
+    if (!['decision-list', 'decision-item', 'bodied-extension'].includes(type)) inc(stats.unsupportedMacros, 'adf:' + type);
     return { type: 'adfNode', attrs: { adfType: type, attrs }, ...(kids.length ? { content: kids } : {}) };
   }
 
   const ensureBlocks = (arr) => (arr.length ? arr : [para([])]);
+  const leadPara = (arr) => (arr[0]?.type === 'paragraph' ? arr : [para([]), ...arr]);
   // 셀, 리스트 아이템 등 블록 컨테이너에서 벗어난 인라인을 문단으로 감싼다
   function wrapLoose(items) {
     const out = [];
@@ -300,13 +359,26 @@ export function convertStorage(xhtml) {
       const h = /^h([1-6])$/.exec(n.name);
       if (h) { items.push({ node: { type: 'heading', attrs: { level: Number(h[1]) }, content: inline(n.children, []) } }); continue; }
       switch (n.name) {
-        case 'p':
-          items.push({ node: para(inline(n.children, [])) });
+        case 'p': {
+          // 구형 html 매크로는 문단 안에도 들어간다. 블록 노드를 문단 밖으로 꺼낸다.
+          let pending = [], pushed = false;
+          const flush = () => { if (pending.length) { items.push({ node: para(pending) }); pushed = true; } pending = []; };
+          for (const node of inline(n.children, [])) {
+            if (HOIST_BLOCKS.has(node.type)) { flush(); items.push({ node }); pushed = true; }
+            else pending.push(node);
+          }
+          flush();
+          if (!pushed) items.push({ node: para([]) }); // 빈 문단은 예전처럼 유지 (간격)
           break;
-        case 'ul': case 'ol':
+        }
+        case 'ul': case 'ol': {
+          // 목록 항목은 문단으로 시작해야 한다(스키마 'paragraph block*') — 하위 목록·코드 등으로 시작하면 빈 문단을 앞에 둔다. 빈 목록은 버린다 (GIRA-75)
+          const lis = childEls(n, 'li');
+          if (!lis.length) break;
           items.push({ node: { type: n.name === 'ul' ? 'bulletList' : 'orderedList',
-            content: childEls(n, 'li').map((li) => ({ type: 'listItem', content: ensureBlocks(blocks(li.children)) })) } });
+            content: lis.map((li) => ({ type: 'listItem', content: leadPara(ensureBlocks(blocks(li.children))) })) } });
           break;
+        }
         case 'ac:task-list':
           items.push({ node: { type: 'taskList', content: childEls(n, 'ac:task').map((t) => ({
             type: 'taskItem',
@@ -318,6 +390,7 @@ export function convertStorage(xhtml) {
           const rows = [];
           const collect = (el) => { for (const c of el.children ?? []) if (isEl(c)) (c.name === 'tr' ? rows.push(c) : collect(c)); };
           collect(n);
+          if (!rows.some((tr) => (tr.children ?? []).some((c) => isEl(c) && (c.name === 'td' || c.name === 'th')))) break; // 칸 없는 빈 표는 버린다 (GIRA-75)
           // 폭 속성: 표 전체 폭(px)·레이아웃·colgroup 열 너비 ("469.0px" / "18.68%" 혼재)
           const colwidths = [];
           const collectCols = (el) => { for (const c of el.children ?? []) if (isEl(c)) (c.name === 'col' ? colwidths.push(/width:\s*([\d.]+(?:px|%))/.exec(c.attribs.style ?? '')?.[1]?.replace(/^([\d.]+)px$/, (_, v) => `${Math.round(Number(v))}px`) ?? null) : c.name === 'colgroup' || c.name === 'table' ? collectCols(c) : null); };
@@ -341,7 +414,7 @@ export function convertStorage(xhtml) {
           items.push({ node: { type: 'table',
             attrs: { tableWidth, layout, colwidths: colwidths.some((w) => w) ? colwidths : null,
               ...(numberedRows ? { numberedRows: true } : {}), ...(displayMode ? { displayMode } : {}) },
-            content: rows.map((tr) => ({ type: 'tableRow',
+            content: rows.filter((tr) => cellsOf(tr).length).map((tr) => ({ type: 'tableRow',
             content: cellsOf(tr).slice(numberedRows ? 1 : 0).map((cell) => ({
               type: cell.name === 'th' ? 'tableHeader' : 'tableCell',
               attrs: cellAttrs(cell),
@@ -361,7 +434,8 @@ export function convertStorage(xhtml) {
           items.push({ node: { type: 'horizontalRule' } });
           break;
         case 'ac:image':
-          items.push({ node: imageNode(n) });
+          // media는 인라인 노드 — 블록 자리(목록 항목·표 칸·레이아웃 열 바로 아래)에 오면 문단으로 감싼다 (GIRA-75)
+          items.push({ __inline: true, node: imageNode(n) });
           break;
         case 'ac:layout':
           items.push({ node: { type: 'layout', attrs: { blockWidth: Number(n.attribs['ac:width']) >= 760 ? Number(n.attribs['ac:width']) : null }, content: childEls(n, 'ac:layout-section').map((sec) => ({

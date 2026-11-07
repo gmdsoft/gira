@@ -12,6 +12,15 @@ const { doc: formattingDoc } = convertStorage('<p><small>작은 텍스트</small
 getSchema(extensions).nodeFromJSON(formattingDoc).check();
 generateHTML(formattingDoc, extensions);
 
+// HTML 블록도 아직 DB에 없는 상태에서 공통 스키마/직렬화를 검사한다.
+const htmlEmbedDoc = { type: 'doc', content: [
+  { type: 'htmlEmbed', attrs: { source: 'hmp', html: '<script>document.body.append("차트")</script>', height: 1024 } },
+  { type: 'htmlEmbed', attrs: { source: 'html', html: '<table><tr><td>서명</td></tr></table>' } },
+  { type: 'htmlEmbed', attrs: { source: 'iframe', src: 'https://www.figma.com/embed', height: 800 } },
+] };
+getSchema(extensions).nodeFromJSON(htmlEmbedDoc).check();
+generateHTML(htmlEmbedDoc, extensions);
+
 // 편집기 이미지 속성이 게시용 스키마에서도 보존되는지 DB 검사 전에 확인한다.
 const imageDoc = { type: 'doc', content: [{ type: 'paragraph', content: [{
   type: 'media', attrs: { src: '/image-check.png', width: 836, layout: 'wrap-left',
@@ -25,17 +34,21 @@ generateHTML(imageDoc, extensions);
 const { rows } = await query(
   `SELECT v.content_id, c.title, v.doc FROM content_versions v JOIN content c ON c.id = v.content_id WHERE v.doc IS NOT NULL`);
 
+// 직렬화(generateHTML)뿐 아니라 스키마 규칙(check)도 본다 — 규칙 위반 문서는 보기는 되지만 편집기에서 오류가 난다 (GIRA-75)
+const schema = getSchema(extensions);
 let ok = 0; const failures = [];
 for (const r of rows) {
   try {
     generateHTML(r.doc, extensions);
+    schema.nodeFromJSON(r.doc).check();
     ok++;
   } catch (e) {
-    failures.push({ id: r.content_id, title: r.title, error: e.message });
+    failures.push({ id: r.content_id, title: r.title, error: e.message.slice(0, 160) });
   }
 }
 console.log(`render-check: 성공 ${ok}/${rows.length}`);
 for (const f of failures.slice(0, 20)) console.log(`  실패 ${f.id} "${f.title}": ${f.error}`);
 if (failures.length > 20) console.log(`  … 외 ${failures.length - 20}건`);
 await closeDb();
+if (failures.length) process.exitCode = 1;
 process.exit(failures.length ? 1 : 0);

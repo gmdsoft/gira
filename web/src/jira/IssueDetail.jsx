@@ -32,6 +32,48 @@ function InlineText({ value, onSave, as: Tag = 'span', className, placeholder, i
     onKeyDown={(e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false); }} />;
 }
 
+function CustomField({ field: f, canEdit, onSave, attachments }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const multi = ['multicheckboxes', 'multiselect'].includes(f.type);
+  const select = multi || ['select', 'radiobuttons'].includes(f.type);
+  const begin = () => {
+    setValue(select ? (multi ? f.value.map(v => String(v.id)) : String(f.value?.id ?? '')) : f.type === 'labels' ? f.value.join(', ') : String(f.value ?? ''));
+    setError(''); setEditing(true);
+  };
+  const save = async (clear = false) => {
+    setBusy(true);
+    try {
+      let next = clear ? null : value;
+      if (!clear) {
+        if (f.type === 'float') next = value === '' ? null : Number(value);
+        if (f.type === 'labels') next = value.split(',').map(v => v.trim()).filter(Boolean);
+        if (!multi && next === '') next = null;
+      }
+      await onSave(next); setEditing(false);
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  };
+  if (editing) return <div>
+    {select ? <select aria-label={f.name} multiple={multi} value={value} onChange={e => setValue(multi ? Array.from(e.target.selectedOptions, o => o.value) : e.target.value)}>
+      {!multi && <option value="">없음</option>}
+      {f.options.map(o => <option key={o.id} value={String(o.id)}>{o.value}</option>)}
+    </select> : <input aria-label={f.name} type={f.type === 'float' ? 'number' : f.type === 'datepicker' ? 'date' : f.type === 'url' ? 'url' : 'text'} step="any" value={value} onChange={e => setValue(e.target.value)} />}
+    {f.type === 'labels' && <small>쉼표로 구분</small>}
+    <button disabled={busy} onClick={() => save()}>저장</button><button disabled={busy} onClick={() => save(true)}>비우기</button><button disabled={busy} onClick={() => setEditing(false)}>취소</button>
+    {error && <div role="alert">{error}</div>}
+  </div>;
+  // 다른 필드처럼 값을 누르면 편집 (값 옆에 '편집' 글자를 붙이지 않는다)
+  const editable = canEdit && f.editable;
+  return <div className={editable ? 'inline-edit' : undefined} title={editable ? '클릭하여 편집' : undefined}
+    role={editable ? 'button' : undefined} aria-label={editable ? `${f.name} 편집` : undefined} tabIndex={editable ? 0 : undefined}
+    onClick={editable ? begin : undefined} onKeyDown={editable ? (e) => { if (e.key === 'Enter') begin(); } : undefined}>
+    {f.type === 'textarea' && f.value?.type === 'doc' ? <AdfView doc={f.value} attachments={attachments} /> : <span style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{f.display}</span>}
+  </div>;
+}
+
 // ---------- 필드 컨트롤 (Jira식 팝오버/칩) ----------
 function Popover({ children, onClose, width }) {
   const ref = useRef(null);
@@ -177,6 +219,9 @@ const HISTORY_ACTION = {
 export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChanged, onTitle, onSeen, onNew, onHome }) {
   const mobile = useMobile();
   const [d, setD] = useState(null);
+  const [watchOpen, setWatchOpen] = useState(false);
+  const [watchBusy, setWatchBusy] = useState(false);
+  const [watchError, setWatchError] = useState('');
   const [descEditing, setDescEditing] = useState(false);
   const [editingComment, setEditingComment] = useState(null); // {id, text}
   const [actTab, setActTab] = useState('comments'); // all | comments | history | worklog
@@ -384,7 +429,19 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
       </div>
       <div className="issue-meta-row">
         <span className="issue-meta-pill"><IconLock size={14} /> 제한됨</span>
-        <span className="issue-meta-pill"><IconEye size={14} /> 1</span>
+        <div className="issue-watchers">
+          <button type="button" aria-label="관찰자 목록" className="issue-meta-pill" aria-expanded={watchOpen} onClick={() => setWatchOpen(!watchOpen)}><IconEye size={14} /> {d.watchers?.length ?? 0}</button>
+          {watchOpen && <div className="issue-watchers-panel" role="region" aria-label="관찰자">
+            {(d.watchers ?? []).map(w => <div key={w.id}><Avatar user={w} name={w.display_name} /> {w.display_name}</div>)}
+            {!d.watchers?.length && <div>관찰자가 없습니다.</div>}
+            <button type="button" disabled={watchBusy} onClick={async () => {
+              setWatchBusy(true); setWatchError('');
+              try { await api(`/api/issue/${encodeURIComponent(issueKey)}/watch`, { method: d.watching ? 'DELETE' : 'POST' }); await load(); }
+              catch (e) { setWatchError(e.message); } finally { setWatchBusy(false); }
+            }}>{d.watching ? '관찰 중지' : '관찰 시작'}</button>
+            {watchError && <div role="alert">{watchError}</div>}
+          </div>}
+        </div>
         <button className="toolbtn"><IconShare size={14} /> 공유</button>
       </div>
       <div className="dwrap">
@@ -482,9 +539,11 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
           {((d.weblinks ?? []).length > 0 || adding === 'weblink') && (
             <section className="issue-section" ref={secRef.weblink}>{secHead(`웹 링크${d.weblinks?.length ? ` (${d.weblinks.length})` : ''}`, () => openAdd('weblink'))}
               <ul className="link-list">{(d.weblinks ?? []).map((w) => (
-                <li key={w.id}>🌐 <a href={w.url} target="_blank" rel="noreferrer noopener">{w.title || w.url}</a>
+                <li key={w.id}>{w.icon_url && /^https?:\/\//i.test(w.icon_url) ? <img src={w.icon_url} alt="" width="16" height="16" referrerPolicy="no-referrer" /> : '🌐'} <a href={w.open_url || w.url} target="_blank" rel="noreferrer noopener">{w.title || w.url}</a>
                   {w.title && <span className="dim"> {(() => { try { return new URL(w.url).hostname; } catch { return ''; } })()}</span>}
-                  {canEdit && <button type="button" className="row-x" title="웹 링크 삭제" onClick={() => confirm('이 웹 링크를 지울까요?') && removeWebLink(w)}>✕</button>}
+                  {w.source_id != null && <span className="dim"> · {w.app_name || (w.app_type === 'com.atlassian.confluence' ? 'Confluence' : w.app_type) || 'Jira'}{w.relationship ? ` · ${w.relationship}` : ''}</span>}
+                  {w.open_url && w.open_url !== w.url && <a href={w.url} target="_blank" rel="noreferrer noopener"> 원본</a>}
+                  {canEdit && w.source_id == null && <button type="button" className="row-x" title="웹 링크 삭제" onClick={() => confirm('이 웹 링크를 지울까요?') && removeWebLink(w)}>✕</button>}
                 </li>))}</ul>
               {adding === 'weblink' && <WebLinkInline issueKey={issueKey} onDone={() => { setAdding(null); load(); }} onCancel={() => setAdding(null)} />}
             </section>)}
@@ -501,7 +560,7 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
                 <CommentComposer key={'new-' + issueKey} upload={uploadFile} onSubmit={addComment} />
               </div>)}
             {feed.map((e) => e.t === 'c' ? commentBlock(e.c) : historyBlock(e.h))}
-            {actTab === 'worklog' && <div className="activity-empty">업무 로그가 없습니다.</div>}
+            {actTab === 'worklog' && <Worklogs issueKey={issueKey} items={d.worklogs ?? []} canEdit={canEdit} onChanged={load} />}
           </section>
         </div>
 
@@ -514,18 +573,24 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
           <div className="dcard">
             <div className="dcard-head"><IconChevronDown size={16} /><span>세부 사항</span></div>
             <div className="body"><dl>
-              <dt>Story point estimate</dt><dd><span className="add-link">스토리 포인트 추가</span></dd>
+              {(d.customFields ?? []).filter(f => f.storyPoints).map(f => <React.Fragment key={f.id}><dt>{f.name}</dt><dd><CustomField field={f} canEdit={canEdit} attachments={d.attachments} onSave={value => patch({ customFields: { [f.id]: value } })} /></dd></React.Fragment>)}
               <dt>보고자</dt><dd><span className="person"><Avatar name={d.reporter_name} /><span>{d.reporter_name ?? '-'}</span></span></dd>
+              {/* GIRA-71: 기한·시간 추적·영향 버전·환경 */}
+              <dt>기한</dt><dd><DueDate value={d.due_date} done={d.status_category === 'done'} canEdit={canEdit} onSave={(v) => patch({ dueDate: v })} /></dd>
+              {d.timetracking && <><dt>시간 추적</dt><dd><TimeTracking t={d.timetracking} /></dd></>}
+              {(d.affects_versions ?? []).length > 0 && <><dt>영향 버전</dt><dd>{d.affects_versions.join(', ')}</dd></>}
+              {d.environment_adf && <><dt>환경</dt><dd><AdfView doc={d.environment_adf} attachments={d.attachments} /></dd></>}
             </dl></div>
           </div>
           <div className="dcard">
-            <div className="dcard-head"><IconChevronRight size={16} /><span>더 많은 필드</span></div>
+            <div className="dcard-head"><IconChevronDown size={16} /><span>더 많은 필드</span></div>
             <div className="body"><dl>
               <dt>타입</dt><dd>
                 <span className="type-cell"><TypeIcon name={meta.types.find((t) => Number(t.id) === Number(d.issue_type_id))?.name} />
                 <select value={d.issue_type_id ?? ''} onChange={(e) => patch({ typeId: Number(e.target.value) })}>
                   {meta.types.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select></span></dd>
+              {(d.customFields ?? []).filter(f => !f.storyPoints).map(f => <React.Fragment key={f.id}><dt>{f.name}</dt><dd><CustomField field={f} canEdit={canEdit} attachments={d.attachments} onSave={value => patch({ customFields: { [f.id]: value } })} /></dd></React.Fragment>)}
             </dl></div>
           </div>
           <div className="dtimes">
@@ -538,3 +603,52 @@ export default function IssueDetail({ issueKey, meta, pdata, me, onOpen, onChang
   );
 }
 
+
+// ---------- GIRA-71: 기한·시간 추적·작업 로그 ----------
+const fmtDur = (sec) => {
+  let n = Math.round(Number(sec) || 0); if (n <= 0) return '0m';
+  const out = []; for (const [u, v] of [['w', 144000], ['d', 28800], ['h', 3600], ['m', 60]]) { const q = Math.floor(n / v); if (q) { out.push(q + u); n -= q * v; } }
+  return out.join(' ') || '0m';
+};
+
+function DueDate({ value, done, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const day = value ? String(value).slice(0, 10) : '';
+  const overdue = day && !done && day < new Date().toISOString().slice(0, 10);
+  if (editing) return <input type="date" autoFocus defaultValue={day} aria-label="기한"
+    onBlur={(e) => { setEditing(false); if (e.target.value !== day) onSave(e.target.value || null); }}
+    onKeyDown={(e) => { if (e.key === 'Escape') setEditing(false); if (e.key === 'Enter') e.currentTarget.blur(); }} />;
+  return <span className={canEdit ? 'inline-edit' : undefined} title={canEdit ? '클릭하여 편집' : undefined} onClick={canEdit ? () => setEditing(true) : undefined}
+    style={overdue ? { color: 'var(--danger, #c9372c)', fontWeight: 600 } : undefined}>{day || (canEdit ? <span className="add-link">기한 추가</span> : '없음')}{overdue ? ' (지남)' : ''}</span>;
+}
+
+function TimeTracking({ t }) {
+  const spent = t.spent ?? 0, remaining = t.remaining ?? 0;
+  const total = Math.max(spent + remaining, t.original ?? 0, 1);
+  return <div className="timetrack">
+    <div className="timetrack-bar" aria-hidden="true"><div style={{ width: `${Math.min(100, (spent / total) * 100)}%` }} /></div>
+    <div className="dim">{fmtDur(spent)} 기록됨 · 남음 {t.remaining != null ? fmtDur(remaining) : '-'}{t.original != null ? ` · 처음 추정 ${fmtDur(t.original)}` : ''}</div>
+  </div>;
+}
+
+function Worklogs({ issueKey, items, canEdit, onChanged }) {
+  const [spent, setSpent] = useState(''); const [comment, setComment] = useState(''); const [error, setError] = useState(null);
+  const add = async () => {
+    setError(null);
+    try { await api(`/api/issue/${encodeURIComponent(issueKey)}/worklogs`, { method: 'POST', json: { timeSpent: spent, comment } }); setSpent(''); setComment(''); onChanged?.(); }
+    catch (e) { setError(e.message); }
+  };
+  return <div className="worklogs">
+    {canEdit && <div className="worklog-add">
+      <input placeholder="소요 시간 (예: 1h 30m)" value={spent} onChange={(e) => setSpent(e.target.value)} aria-label="소요 시간" />
+      <input placeholder="메모 (선택)" value={comment} onChange={(e) => setComment(e.target.value)} aria-label="작업 메모" />
+      <button className="primary mini" disabled={!spent.trim()} onClick={add}>기록</button>
+      {error && <span role="alert" className="dim">{error}</span>}
+    </div>}
+    {!items.length ? <div className="activity-empty">업무 로그가 없습니다.</div>
+      : items.map((w) => <div key={w.id} className="worklog-row">
+        <Avatar name={w.author_name} /> <strong>{w.author_name ?? '-'}</strong> <span>{fmtDur(w.time_spent_seconds)}</span> <span className="dim">{dt(w.started_at)}</span>
+        {w.comment_adf && <div className="worklog-comment"><AdfView doc={w.comment_adf} /></div>}
+      </div>)}
+  </div>;
+}

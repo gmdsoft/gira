@@ -1,3 +1,6 @@
+import { HtmlEmbed } from './html-embed.js';
+import { mermaidEditorView } from './mermaid-editor.js';
+import { mountMermaid } from './mermaid-view.js';
 import { TaskItem } from './task-item.js';
 import { datePresentation } from './date-presentation.js';
 // 변환기(scripts/convert-storage.mjs)가 생성하는 ProseMirror 문서의 전체 어휘.
@@ -15,6 +18,8 @@ import StarterKit from '@tiptap/starter-kit';
 import { BlockResize, widthAttrs } from './block-resize.js';
 import { HighlightedCodeBlock } from './code-block.js';
 import { createToc } from './toc.js';
+import { roadmapSpec } from './roadmap.js';
+import { HIDDEN_MACROS, BODY_ONLY_MACROS, NOTICE_MACROS, noticeText, noticeDetail } from '../../server/src/macro-kinds.mjs';
 import TableExt from '@tiptap/extension-table';
 import TableRowExt from '@tiptap/extension-table-row';
 import TableCellExt from '@tiptap/extension-table-cell';
@@ -432,9 +437,46 @@ const LayoutColumn = Node.create({
   renderHTML: ({ node }) => ['div', { class: 'layout-column', ...(node.attrs.width > 0 ? { 'data-column-width': node.attrs.width, style: `--column-width:${node.attrs.width}` } : {}) }, 0],
 });
 
+// Mermaid 다이어그램 블록 (GIRA-18): 내용 = Mermaid 코드. 그림으로 그리는 것은 보기 렌더러(GIRA-44)가 한다.
+//  image: 원본 Confluence가 미리 그린 PNG(data URI) — 코드가 없으면 이 그림을 그대로 보여 준다
 const Mermaid = Node.create({
   name: 'mermaid', group: 'block', content: 'text*', marks: '', code: true,
-  renderHTML: () => ['pre', { class: 'mermaid-src' }, ['code', 0]],
+  addKeyboardShortcuts() {
+    return {
+      Enter: () => this.editor.isActive('mermaid') && this.editor.commands.command(({ tr }) => { tr.insertText('\n'); return true; }),
+      'Mod-Enter': () => {
+        if (!this.editor.isActive('mermaid')) return false;
+        const { $from } = this.editor.state.selection;
+        const pos = $from.after();
+        return this.editor.chain().insertContentAt(pos, { type: 'paragraph' }).setTextSelection(pos + 1).run();
+      },
+    };
+  },
+  addNodeView() {
+    return ({ node, editor, getPos }) => {
+      if (editor.isEditable) return mermaidEditorView({ node, editor, getPos });
+      const dom = document.createElement('div');
+      // 부모가 DOM에 붙은 뒤 펼치기 조상을 찾는다.
+      let cleanup;
+      const timer = setTimeout(() => { cleanup = mountMermaid(dom, node.textContent, node.attrs); }, 0);
+      return { dom, stopEvent: () => true, ignoreMutation: () => true,
+        destroy() { clearTimeout(timer); cleanup?.(); } };
+    };
+  },
+  addAttributes: () => ({
+    image: { default: null, rendered: false },
+    size: { default: null, rendered: false },
+    caption: { default: null, rendered: false },
+  }),
+  renderHTML: ({ node }) => {
+    const attrs = { class: 'mermaid-src', ...(node.attrs.image ? { 'data-mermaid-image': node.attrs.image } : {}), ...(node.attrs.caption ? { 'data-mermaid-caption': node.attrs.caption } : {}), ...(node.attrs.size ? { 'data-size': node.attrs.size } : {}) };
+    // 코드 없이 그림만 있는 원본(B형): 그림을 보여 준다 (원문 base64를 글자로 보여 주지 않는다)
+    if (!node.textContent && node.attrs.image) {
+      return ['figure', { class: 'mermaid-image' }, ['img', { src: node.attrs.image, alt: node.attrs.caption || 'Mermaid 다이어그램' }],
+        ...(node.attrs.caption ? [['figcaption', {}, node.attrs.caption]] : [])];
+    }
+    return ['pre', attrs, ['code', 0]];
+  },
 });
 
 const JiraTable = Node.create({
@@ -446,9 +488,14 @@ const JiraTable = Node.create({
 
 // 보기 화면에서 web/src/macros.js가 실데이터로 채우는 매크로들
 export const HYDRATED_MACROS = new Set([
+  'content-report-table', 'tasks-report-macro', 'decisionreport', 'detailssummary',
+  'change-history', 'profile-picture', 'popular-labels', 'listlabels', 'blog-posts',
+  'attachments', 'toc-zone', 'native-embed:page', 'recently-updated-dashboard', 'index',
+  'create-from-template',
   'toc', 'children', 'pagetree', 'view-file', 'viewdoc', 'viewpdf', 'viewppt', 'viewxls',
   'widget', 'profile', 'contributors', 'recently-updated', 'contentbylabel',
-  'include', 'excerpt-include', 'drawio',
+  'multimedia', 'gliffy', 'plantuml', 'unmigrated-wiki-markup', 'chart',
+  'include', 'excerpt-include', 'drawio', 'pagetreesearch', 'livesearch', 'jirachart',
 ]);
 
 function macroSlot(tag, name, params) {
@@ -491,6 +538,20 @@ const CfMacro = Node.create({
     const { name, params, dynamic } = node.attrs;
     // 본문을 가진 매크로는 내용을 직접 렌더링
     if (name === 'excerpt') return ['div', { class: 'macro-excerpt' }, 0];
+    if (name === 'roadmap') return ['div', { class: 'cf-macro-roadmap' }, roadmapSpec(params), ['div', { style: 'display: none' }, 0]]; // GIRA-55
+    // 내보내기 앱 표시(쪽 나눔 등): 보기에서 숨김, 편집기에서는 얇은 표시만 (styles.css)
+    if (HIDDEN_MACROS.has(name)) return ['div', { class: 'cf-macro-hidden', 'data-macro': name }, ['div', { style: 'display: none' }, 0]];
+    if (name === 'chart') return ['div', { class: 'cf-macro-slot', 'data-macro': name, 'data-params': JSON.stringify(params ?? {}) }, ['div', { class: 'macro-badge' }], ['div', { class: 'cf-chart-body' }, 0]];
+    if (BODY_ONLY_MACROS.has(name)) return ['div', { class: 'macro-body-only', 'data-macro': name }, 0];
+    if (NOTICE_MACROS.has(name)) {
+      const d = noticeDetail(name, params);
+      const extra = d ? [
+        ...(d.title ? [['div', { class: 'cf-macro-notice-title' }, d.title]] : []),
+        ...(d.items.length ? [['ul', {}, ...d.items.map((t) => ['li', {}, t])]] : []),
+        ['div', { class: 'cf-macro-notice-sub' }, d.note],
+      ] : [];
+      return ['div', { class: 'cf-macro-notice', 'data-macro': name }, ['div', {}, noticeText(name)], ...extra, ['div', { style: 'display: none' }, 0]];
+    }
     if (name === 'details') {
       return params?.hidden === 'true'
         ? ['div', { style: 'display: none' }, 0]
@@ -515,6 +576,7 @@ const AdfNode = Node.create({
     const t = node.attrs.adfType;
     if (t === 'decision-list') return ['div', { class: 'decision-list' }, 0];
     if (t === 'decision-item') return ['div', { class: 'decision-item' }, 0];
+    if (t === 'bodied-extension') return ['div', { class: 'macro-body-only', 'data-adf': t }, 0]; // 앱이 감싼 본문(Scroll Ignore 등)
     return ['div', { class: 'cf-macro' },
       ['span', { class: 'macro-badge' }, `adf: ${t}`],
       ['div', { class: 'cf-macro-body' }, 0]];
@@ -706,6 +768,8 @@ const CfMacroInline = Node.create({
   renderHTML: ({ node }) => {
     const { name, params } = node.attrs;
     if (HYDRATED_MACROS.has(name)) return macroSlot('span', name, params);
+    if (HIDDEN_MACROS.has(name)) return ['span', { class: 'cf-macro-hidden', 'data-macro': name }];
+    if (NOTICE_MACROS.has(name)) return ['span', { class: 'cf-macro-notice', 'data-macro': name }, noticeText(name)];
     return ['span', { class: 'macro-badge' }, `매크로: ${name}`];
   },
 });
@@ -1309,7 +1373,7 @@ const custom = [
   Table, TableRow, TableHeader, TableCell,
   TaskList, TaskItem,
   BlockResize, Panel, Expand, Layout, LayoutSection, LayoutColumn,
-  Mermaid, JiraTable, CfMacro, AdfNode,
+  Mermaid, HtmlEmbed, JiraTable, CfMacro, AdfNode,
   Media, MediaCaption, Mention, Emoji, DateNode, Status, Anchor, JiraIssue,
   PageLink, SpaceLink, FileLink, LinkCard, CfMacroInline,
 ];

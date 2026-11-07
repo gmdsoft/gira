@@ -2,8 +2,13 @@
 // Confluence Cloud → 새 서비스 DB 임포터 (PoC: 스페이스 단위, 최신 버전만).
 // 읽기 전용 GET 요청만 사용한다. 전체 버전 이력 이관은 파이프라인 단계에서 확장한다.
 //
-// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>]
+// 사용법: node scripts/import-space.mjs --space Research [--wipe] [--since <ISO 시각>] [--pages <id,id,...>] [--templates]
+//   --pages: 그 스페이스의 지정한 페이지만 가져온다(확인·시험용). 새 스페이스는 권한 규칙이 없어 사이트 관리자만 보인다
 
+import { fetchWhiteboard } from './lib/confluence-whiteboard.mjs';
+import { fetchDatabase } from './lib/confluence-database.mjs';
+import { embedDoc } from './lib/confluence-embed.mjs';
+import { importTemplates } from './lib/import-templates.mjs';
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
 import { query, closeDb } from '../server/src/db.mjs';
@@ -13,12 +18,14 @@ try { process.loadEnvFile('.env'); } catch { /* 환경변수 직접 지정 가�
 const { values: args } = parseArgs({
   options: {
     space: { type: 'string' },
+    templates: { type: 'boolean', default: false },
     wipe: { type: 'boolean', default: false },
     since: { type: 'string' }, // 증분 동기화 (ISO 시각): 이후 수정·신규 페이지만 본문까지 받는다
+    pages: { type: 'string' }, // 지정 페이지만 (쉼표 구분 id)
   },
 });
 if (!args.space) {
-  console.error('사용법: node scripts/import-space.mjs --space <KEY> [--wipe] [--since <ISO 시각>]');
+  console.error('사용법: node scripts/import-space.mjs --space <KEY> [--wipe] [--since <ISO 시각>] [--pages <id,...>]');
   process.exit(1);
 }
 
@@ -80,9 +87,26 @@ if (!space) { console.error('스페이스를 찾을 수 없습니다.'); process
 console.log(`  ${space.id} ${space.key} "${space.name}" (${space.type})`);
 
 let pages;
-if (!args.since) {
+if (args.pages) {
+  if (args.wipe) { console.error('--pages와 --wipe는 같이 쓸 수 없습니다.'); process.exit(1); }
+  const ids = args.pages.split(',').map((x) => x.trim()).filter(Boolean);
+  console.log(`지정 페이지 ${ids.length}건 수집 (본문 포함)...`);
+  pages = (await mapLimit(ids, 6, async (id) => {
+    try { return await get(`/wiki/api/v2/pages/${id}?body-format=storage`); }
+    catch (e) { if (e.status !== 404 && e.status !== 400) throw e;
+      try { const b = await get(`/wiki/api/v2/blogposts/${id}?body-format=storage`); return { ...b, _blog: true }; } catch { /* 블로그도 아님 */ }
+      const c = await get(`/wiki/rest/api/content/${id}?expand=space,version,ancestors`);
+      if (!['database', 'whiteboard', 'embed'].includes(c.type)) throw e;
+      return { ...c, spaceId: c.space?.id, parentId: c.ancestors?.at(-1)?.id, parentType: c.ancestors?.at(-1)?.type }; }
+  }))
+    .filter((p) => { const ok = String(p.spaceId) === String(space.id); if (!ok) console.log(`  ⚠ ${p.id} "${p.title}"는 ${args.space} 스페이스가 아니라 건너뜀`); return ok; });
+  console.log(`  페이지 ${pages.length}건`);
+} else if (!args.since) {
   console.log('페이지 수집 (본문 포함)...');
   pages = await getAll(`/wiki/api/v2/spaces/${space.id}/pages?body-format=storage&limit=100`);
+  // 블로그 글(GIRA-60): 본문 구조는 문서와 같고 API 경로만 다르다 — 트리 밖(부모 없음)에 type 'blogpost'로
+  const blogs = await getAll(`/wiki/api/v2/spaces/${space.id}/blogposts?body-format=storage&limit=100`).catch(() => []);
+  pages.push(...blogs.map((b) => ({ ...b, _blog: true, parentId: null })));
   console.log(`  페이지 ${pages.length}건`);
 } else {
   // 증분: 목록(본문 없이)만 받아 바뀐 페이지를 고르고, 그것만 본문을 받는다 (1시간 여유)
@@ -97,6 +121,51 @@ if (!args.since) {
   console.log(`  페이지 ${listed.length}건 중 변경·신규 ${changed.length}건 (기준 ${since.toISOString()})`);
   pages = await mapLimit(changed, 6, (p) => get(`/wiki/api/v2/pages/${p.id}?body-format=storage`));
 }
+
+// Canvas contents have no storage body and are listed independently of pages.
+let canvases = pages.filter(p => ['database', 'whiteboard'].includes(p.type));
+pages = pages.filter(p => !['database', 'whiteboard'].includes(p.type));
+if (!args.pages) {
+  let listed;
+  try { listed = await getAll(`/wiki/api/v2/spaces/${space.id}/databases?limit=100`); }
+  catch (e) {
+    if (![400, 404, 501].includes(e.status)) throw e;
+    listed = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=database and space="${space.key}"`)}&expand=version,ancestors&limit=100`);
+  }
+  // Canvas changes need not increment the content version. Refresh each snapshot on incremental runs too.
+  canvases = listed.map(d => ({ ...d, type: 'database' }));
+  const whiteboards = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=whiteboard and space="${space.key}"`)}&expand=version,ancestors&limit=100`);
+  canvases.push(...whiteboards.map(d => ({ ...d, type: 'whiteboard' })));
+}
+// 임베드(스마트 링크): 본문 대신 원본 주소(embedUrl)만 있다 — HTML 블록 문서로 저장 (GIRA-59)
+let embeds = pages.filter(p => p.type === 'embed');
+pages = pages.filter(p => p.type !== 'embed');
+if (!args.pages) {
+  embeds = await getAll(`/wiki/rest/api/content/search?cql=${encodeURIComponent(`type=embed and space="${space.key}"`)}&expand=version,ancestors&limit=100`).catch((e) => { console.log(`  임베드 목록 조회 실패(${e.status ?? e.message}) — 건너뜀`); return []; });
+}
+for (const p of pages) if (p.parentType === 'embed' && !embeds.some(d => String(d.id) === String(p.parentId))) embeds.push({ id: p.parentId });
+for (const d of embeds) {
+  const e = await get(`/wiki/api/v2/embeds/${d.id}`);
+  Object.assign(d, { type: 'embed', title: e.title, embedUrl: e.embedUrl ?? null, parentId: e.parentId ?? null, parentType: e.parentType ?? null,
+    authorId: e.authorId, ownerId: e.ownerId, createdAt: e.createdAt, version: e.version, position: e.position, spaceId: space.id });
+}
+console.log(`  임베드 ${embeds.length}건`);
+
+// Targeted page imports also retain canvas parents instead of orphaning their children.
+for (const p of pages) if (['database', 'whiteboard'].includes(p.parentType) && !canvases.some(d => String(d.id) === String(p.parentId))) {
+  canvases.push({ id: p.parentId, type: p.parentType });
+}
+const canvasData = new Map();
+for (const d of canvases) {
+  if (canvasData.has(String(d.id))) continue;
+  const snapshot = await (d.type === 'whiteboard' ? fetchWhiteboard : fetchDatabase)(d.id, { get, site: SITE });
+  const c = snapshot.content;
+  Object.assign(d, { type: d.type ?? 'database', title: c.title, version: c.version ?? d.version,
+    parentId: d.parentId ?? c.ancestors?.at(-1)?.id, parentType: d.parentType ?? c.ancestors?.at(-1)?.type, spaceId: space.id });
+  canvasData.set(String(d.id), snapshot);
+  if (['database', 'whiteboard'].includes(d.parentType) && !canvases.some(parent => String(parent.id) === String(d.parentId))) canvases.push({ id: d.parentId, type: d.parentType });
+}
+console.log(`  캔버스 ${canvases.length}건`);
 
 // 충돌 가드: 원본 페이지와 id가 같은 '로컬에서 만든 페이지'(원본 본문 버전이 하나도 없는 page/live)는
 // 덮어쓰지 않는다 — 로컬 번호가 원본 대역 위에서 발급되던 시절의 페이지 보호
@@ -114,7 +183,7 @@ if (!args.since) {
 // 폴더: 페이지 부모 체인에 등장하는 폴더를 재귀적으로 수집
 const folders = new Map();
 {
-  const queue = [...new Set(pages.filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
+  const queue = [...new Set([...pages, ...canvases, ...embeds].filter((p) => p.parentType === 'folder').map((p) => p.parentId))];
   while (queue.length) {
     const id = queue.shift();
     if (!id || folders.has(id)) continue;
@@ -129,11 +198,11 @@ console.log('페이지별 첨부/라벨/댓글 수집...');
 let done = 0;
 const perPage = await mapLimit(pages, 6, async (p) => {
   const [attachments, labels, footer, inline, props] = await Promise.all([
-    getAll(`/wiki/api/v2/pages/${p.id}/attachments?limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/labels?limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/footer-comments?body-format=storage&limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/inline-comments?body-format=storage&limit=100`),
-    getAll(`/wiki/api/v2/pages/${p.id}/properties?key=content-appearance-published`).catch(() => []),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/attachments?limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/labels?limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/footer-comments?body-format=storage&limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/inline-comments?body-format=storage&limit=100`),
+    getAll(`/wiki/api/v2/${p._blog ? 'blogposts' : 'pages'}/${p.id}/properties?key=content-appearance-published`).catch(() => []),
   ]);
   if (++done % 25 === 0) console.log(`  ${done}/${pages.length}`);
   // Confluence 기본은 고정 폭(넓은 블록은 돌출 렌더링). 명시적으로 full-width일 때만 전체 폭.
@@ -171,7 +240,10 @@ for (const { doc } of docs) if (doc) walk(doc, (n) => { if (n.type === 'mention'
 // ---------- 사용자 ----------
 
 const accountIds = new Set(mentionIds);
-for (const p of pages) {
+for (const { data } of canvasData.values()) for (const row of data.rows ?? []) for (const field of data.fields ?? []) {
+  if (field.type === 'u') for (const value of row.cells[field.id] ?? []) if (value.a) accountIds.add(value.a);
+}
+for (const p of [...pages, ...canvases, ...embeds]) {
   if (p.authorId) accountIds.add(p.authorId);
   if (p.ownerId) accountIds.add(p.ownerId);
   if (p.version?.authorId) accountIds.add(p.version.authorId);
@@ -212,6 +284,7 @@ for (const { doc } of docs) if (doc) walk(doc, (n) => {
 console.log('DB 적재...');
 
 if (args.wipe) {
+  await query(`DELETE FROM space_templates WHERE space_id = $1`, [space.id]);
   await query(`DELETE FROM content_labels WHERE content_id IN (SELECT id FROM content WHERE space_id = $1)`, [space.id]);
   await query(`DELETE FROM comments WHERE content_id IN (SELECT id FROM content WHERE space_id = $1)`, [space.id]);
   await query(`DELETE FROM attachments WHERE content_id IN (SELECT id FROM content WHERE space_id = $1)`, [space.id]);
@@ -252,7 +325,7 @@ for (const f of folders.values()) {
     [f.id, space.id, f.title ?? '(폴더)', f.position ?? null, uid(f.authorId), uid(f.ownerId), ts(f.createdAt)]);
 }
 for (const [i, p] of pages.entries()) {
-  const subtype = p.subtype === 'live' ? 'live' : 'page';
+  const subtype = p._blog ? 'blogpost' : p.subtype === 'live' ? 'live' : 'page';
   await query(
     `INSERT INTO content (id, space_id, type, title, position, status, author_id, owner_id, current_version, full_width, created_at, updated_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
@@ -264,7 +337,31 @@ for (const [i, p] of pages.entries()) {
      uid(p.authorId), uid(p.ownerId), p.version?.number ?? 1, perPage[i]?.fullWidth ?? false,
      ts(p.createdAt), ts(p.version?.createdAt)]);
 }
-const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id)]);
+for (const d of canvases) {
+  const snap = canvasData.get(String(d.id));
+  const version = d.version?.number ?? 1;
+  const type = d.type === 'whiteboard' ? 'whiteboard' : 'database';
+  const table = type === 'whiteboard' ? 'whiteboard_snapshots' : 'database_snapshots';
+  await query(`INSERT INTO content (id, space_id, type, title, current_version, full_width, updated_at)
+    VALUES ($1,$2,$6,$3,$4,true,$5)
+    ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, current_version=EXCLUDED.current_version, updated_at=EXCLUDED.updated_at
+    WHERE content.type=EXCLUDED.type`, [d.id, space.id, d.title, version, ts(d.version?.createdAt ?? d.version?.when), type]);
+  await query(`INSERT INTO ${table} (content_id,version,data,source_ybin) VALUES ($1,$2,$3,$4)
+    ON CONFLICT (content_id,version) DO UPDATE SET data=EXCLUDED.data,source_ybin=EXCLUDED.source_ybin,fetched_at=now()`,
+    [d.id, version, JSON.stringify(snap.data), snap.binary]);
+}
+for (const d of embeds) {
+  const version = d.version?.number ?? 1;
+  await query(`INSERT INTO content (id, space_id, type, title, position, status, author_id, owner_id, current_version, created_at, updated_at)
+    VALUES ($1,$2,'embed',$3,$4,'current',$5,$6,$7,$8,$9)
+    ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, position=EXCLUDED.position, current_version=EXCLUDED.current_version, updated_at=EXCLUDED.updated_at
+    WHERE content.type='embed'`, [d.id, space.id, d.title ?? '(임베드)', d.position ?? null, uid(d.authorId), uid(d.ownerId), version, ts(d.createdAt), ts(d.version?.createdAt)]);
+  await query(`INSERT INTO content_versions (content_id, version, doc, source_xhtml, message, minor_edit, author_id, created_at)
+    VALUES ($1,$2,$3,NULL,$4,false,$5,$6)
+    ON CONFLICT (content_id, version) DO UPDATE SET doc = EXCLUDED.doc`,
+    [d.id, version, JSON.stringify(embedDoc(d.embedUrl)), d.embedUrl ? `원본 임베드: ${d.embedUrl}` : null, uid(d.version?.authorId ?? d.authorId), ts(d.version?.createdAt)]);
+}
+const knownIds = new Set([...folders.keys(), ...pages.map((p) => p.id), ...canvases.map(d => d.id), ...embeds.map(d => d.id)]);
 // 증분 동기화에서는 부모가 이번 수집에 없을 수 있으므로 DB에 있는지도 본다
 const inDb = async (id) => (await query(`SELECT 1 FROM content WHERE id = $1`, [id])).rows.length > 0;
 const linkable = async (id) => !!id && (knownIds.has(id) || await inDb(id));
@@ -273,14 +370,14 @@ for (const f of folders.values()) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [f.id, f.parentId]);
   }
 }
-for (const p of pages) {
+for (const p of [...pages, ...canvases, ...embeds]) {
   if (await linkable(p.parentId)) {
     await query(`UPDATE content SET parent_id = $2 WHERE id = $1`, [p.id, p.parentId]);
   }
 }
 if (await linkable(space.homepageId)) {
   await query(`UPDATE spaces SET homepage_id = $2 WHERE id = $1`, [space.id, space.homepageId]);
-} else if (!args.since) {
+} else if (!args.since && !args.pages) {
   await query(`UPDATE spaces SET homepage_id = NULL WHERE id = $1`, [space.id]);
 }
 
@@ -347,4 +444,5 @@ for (let i = 0; i < pages.length; i++) {
 }
 
 console.log(`완료: 콘텐츠 ${knownIds.size} (폴더 ${folders.size}) / 사용자 ${users.size} / 첨부 ${attCount} / 라벨 ${lblCount} / 댓글 ${cmtCount}`);
+if (args.templates) console.log(`템플릿 ${await importTemplates(args.space, { get, query })}개 이관 완료`);
 await closeDb();

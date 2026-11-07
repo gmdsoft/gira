@@ -1,3 +1,4 @@
+import { TemplatesBody } from './templates.jsx';
 // 접근 제어 UI 공용: 대상(사용자/그룹/팀) 검색, 스페이스 권한 편집, 문서 제한 편집,
 // 접근 요청 화면, 스페이스 만들기 다이얼로그
 import React, { useEffect, useState } from 'react';
@@ -428,6 +429,7 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, on
     ['pkg', '패키지 (내보내기/가져오기)', true],
     ['migrate', '원본 Confluence에서 가져오기', true],
     ['perm', '스페이스 권한', manages],
+    ['templates', '템플릿', manages],
     ['notify', '스페이스 알림', manages],
     ['icon', '스페이스 이미지', manages],
     ['inbox', '접근 요청 승인함', !!me.is_admin],
@@ -452,7 +454,7 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, on
         </aside>
         <section className="hub-main">
           <h2>{TITLE[tab]}{tab === 'pkg' && spaceKey ? ` — ${spaceKey}` : ''}</h2>
-          {(tab === 'perm' || tab === 'notify' || tab === 'icon') && (
+          {(tab === 'templates' || tab === 'perm' || tab === 'notify' || tab === 'icon') && (
             <label className="hub-proj">
               <span>스페이스</span>
               <select value={target} onChange={(e) => setTarget(e.target.value)}>
@@ -463,6 +465,7 @@ export function GonfSettingsHub({ me, spaceKey, spaceRole, onClose, navigate, on
           )}
           {tab === 'aiguide' && <AiGuideBody />}
           {tab === 'profile' && <ProfileBody me={me} onChanged={onMeChanged} />}
+          {tab === 'templates' && target && <TemplatesBody key={target} spaceKey={target} />}
           {tab === 'perm' && target && <SpacePermissionsBody key={target} spaceKey={target} />}
           {tab === 'notify' && target && <NotifyRulesBody key={target} resourceKey={target} resourceLabel="스페이스" />}
           {tab === 'icon' && target && <SpaceIconBody key={target} spaceKey={target} onChanged={onSpaceIconChanged} />}

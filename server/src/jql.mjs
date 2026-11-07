@@ -1,3 +1,4 @@
+import { HIDDEN_CUSTOM_FIELDS, HIDDEN_CUSTOM_TYPES } from './jira-custom-fields.mjs';
 // JQL 부분집합 파서: 토크나이저 + 재귀 하강 → 파라미터 바인딩 SQL WHERE.
 // 필드·연산자는 화이트리스트 매핑이며 값은 전부 $n 파라미터로만 들어간다 (SQL 주입 불가).
 // 지원: = != ~ > >= < <=, IN / NOT IN, IS [NOT] EMPTY(=EMPTY/NULL), AND/OR/NOT, 괄호,
@@ -42,10 +43,10 @@ const FIELDS = {
   issuekey: { kind: 'key', label: 'key' },
   summary: { kind: 'text', col: 'i.summary', like: true, label: 'summary' },
   text: { kind: 'search', label: 'text' },
-  status: { kind: 'text', col: 's.name', label: 'status' },
+  status: { kind: 'text', col: 's.name', alt: 's.alias', label: 'status' }, // alias: 원본 번역 전 이름(In Progress 등)
   statuscategory: { kind: 'text', col: 's.category', label: 'statusCategory' }, // new|indeterminate|done
-  type: { kind: 'text', col: 't.name', label: 'type' },
-  issuetype: { kind: 'text', col: 't.name', label: 'type' },
+  type: { kind: 'text', col: 't.name', alt: 't.alias', label: 'type' },
+  issuetype: { kind: 'text', col: 't.name', alt: 't.alias', label: 'type' },
   assignee: { kind: 'user', col: 'u.display_name', id: 'i.assignee_id', label: 'assignee' },
   reporter: { kind: 'user', col: 'ur.display_name', id: 'i.reporter_id', label: 'reporter' },
   priority: { kind: 'text', col: 'i.priority', label: 'priority' },
@@ -61,6 +62,12 @@ const FIELDS = {
   updated: { kind: 'date', col: 'i.updated_at', label: 'updated' },
   updateddate: { kind: 'date', col: 'i.updated_at', label: 'updated' },
   resolved: { kind: 'date', col: 'i.resolved_at', label: 'resolved' },
+  resolutiondate: { kind: 'date', col: 'i.resolved_at', label: 'resolved' },
+  'epic link': { kind: 'parent', label: 'parent' }, // 회사 관리형 프로젝트의 에픽 링크 = 상위 항목
+  filter: { kind: 'filter', label: 'filter' },       // 저장 필터 참조 (filter = 이름 또는 id)
+  savedfilter: { kind: 'filter', label: 'filter' },
+  due: { kind: 'date', col: 'i.due_date', label: 'due' }, // GIRA-71
+  duedate: { kind: 'date', col: 'i.due_date', label: 'due' },
 };
 
 // ORDER BY에서 쓸 수 있는 필드 → /api/issues sort 키
@@ -69,18 +76,43 @@ const ORDER_FIELDS = {
   assignee: 'assignee', reporter: 'reporter', priority: 'priority', status: 'status',
   resolution: 'resolution', created: 'created', createddate: 'created',
   updated: 'updated', updateddate: 'updated',
-  rank: 'key', // Rank(수동 순서)는 미보유 — 키 순서로 근사
+  rank: 'rank',
+  resolved: 'resolved', resolutiondate: 'resolved', due: 'due', duedate: 'due',
 };
 
 const REL_MS = { m: 60e3, h: 3600e3, d: 86400e3, w: 604800e3 };
 
+// 날짜 함수: now(), startOfDay(-1d), endOfMonth(), … — 서버 시각 기준 (KST 서버)
+const DATE_FNS = { now: 1, startofday: 1, endofday: 1, startofweek: 1, endofweek: 1, startofmonth: 1, endofmonth: 1, startofyear: 1, endofyear: 1 };
+function dateFn(fn, arg) {
+  const d = new Date();
+  const m = String(arg ?? '').match(/^([+-]?\d+)([mhdwMy]?)$/);
+  const unit = fn.replace(/^(startof|endof)/, '');
+  if (m) { // 인자 없이 숫자만 있으면 함수 단위(일·주·월·년)
+    const n = Number(m[1]), u = m[2] || { day: 'd', week: 'w', month: 'M', year: 'y' }[unit] || 'd';
+    if (u === 'M') d.setMonth(d.getMonth() + n); else if (u === 'y') d.setFullYear(d.getFullYear() + n);
+    else d.setTime(d.getTime() + n * REL_MS[u]);
+  }
+  if (fn === 'now') return d.toISOString();
+  const start = fn.startsWith('start');
+  if (unit === 'week') d.setDate(d.getDate() - d.getDay() + (start ? 0 : 6)); // 원본 기본: 일요일 시작
+  if (unit === 'month') d.setDate(start ? 1 : new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate());
+  if (unit === 'year') { d.setMonth(start ? 0 : 11); d.setDate(start ? 1 : 31); }
+  d.setHours(start ? 0 : 23, start ? 0 : 59, start ? 0 : 59, start ? 0 : 999);
+  return d.toISOString();
+}
+
 // ---------- 파서 ----------
 class Parser {
-  constructor(src, { p, userId }) {
+  constructor(src, { p, userId, customFields = null, filterJql = null, depth = 0 }) {
     this.toks = tokenize(src);
     this.i = 0;
     this.p = p;           // 값 → $n 자리표시자 (호출자 params 배열에 push)
     this.userId = userId; // currentUser()
+    // 사용자 정의 필드 목록 [{id, name, schema_type}] — 주면 필드 id를 미리 풀어 SQL에 바로 넣는다(빠름). 없으면 jira_fields를 행마다 조회
+    this.customFields = customFields;
+    this.filterJql = filterJql; // (이름|id) → 저장 필터 JQL 또는 null — filter = X 용
+    this.depth = depth;
   }
   peek() { return this.toks[this.i]; }
   next() { return this.toks[this.i++]; }
@@ -95,14 +127,19 @@ class Parser {
       this.next();
       const by = this.next();
       if (!this.isKw(by, 'by')) this.fail(by, "ORDER 다음에는 BY가 와야 합니다");
-      const f = this.next();
-      if (f.type !== 'word') this.fail(f, 'ORDER BY 필드가 필요합니다');
-      const key = ORDER_FIELDS[f.value.toLowerCase()];
-      if (!key) this.fail(f, `정렬할 수 없는 필드 '${f.value}' (가능: ${[...new Set(Object.values(ORDER_FIELDS))].join(', ')})`);
-      let desc = false;
-      if (this.isKw(this.peek(), 'asc')) this.next();
-      else if (this.isKw(this.peek(), 'desc')) { this.next(); desc = true; }
-      order = (desc ? '-' : '') + key;
+      // ORDER BY a DESC, b ASC … — 정렬은 한 기준만 지원: 정렬할 수 있는 첫 필드를 쓰고 나머지는 무시한다
+      // (원본 필터의 사용자 정의 필드·버전 정렬 등은 오류 대신 건너뛴다)
+      for (;;) {
+        const f = this.next();
+        if (f.type !== 'word' && f.type !== 'str') this.fail(f, 'ORDER BY 필드가 필요합니다');
+        const key = ORDER_FIELDS[f.value.toLowerCase()];
+        let desc = false;
+        if (this.isKw(this.peek(), 'asc')) this.next();
+        else if (this.isKw(this.peek(), 'desc')) { this.next(); desc = true; }
+        if (key && !order) order = (desc ? '-' : '') + key;
+        if (this.peek().type !== ',') break;
+        this.next();
+      }
     }
     const end = this.peek();
     if (end.type !== 'eof') this.fail(end, `쿼리가 끝나야 할 자리에 '${end.value}'가 있습니다`);
@@ -133,8 +170,14 @@ class Parser {
 
   condition() {
     const ft = this.next();
-    if (ft.type !== 'word') this.fail(ft, '필드 이름이 필요합니다');
-    const field = FIELDS[ft.value.toLowerCase()];
+    if (!['word', 'str'].includes(ft.type)) this.fail(ft, '필드 이름이 필요합니다');
+    const customId = ft.value.match(/^cf\[(\d+)\]$/i)?.[1];
+    if (HIDDEN_CUSTOM_FIELDS.includes(customId ? `customfield_${customId}` : ft.value)) this.fail(ft, '내부 필드는 검색할 수 없습니다');
+    // 원본 JQL 자동완성은 '이름[유형]'(예: "os[Dropdown]")으로 적는다 — 유형 꼬리는 떼고 이름으로 찾는다
+    const name = customId ? ft.value : ft.value.replace(/\[[A-Za-z ]+\]$/, '');
+    // 따옴표 없는 사용자 정의 필드 이름(고객사 = …)도 목록에 있으면 받는다
+    const bareCustom = ft.type === 'word' && this.customFields?.some((f) => f.name.toLowerCase() === name.toLowerCase());
+    const field = FIELDS[ft.value.toLowerCase()] ?? ((customId || ft.type === 'str' || bareCustom || /^customfield_\d+$/.test(ft.value)) ? { kind: 'custom', label: ft.value, name, id: customId ? `customfield_${customId}` : /^customfield_\d+$/.test(ft.value) ? ft.value : null } : null);
     if (!field) this.fail(ft, `알 수 없는 필드 '${ft.value}' (가능: ${[...new Set(Object.values(FIELDS).map((f) => f.label))].join(', ')})`);
 
     const t = this.next();
@@ -163,6 +206,10 @@ class Parser {
       case '!=': return this.negSql(field, ft, this.eqSql(field, ft, v));
       case '~': {
         if (field.kind === 'search') return this.searchSql(v);
+        if (field.kind === 'custom') {
+          if (v.empty || v.fn) this.fail(ft, '검색어가 필요합니다');
+          return this.customSql(field, ft, `EXISTS (SELECT 1 FROM unnest(jira_custom_search(i.fields_raw -> cf.id)) x WHERE x ILIKE ${this.p('%' + v.value + '%')})`);
+        }
         if (field.kind !== 'text') this.fail(ft, `'~'는 텍스트 필드에만 쓸 수 있습니다 (${field.label})`);
         return `${field.col} ILIKE ${this.p('%' + v.value + '%')}`;
       }
@@ -180,17 +227,25 @@ class Parser {
     const t = this.next();
     if (t.type === 'str') return { value: t.value };
     if (t.type !== 'word') this.fail(t, '값이 필요합니다 (문자열은 따옴표로 묶을 수 있습니다)');
-    if (this.peek().type === '(') { // 함수
+    if (this.peek().type === '(') { // 함수 — 인자는 문자열/단어 (membersOf("그룹"), startOfDay(-1d) 등)
       this.next();
-      const close = this.next();
-      if (close.type !== ')') this.fail(close, "함수 호출은 '()'로 닫아야 합니다");
+      const args = [];
+      for (let a = this.next(); a.type !== ')'; a = this.next()) {
+        if (a.type === ',') continue;
+        if (a.type !== 'str' && a.type !== 'word') this.fail(a, "함수 호출은 '()'로 닫아야 합니다");
+        args.push(a.value);
+      }
       const fn = t.value.toLowerCase();
       if (fn === 'currentuser') return { fn: 'currentUser' };
       if (fn === 'opensprints') return { fn: 'openSprints' };
       if (fn === 'activesprints') return { fn: 'activeSprints' };
       if (fn === 'unreleasedversions') return { fn: 'unreleasedVersions' };
       if (fn === 'releasedversions') return { fn: 'releasedVersions' };
-      this.fail(t, `알 수 없는 함수 '${t.value}()' (가능: currentUser(), openSprints(), activeSprints(), unreleasedVersions(), releasedVersions())`);
+      if (fn === 'membersof') return { fn: 'membersOf', args };
+      if (fn === 'standardissuetypes') return { fn: 'standardIssueTypes' };
+      if (fn === 'subtaskissuetypes') return { fn: 'subTaskIssueTypes' };
+      if (DATE_FNS[fn]) return { fn: 'date', date: dateFn(fn, args[0]) };
+      this.fail(t, `알 수 없는 함수 '${t.value}()' (가능: currentUser(), membersOf(), openSprints(), activeSprints(), unreleasedVersions(), releasedVersions(), standardIssueTypes(), subTaskIssueTypes(), now(), startOfDay() 등)`);
     }
     if (['empty', 'null'].includes(t.value.toLowerCase())) return { empty: true };
     return { value: t.value };
@@ -210,13 +265,14 @@ class Parser {
 
   // != / NOT IN: Jira 의미론대로 EMPTY(미지정)인 이슈는 결과에서 제외한다
   negSql(field, ft, ors) {
-    const canEmpty = ['text', 'user', 'sprint', 'array', 'parent', 'date'].includes(field.kind);
+    const canEmpty = ['text', 'user', 'sprint', 'array', 'parent', 'date', 'custom'].includes(field.kind);
     const base = `(NOT (${ors}))`;
     return canEmpty ? `((NOT ${this.emptySql(field, ft)}) AND ${base})` : base;
   }
 
   emptySql(field, ft) {
     switch (field.kind) {
+      case 'custom': return `(NOT ${this.customSql(field, ft, 'cardinality(jira_custom_search(i.fields_raw -> cf.id)) > 0')})`;
       case 'user': case 'sprint': return `${field.kind === 'sprint' ? 'i.sprint_id' : field.id} IS NULL`;
       case 'array': return `(${field.col} IS NULL OR cardinality(${field.col}) = 0)`;
       case 'parent': return `i.parent_id IS NULL`;
@@ -232,6 +288,31 @@ class Parser {
     if (v.fn === 'currentUser') {
       if (field.kind !== 'user') this.fail(ft, `currentUser()는 assignee/reporter에만 쓸 수 있습니다`);
       return `${field.id} = ${this.p(this.userId)}`;
+    }
+    if (v.fn === 'membersOf') {
+      if (field.kind !== 'user') this.fail(ft, `membersOf()는 assignee/reporter에만 쓸 수 있습니다`);
+      // 원본 그룹 이름 → Gira 그룹(같은 이름) 또는 팀·파트(접두 '[팀] '·공백 무시, 팀이면 하위 파트 포함). 없으면 아무도 해당하지 않는다
+      const g = String(v.args?.[0] ?? '');
+      const norm = this.p(g.toLowerCase().replace(/^\[[^\]]*\]/, '').replace(/\s+/g, ''));
+      return `${field.id} IN (SELECT ug.user_id FROM user_groups ug JOIN groups g ON g.id = ug.group_id WHERE lower(g.name) = lower(${this.p(g)})
+        UNION SELECT u.id FROM users u JOIN teams tm ON tm.id = u.team_id LEFT JOIN teams tp ON tp.id = tm.parent_id
+        WHERE regexp_replace(lower(tm.name), '\\s+', '', 'g') = ${norm} OR regexp_replace(lower(tp.name), '\\s+', '', 'g') = ${norm})`;
+    }
+    if (v.fn === 'standardIssueTypes' || v.fn === 'subTaskIssueTypes') {
+      if (field.label !== 'type') this.fail(ft, `${v.fn}()는 issuetype에만 쓸 수 있습니다`);
+      return `${v.fn === 'subTaskIssueTypes' ? '' : 'NOT '}COALESCE(t.subtask, false)`;
+    }
+    if (v.fn === 'date') {
+      if (field.kind !== 'date') this.fail(ft, `날짜 함수는 날짜 필드에만 쓸 수 있습니다`);
+      return `${field.col} = ${this.p(v.date)}`;
+    }
+    if (field.kind === 'filter') {
+      if (v.empty || v.fn) this.fail(ft, '저장 필터 이름 또는 id가 필요합니다');
+      const jql = this.filterJql?.(v.value);
+      if (jql == null) this.fail(ft, `저장 필터 '${v.value}'를 찾을 수 없거나 볼 권한이 없습니다`);
+      if (this.depth >= 5) this.fail(ft, '저장 필터 참조가 너무 깊습니다(순환?)');
+      const sub = new Parser(jql, { p: this.p, userId: this.userId, customFields: this.customFields, filterJql: this.filterJql, depth: this.depth + 1 });
+      return `(${sub.parse().where})`;
     }
     if (v.fn === 'openSprints') {
       if (field.kind !== 'sprint') this.fail(ft, `openSprints()는 sprint에만 쓸 수 있습니다`);
@@ -249,8 +330,18 @@ class Parser {
                        ON _v.project_id = i.project_id AND lower(_v.name) = lower(_x) WHERE ${cond})`;
     }
     switch (field.kind) {
-      case 'text': case 'user':
-        return `(${field.col} IS NOT NULL AND lower(${field.col}) = lower(${this.p(v.value)}))`;
+      case 'custom': {
+        const value = this.p(v.value);
+        const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(v.value);
+        const comparison = numeric ? `CASE WHEN cf.schema_type = 'number' AND x ~ '^[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)$' THEN x::numeric = ${value}::numeric ELSE lower(x) = lower(${value}) END` : `lower(x) = lower(${value})`;
+        return this.customSql(field, ft, `EXISTS (SELECT 1 FROM unnest(jira_custom_search(i.fields_raw -> cf.id)) x WHERE ${comparison})`);
+      }
+      case 'text': case 'user': {
+        const ph = this.p(v.value);
+        // 원본 필터는 번역 전 이름(In Progress)으로 저장돼 있어 별칭도 같이 본다
+        const alt = field.alt ? ` OR lower(${field.alt}) = lower(${ph})` : '';
+        return `(${field.col} IS NOT NULL AND (lower(${field.col}) = lower(${ph})${alt}))`;
+      }
       case 'sprint':
         return `(sp.name IS NOT NULL AND lower(sp.name) = lower(${this.p(v.value)}))`;
       case 'array':
@@ -268,6 +359,27 @@ class Parser {
     }
   }
 
+  customSql(field, ft, condition) {
+    if (this.customFields) {
+      const hits = this.customFields.filter((f) => (field.id ? f.id === field.id : f.name.toLowerCase() === String(field.name ?? ft.value).toLowerCase()));
+      if (!hits.length) this.fail(ft, `알 수 없는 사용자 정의 필드 '${ft.value}'`);
+      // 같은 이름 필드가 여럿이면(예: Story Points 두 종류) 어느 하나라도 맞으면 참
+      // 자리표시자는 실제로 쓰일 때만 만든다 — 쓰이지 않는 $n이 있으면 PostgreSQL이 형식을 정하지 못한다
+      const sub = (c, f) => {
+        let out = c;
+        if (out.includes('i.fields_raw -> cf.id')) { const ph = `${this.p(f.id)}::text`; out = out.replaceAll('i.fields_raw -> cf.id', `i.fields_raw -> ${ph}`); }
+        if (out.includes('cf.schema_type')) { const ph = `${this.p(f.schema_type ?? '')}::text`; out = out.replaceAll('cf.schema_type', ph); }
+        return out;
+      };
+      return `(${hits.map((f) => `(${sub(condition, f)})`).join(' OR ')})`;
+    }
+    const lookup = field.id ? `cf.id = ${this.p(field.id)}` : `lower(cf.name) = lower(${this.p(field.name ?? ft.value)})`;
+    return `EXISTS (SELECT 1 FROM jira_fields cf WHERE cf.custom AND ${lookup}
+      AND NOT (cf.id = ANY(${this.p(HIDDEN_CUSTOM_FIELDS)}::text[]))
+      AND COALESCE(cf.schema_custom, '') !~ ${this.p(HIDDEN_CUSTOM_TYPES.join('|'))}
+      AND (${condition}))`;
+  }
+
   searchSql(v) {
     if (v.empty || v.fn) throw new JqlError('text ~ 에는 검색어가 필요합니다', 0);
     const q = this.p('%' + v.value + '%');
@@ -275,6 +387,7 @@ class Parser {
   }
 
   dateValue(v, ft) {
+    if (v.fn === 'date') return v.date;
     if (v.empty || v.fn) this.fail(ft, '날짜 값이 필요합니다 (예: 2026-01-01, -7d)');
     const rel = v.value.match(/^-(\d+)([mhdw])$/i);
     if (rel) return new Date(Date.now() - Number(rel[1]) * REL_MS[rel[2].toLowerCase()]).toISOString();
@@ -291,7 +404,7 @@ class Parser {
 }
 
 // 반환: { where, order }  — where는 괄호로 감싼 SQL 조각, order는 sort 키('-updated' 등) 또는 null
-export function parseJql(src, { p, userId }) {
-  const parser = new Parser(src, { p, userId });
+export function parseJql(src, { p, userId, customFields, filterJql }) {
+  const parser = new Parser(src, { p, userId, customFields, filterJql });
   return parser.parse();
 }

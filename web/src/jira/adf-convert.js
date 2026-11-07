@@ -1,6 +1,6 @@
 // ADF ↔ TipTap JSON 변환 + 보조 마크 (StarterKit에 없는 underline/link 최소 구현).
 // 이관 이슈 50건 왕복 검증 통과본 (구 web/src/jira-editor.js에서 추출).
-import { Mark } from '@tiptap/core';
+import { Extension, Mark, Node } from '@tiptap/core';
 
 export const Underline = Mark.create({
   name: 'underline',
@@ -16,6 +16,46 @@ export const LinkMark = Mark.create({
   renderHTML({ HTMLAttributes }) { return ['a', { ...HTMLAttributes, target: '_blank', rel: 'noopener' }, 0]; },
 });
 
+// 원본 미디어를 원자 노드로 보존하여 설명 수정 시 UUID와 attrs를 잃지 않는다.
+export const PreservedMedia = Node.create({
+  name: 'preservedMedia', group: 'block', atom: true,
+  addAttributes() { return { original: { default: null } }; },
+  renderHTML() { return ['div', { class: 'media-ph' }, '📎 첨부 미디어 (저장 시 유지)']; },
+});
+export const PreservedMediaInline = PreservedMedia.extend({
+  name: 'preservedMediaInline', group: 'inline', inline: true,
+  renderHTML() { return ['span', { class: 'media-ph' }, '📎 첨부 미디어 (저장 시 유지)']; },
+});
+
+// 편집 가능한 블록의 원본 마크와 지원하지 않는 글자 마크를 스키마에서도 보존한다.
+export const AdfBlockMarks = Extension.create({
+  name: 'adfBlockMarks',
+  addGlobalAttributes() { return [{ types: ['paragraph', 'heading'], attributes: {
+    adfMarks: { default: null, renderHTML: attrs => {
+      const align = attrs.adfMarks?.find(m => m.type === 'alignment')?.attrs?.align;
+      return ['start', 'center', 'end', 'left', 'right', 'justify'].includes(align) ? { style: `text-align:${align}` } : {};
+    } },
+  } }]; },
+});
+export const AdfTextMarks = Mark.create({
+  name: 'adfTextMarks',
+  addAttributes() { return { original: { default: [], rendered: false } }; },
+  renderHTML({ mark }) {
+    const marks = mark.attrs.original;
+    const color = marks.find(m => m.type === 'textColor')?.attrs?.color;
+    const background = marks.find(m => m.type === 'backgroundColor')?.attrs?.color;
+    return ['span', { style: `${color ? `color:${color};` : ''}${background ? `background-color:${background};` : ''}` }, 0];
+  },
+});
+export const PreservedAdf = PreservedMedia.extend({
+  name: 'preservedAdf',
+  renderHTML({ node }) { return ['div', { class: 'adf-link-card' }, node.attrs.original?.attrs?.url || '◆ 원본 콘텐츠 (저장 시 유지)']; },
+});
+export const PreservedAdfInline = PreservedMediaInline.extend({
+  name: 'preservedAdfInline',
+  renderHTML({ node }) { return ['span', { class: 'adf-inline-card' }, node.attrs.original?.attrs?.url || '원본 콘텐츠 (저장 시 유지)']; },
+});
+
 // ---------- ADF → TipTap (미지원 요소는 가장 가까운 형태로 단순화) ----------
 const MARKS_IN = { strong: 'bold', em: 'italic', underline: 'underline', strike: 'strike', code: 'code' };
 function marksIn(marks) {
@@ -24,6 +64,8 @@ function marksIn(marks) {
     if (MARKS_IN[m.type]) out.push({ type: MARKS_IN[m.type] });
     else if (m.type === 'link' && m.attrs?.href) out.push({ type: 'link', attrs: { href: m.attrs.href } });
   }
+  const extra = (marks ?? []).filter(m => !MARKS_IN[m.type] && m.type !== 'link');
+  if (extra.length) out.push({ type: 'adfTextMarks', attrs: { original: structuredClone(extra) } });
   return out;
 }
 const textNode = (text, marks = []) => (text ? { type: 'text', text, ...(marks.length ? { marks } : {}) } : null);
@@ -36,9 +78,9 @@ export function adfToTiptap(n) {
   });
   switch (n.type) {
     case 'doc': { const c = kids(); return { type: 'doc', content: c.length ? c : [{ type: 'paragraph' }] }; }
-    case 'paragraph': return { type: 'paragraph', content: kids() };
+    case 'paragraph': return { type: 'paragraph', attrs: { adfMarks: n.marks ?? null }, content: kids() };
     case 'text': return textNode(n.text, marksIn(n.marks));
-    case 'heading': return { type: 'heading', attrs: { level: Math.min(6, n.attrs?.level ?? 1) }, content: kids() };
+    case 'heading': return { type: 'heading', attrs: { level: Math.min(6, n.attrs?.level ?? 1), adfMarks: n.marks ?? null }, content: kids() };
     case 'bulletList': case 'taskList': return { type: 'bulletList', content: kids() };
     case 'orderedList': return { type: 'orderedList', content: kids() };
     case 'listItem': case 'taskItem': return { type: 'listItem', content: kids() };
@@ -58,13 +100,17 @@ export function adfToTiptap(n) {
     case 'tableRow': return { type: 'tableRow', content: kids() };
     case 'tableHeader': return { type: 'tableHeader', attrs: cellAttrs(), content: kids() };
     case 'tableCell': return { type: 'tableCell', attrs: cellAttrs(), content: kids() };
-    case 'mediaSingle': case 'mediaGroup':
-      return { type: 'paragraph', content: [textNode('📎 (이미지/첨부 — 편집기 미지원, 저장 시 이 문구로 대체됩니다)')] };
+    case 'mediaSingle': case 'mediaGroup': case 'media':
+      return { type: 'preservedMedia', attrs: { original: structuredClone(n) } };
+    case 'mediaInline':
+      return { type: 'preservedMediaInline', attrs: { original: structuredClone(n) } };
     case 'mention': return textNode('@' + (n.attrs?.text?.replace(/^@/, '') ?? ''));
     case 'emoji': return textNode(n.attrs?.text ?? n.attrs?.shortName ?? '');
     case 'status': return textNode(`[${n.attrs?.text ?? ''}]`);
     case 'date': return textNode(n.attrs?.timestamp ? new Date(Number(n.attrs.timestamp)).toLocaleDateString('ko-KR') : '');
-    case 'inlineCard': return textNode(n.attrs?.url ?? '', n.attrs?.url ? [{ type: 'link', attrs: { href: n.attrs.url } }] : []);
+    case 'inlineCard': return { type: 'preservedAdfInline', attrs: { original: structuredClone(n) } };
+    case 'blockCard': case 'embedCard': case 'decisionList': case 'decisionItem':
+      return { type: 'preservedAdf', attrs: { original: structuredClone(n) } };
     default: { const c = kids(); return c.length ? c : null; }
   }
 }
@@ -76,6 +122,7 @@ function marksOut(marks) {
   for (const m of marks ?? []) {
     if (MARKS_OUT[m.type]) out.push({ type: MARKS_OUT[m.type] });
     else if (m.type === 'link' && m.attrs?.href) out.push({ type: 'link', attrs: { href: m.attrs.href } });
+    else if (m.type === 'adfTextMarks') out.push(...structuredClone(m.attrs.original));
   }
   return out;
 }
@@ -90,13 +137,15 @@ export function tiptapToAdf(n) {
     return Object.keys(a).length ? { attrs: a } : {};
   };
   switch (n.type) {
+    case 'preservedAdf': case 'preservedAdfInline':
+    case 'preservedMedia': case 'preservedMediaInline': return structuredClone(n.attrs.original);
     case 'doc': return { type: 'doc', version: 1, content: kids() };
     case 'text': {
       const marks = marksOut(n.marks);
       return { type: 'text', text: n.text, ...(marks.length ? { marks } : {}) };
     }
-    case 'paragraph': return { type: 'paragraph', content: kids() };
-    case 'heading': return { type: 'heading', attrs: { level: n.attrs?.level ?? 1 }, content: kids() };
+    case 'paragraph': return { type: 'paragraph', ...(n.attrs?.adfMarks ? { marks: structuredClone(n.attrs.adfMarks) } : {}), content: kids() };
+    case 'heading': return { type: 'heading', attrs: { level: n.attrs?.level ?? 1 }, ...(n.attrs?.adfMarks ? { marks: structuredClone(n.attrs.adfMarks) } : {}), content: kids() };
     case 'bulletList': return { type: 'bulletList', content: kids() };
     case 'orderedList': return { type: 'orderedList', content: kids() };
     case 'listItem': return { type: 'listItem', content: kids() };

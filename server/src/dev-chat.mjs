@@ -219,11 +219,12 @@ async function toolCreate({ items }, ctx, textToAdf) {
        VALUES (nextval('jira_issue_id_seq'), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), now(), '{}')
        RETURNING id, issue_key`,
       [pr.id, key, typeId[it.type] ?? typeId.task, st[0]?.id ?? null, it.summary.trim(),
-       JSON.stringify(textToAdf(body)), labels, ctx.userId,
+       JSON.stringify(textToAdf(body)), labels, ctx.reporterId ?? ctx.userId,
        // 에이전트가 처리할 이슈는 프로젝트 기본 담당자(GIRA 에이전트), 사람 담당은 비워 둔다
        it.executor === 'human' ? null : (pr.default_assignee_id ?? null),
        ['Highest', 'High', 'Normal', 'Low'].includes(it.priority) ? it.priority : 'Normal']);
     byRef.set(it.ref, { id: rows[0].id, key: rows[0].issue_key });
+    onIssueCreated?.(ctx.req, rows[0].id); // 등록·담당자 지정 알림 (jira-viewer의 notifyIssue)
     // 사용자가 올린 파일을 이슈 첨부로 복사 (본인 파일만)
     const files = await ownedFiles(it.attach_files, ctx);
     for (const f of files) {
@@ -282,7 +283,9 @@ const saveMessage = (sessionId, role, content, usage = null) => query(
 const textOf = (content) => (Array.isArray(content) ? content : [])
   .filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
 
-export function registerDevChat(app, { textToAdf }) {
+let onIssueCreated = null;
+export function registerDevChat(app, { textToAdf, onIssueCreated: hook }) {
+  onIssueCreated = hook ?? null;
   // 첨부 올리기 (multipart, 파일 1개 + 선택 필드 author — Gonfluence 프록시가 파일보다 먼저 보낸다)
   app.post('/api/dev-chat/files', async (req, reply) => {
     const file = await req.file();
@@ -343,7 +346,15 @@ export function registerDevChat(app, { textToAdf }) {
       source: req.body?.source === 'Gonfluence' ? 'Gonfluence' : 'Gira',
       proxied: !!req.body?.author,
       env: cleanEnv(req.body?.env),
+      req,
     };
+    // 보고자: Gonfluence 프록시는 서비스 키 계정으로 들어오므로, 함께 온 요청자 메일로 실제 사용자를 찾아 보고자로 둔다
+    // (알림 메일 '보고자에게'가 요청한 사람에게 가도록). 못 찾으면 지금처럼 로그인 계정
+    ctx.reporterId = ctx.userId;
+    if (ctx.proxied && ctx.authorEmail) {
+      const { rows: who } = await query(`SELECT id FROM users WHERE lower(email) = lower($1) AND active LIMIT 1`, [ctx.authorEmail]);
+      if (who[0]) ctx.reporterId = who[0].id;
+    }
     const files = await ownedFiles(fileIds, ctx);
     if (files.length !== fileIds.length) return reply.code(400).send({ error: '첨부 파일을 찾을 수 없습니다 — 다시 올려 주세요' });
     if (!sessionId) {

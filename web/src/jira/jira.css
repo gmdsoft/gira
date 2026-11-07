@@ -996,3 +996,26 @@ button.plain.screate:hover { background: var(--bg); color: var(--text); }
 .link-list .row-x { margin-left: 8px; border: 0; background: none; color: var(--dim); cursor: pointer; padding: 0 4px; visibility: hidden; }
 .link-list li:hover .row-x { visibility: visible; }
 .link-list .row-x:hover { color: var(--danger, #c9372c); }
+
+.adf .adf-file-card { display: inline-flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; max-width: 100%; box-sizing: border-box; text-decoration: none; }
+.adf .adf-file-info { display: flex; flex-direction: column; min-width: 0; font-size: 12px; }
+.adf .adf-file-info strong { overflow-wrap: anywhere; }
+.adf .media-group { display: flex; flex-wrap: wrap; gap: 8px; }
+/* GIRA-71: 시간 추적·작업 로그 */
+.timetrack-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin: 4px 0; min-width: 120px; }
+.timetrack-bar > div { height: 100%; background: var(--accent, #0c66e4); }
+.worklog-add { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+.worklog-add input { padding: 4px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--text); }
+.worklog-row { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.worklog-comment { flex-basis: 100%; padding-left: 32px; }
+
+.adf-inline-card { display: inline; border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; overflow-wrap: anywhere; }
+.adf-link-card { display: block; border: 1px solid var(--line); border-radius: 6px; padding: 12px; margin: 8px 0; overflow-wrap: anywhere; }
+.adf-inline-card .status-lozenge, .adf-link-card .status-lozenge { margin-left: 6px; }
+.adf-embed { width: 100%; height: 450px; border: 1px solid var(--line); border-radius: 6px; }
+.adf-decisions { list-style: none; padding-left: 16px; }
+.adf-decisions > li { padding: 6px; border-left: 3px solid var(--line); }
+/* 관찰자 목록 */
+.issue-watchers { position: relative; }
+.issue-watchers-panel { position: absolute; top: 28px; left: 0; z-index: 20; min-width: 220px; max-height: 320px; overflow-y: auto; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 4px 12px #0002; }
+.issue-watchers-panel > div { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }

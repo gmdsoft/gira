@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS content (
   id bigint PRIMARY KEY,
   space_id bigint NOT NULL REFERENCES spaces(id),
   parent_id bigint REFERENCES content(id),
-  type text NOT NULL CHECK (type IN ('page','live','folder','whiteboard','database','embed')),
+  type text NOT NULL CHECK (type IN ('page','live','folder','whiteboard','database','embed','blogpost')),
   title text NOT NULL,
   position int,
   status text NOT NULL DEFAULT 'current',
@@ -144,3 +144,44 @@ CREATE TABLE IF NOT EXISTS redirects (
   content_id bigint,
   target_url text
 );
+
+-- Imported canvas databases retain their source for future conversion.
+CREATE TABLE IF NOT EXISTS database_snapshots (
+  content_id bigint NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+  version int NOT NULL,
+  data jsonb NOT NULL,
+  source_ybin bytea NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (content_id, version)
+);
+ALTER TABLE database_snapshots ALTER COLUMN source_ybin DROP NOT NULL;
+CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
+  content_id bigint NOT NULL REFERENCES content(id) ON DELETE CASCADE,
+  version int NOT NULL,
+  data jsonb NOT NULL,
+  source_ybin bytea NOT NULL,
+  fetched_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (content_id, version)
+);
+CREATE TABLE IF NOT EXISTS space_templates (
+  id bigint PRIMARY KEY,
+  space_id bigint NOT NULL REFERENCES spaces(id),
+  name text NOT NULL,
+  description text NOT NULL DEFAULT '',
+  labels text[] NOT NULL DEFAULT '{}',
+  doc jsonb NOT NULL,
+  source_xhtml text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS space_templates_space ON space_templates(space_id);
+CREATE SEQUENCE IF NOT EXISTS space_template_id_seq START 1000000000000;
+
+-- GIRA-60: 블로그 글 종류 허용 (기존 DB의 CHECK 제약 갱신, 여러 번 실행해도 안전)
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'content_type_check'
+             AND pg_get_constraintdef(oid) NOT LIKE '%blogpost%') THEN
+    ALTER TABLE content DROP CONSTRAINT content_type_check;
+    ALTER TABLE content ADD CONSTRAINT content_type_check CHECK (type IN ('page','live','folder','whiteboard','database','embed','blogpost'));
+  END IF;
+END $$;

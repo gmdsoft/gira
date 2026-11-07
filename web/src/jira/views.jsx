@@ -21,7 +21,10 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
       if (filters.xjql) u.append('jql', filters.xjql); // 기본 모드로 못 옮긴 잔여 JQL — AND 결합
     }
     // 아바타 빠른 필터: 기본/JQL 모드와 무관하게 '이 프로젝트에서 이 사람이 담당' 으로 AND 적용
+    for (const jql of filters.quickJql ?? []) u.append('jql', jql);
     if (filters.who) u.set('who', filters.who);
+    if (filters.scope === 'all') u.delete('project');
+    u.delete('scope');
     for (const x of extraJql) if (x) u.append('jql', x); // 보드 필터 등 — AND 결합
     if (sort) u.set('sort', sort);
     return u;
@@ -33,7 +36,7 @@ function useIssues(project, filters, bump, { sort = null, pageSize = 0, extraJql
     api('/api/issues?' + qs(0, pageSize || 1000)).then((d) => {
       if (seq.current !== my) return;
       setData(d); setLoading(false);
-    });
+    }).catch(() => { if (seq.current === my) {setData({total:0,rows:[]});setLoading(false);} });
   }, [project, JSON.stringify(filters), bump, sort, JSON.stringify(extraJql)]);
   const fetchMore = () => {
     if (!pageSize || loading || data.rows.length >= data.total) return;
@@ -172,6 +175,9 @@ const readLS = (key, fallback) => {
 };
 
 export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onChanged, onCount, onNew, onSeen, onHome, boardJql }) {
+  const [customColumns, setCustomColumns] = useState(() => readLS('jira.customColumns', []));
+  const extraColumns = (meta.customFields ?? []).filter(f => customColumns.includes(f.id));
+  const tableCols = [...TABLE_COLS, ...extraColumns.map(f => [f.id, f.name])];
   const readIssue = () => {
     const key = new URLSearchParams(location.search).get('selectedIssue') ?? '';
     return /^[A-Za-z][A-Za-z0-9]*-\d+$/.test(key) ? key.toUpperCase() : null;
@@ -236,9 +242,9 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   useEffect(() => onCount(total), [total]);
   useEffect(() => { setSelected((cur) => new Set([...cur].filter((id) => rows.some((r) => r.id === id)))); }, [rows]);
 
-  const fixedSum = CHECKBOX_WIDTH + TABLE_COLS
+  const fixedSum = CHECKBOX_WIDTH + tableCols
     .filter(([f]) => f !== 'summary')
-    .reduce((sum, [f]) => sum + (widths[f] ?? DEFAULT_COL_WIDTHS[f]), 0);
+    .reduce((sum, [f]) => sum + (widths[f] ?? DEFAULT_COL_WIDTHS[f] ?? 160), 0);
   useEffect(() => { try { localStorage.setItem('jira.tableWidths.v3', JSON.stringify(widths)); } catch { /* 무시 */ } }, [widths]);
   useEffect(() => { try { localStorage.setItem('jira.summaryWidth', String(summaryWidth)); localStorage.setItem('jira.summaryManual', summaryManual ? 'true' : 'false'); } catch { /* 무시 */ } }, [summaryWidth, summaryManual]);
   // 업무 열은 창 폭에 맞춰 남는 공간을 차지한다. 사용자가 직접 조절한 뒤에는 그 폭을 유지한다.
@@ -275,11 +281,11 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   }, [resizing]);
   const startResize = (e, field) => {
     e.preventDefault(); e.stopPropagation();
-    setResizing({ field, startX: e.clientX, startW: field === 'summary' ? summaryWidth : (widths[field] ?? DEFAULT_COL_WIDTHS[field]) });
+    setResizing({ field, startX: e.clientX, startW: field === 'summary' ? summaryWidth : (widths[field] ?? DEFAULT_COL_WIDTHS[field] ?? 160) });
   };
   const resetCol = (field) => {
     if (field === 'summary') setSummaryManual(false);
-    else setWidths((w) => ({ ...w, [field]: DEFAULT_COL_WIDTHS[field] }));
+    else setWidths((w) => ({ ...w, [field]: DEFAULT_COL_WIDTHS[field] ?? 160 }));
   };
 
   const ordered = useMemo(() => groupRows(rows, filters.group), [rows, filters.group]);
@@ -299,23 +305,29 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
   return (
     <div className="view on" id="view-table">
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+    <details style={{ padding: 8 }}><summary>사용자 정의 필드 열</summary>
+      {(meta.customFields ?? []).map(f => <label key={f.id} style={{ display: 'inline-block', margin: 6 }}><input type="checkbox" checked={customColumns.includes(f.id)} onChange={e => {
+        const next = e.target.checked ? [...customColumns, f.id] : customColumns.filter(id => id !== f.id);
+        setCustomColumns(next); try { localStorage.setItem('jira.customColumns', JSON.stringify(next)); } catch { /* 무시 */ }
+      }} />{f.name}</label>)}
+    </details>
     <div id="tablewrap" ref={wrapRef} onScroll={(e) => { if (nearBottom(e.target)) fetchMore(); }}>
       <table className="issues" style={{ width: fixedSum + summaryWidth, minWidth: '100%' }}>
         <colgroup>
           <col style={{ width: CHECKBOX_WIDTH }} />
-          {TABLE_COLS.map(([f]) => <col key={f} style={{ width: f === 'summary' ? summaryWidth : widths[f] }} />)}
+          {tableCols.map(([f]) => <col key={f} style={{ width: f === 'summary' ? summaryWidth : widths[f] ?? 160 }} />)}
         </colgroup>
         <thead><tr>
           <th className="c-check"><input type="checkbox" checked={allOn} onChange={toggleAll} aria-label="전체 선택" /></th>
-          {TABLE_COLS.map(([f, label]) => (
-            <th key={f} className={`c-${f}`} onClick={() => clickSort(f)}>{label}
+          {tableCols.map(([f, label]) => (
+            <th key={f} className={`c-${f}`} onClick={() => { if (!f.startsWith('customfield_')) clickSort(f); }}>{label}
               {sort?.field === f && <span className="arrow">{sort.dir > 0 ? '▲' : '▼'}</span>}
               <span className="col-resizer" title="드래그하여 열 폭 조절 (더블클릭: 초기화)"
                 onMouseDown={(e) => startResize(e, f)} onClick={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => { e.stopPropagation(); resetCol(f); }} /></th>))}
         </tr></thead>
         <tbody>{ordered.map((r, i) => r.__group !== undefined
-          ? <tr className="ghead" key={'g' + i}><td colSpan={TABLE_COLS.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
+          ? <tr className="ghead" key={'g' + i}><td colSpan={tableCols.length + 1}><span className="gtwisty">▾</span>{r.__group} <span className="dim">{r.__count}건</span></td></tr>
           : <tr key={r.id} className={selected.has(r.id) ? 'selected' : ''} onClick={() => setIssue(r.issue_key)}>
               <td className="c-check" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} aria-label={`${r.issue_key} 선택`} /></td>
               <td className="c-key"><span className="key-wrap"><TypeIcon name={r.type_name} /><a href={`/browse/${encodeURIComponent(r.issue_key)}`} className={`ilink${r.status_category === 'done' ? ' done' : ''}`} onClick={(e) => issueClick(e, r.issue_key)}>{r.issue_key}</a></span></td>
@@ -329,6 +341,7 @@ export function TableView({ project, meta, pdata, me, filters, bump, onOpen, onC
               <td className="c-resolution">{r.resolution ? <span className="resolved"><IconCheck size={14} />{r.resolution}</span> : (r.resolved_at ? <span className="resolved"><IconCheck size={14} />완료</span> : '')}</td>
               <td className="c-created">{dt(r.created_at)}</td>
               <td className="c-updated">{dt(r.updated_at)}</td>
+              {extraColumns.map(f => <td key={f.id}>{r.customFields?.find(v => v.id === f.id)?.display ?? ''}</td>)}
             </tr>)}
         </tbody>
       </table>
@@ -378,7 +391,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
   // 보드 필터(JQL) + 스크럼 보드는 활성 스프린트만 (실제 Jira 스크럼 보드 동작)
   // 칸반 보드는 하위 필터(sub_jql)까지 적용 — Jira처럼 출시된 버전의 이슈 등은 보드에서 빠진다
   const extraJql = board ? [board.jql, board.type === 'scrum' ? 'sprint IN activeSprints()' : board.sub_jql].filter(Boolean) : [];
-  const { rows, total } = useIssues(project, filters, bump, { extraJql }); // 보드는 최신 1,000건 (가상 스크롤 대상 아님)
+  const { rows, total } = useIssues(project, filters, bump, { extraJql, sort: 'rank' }); // 보드는 순위순 1,000건 (가상 스크롤 대상 아님)
   const [modal, setModal] = useState(null); // null | {board or undefined}
   const [dragKey, setDragKey] = useState(null);
   const [over, setOver] = useState(null);       // 'lane|col'
@@ -453,7 +466,7 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
     return {};
   };
 
-  const drop = async (lane, colIdx) => {
+  const drop = async (lane, colIdx, targetKey, after = false) => {
     setOver(null);
     if (isMobile() || !dragKey) return;
     const r = cards.find((x) => x.issue_key === dragKey);
@@ -468,6 +481,10 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
       }
       Object.assign(json, laneFields(lane));
     }
+    if (targetKey === dragKey) return;
+    const last = lane.buckets[colIdx].filter(x => x.issue_key !== dragKey).at(-1);
+    if (targetKey) json[after ? 'rankAfter' : 'rankBefore'] = targetKey;
+    else if (last) json.rankAfter = last.issue_key;
     if (!Object.keys(json).length) return;
     await api('/api/issue/' + encodeURIComponent(dragKey), { method: 'PATCH', json });
     onChanged();
@@ -555,7 +572,8 @@ export function BoardView({ project, meta, pdata, filters, bump, onOpen, onChang
                           <div className="bcell-head"><span>{c.name}</span><span className="bcell-n">{lane.buckets[i].length}</span></div>
                           <div className="cards">
                             {lane.buckets[i].map((r) => (
-                              <BoardCard key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen} project={project} meta={meta} onChanged={onChanged}
+                              <BoardCard estimation={board?.estimation} key={r.id} r={r} dragging={dragKey === r.issue_key} onOpen={onOpen} project={project} meta={meta} onChanged={onChanged}
+                                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); drop(lane, i, r.issue_key, e.clientY > e.currentTarget.getBoundingClientRect().top + e.currentTarget.offsetHeight / 2); }}
                                 onDragStart={() => setDragKey(r.issue_key)} onDragEnd={() => { setDragKey(null); setOver(null); }} />
                             ))}
                           </div>
@@ -618,9 +636,9 @@ function SprintBar({ sprint, rows, onComplete }) {
 }
 
 // 보드 카드: 제목 / 에픽·버전·레이블 칩 / 타입·키 + 우선순위·담당자
-function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta, onChanged }) {
+function BoardCard({ estimation, r, dragging, onOpen, onDragStart, onDragEnd, onDrop, project, meta, onChanged }) {
   return (
-    <div className={`card${dragging ? ' dragging' : ''}`} draggable={!isMobile()} onDragStart={onDragStart} onDragEnd={onDragEnd}
+    <div className={`card${dragging ? ' dragging' : ''}`} draggable={!isMobile()} onDrop={onDrop} onDragOver={(e) => e.preventDefault()} onDragStart={onDragStart} onDragEnd={onDragEnd}
       onClick={() => onOpen(r.issue_key)}>
       <EpicBar r={r} />
       <div className="sum">{r.summary}</div>
@@ -636,7 +654,7 @@ function BoardCard({ r, dragging, onOpen, onDragStart, onDragEnd, project, meta,
           <TypeIcon name={r.type_name} size={16} />
           <span className={`ilink${r.status_category === 'done' ? ' done' : ''}`}>{r.issue_key}</span>
         </span>
-        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
+        <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}><span title={estimation?.field?.displayName ?? "스토리 포인트"}>{estimation?.type === 'issueCount' ? '' : estimation?.field?.fieldId ? (r.customFields?.find(f=>f.id===estimation.field.fieldId)?.display ?? '') : (r.storyPoints ?? '')}</span><Prio p={r.priority} /><Avatar name={r.assignee_name} /></span>
       </div>
     </div>
   );
@@ -682,7 +700,7 @@ function ClosedSprint({ project, s, onOpen }) {
     const next = !open;
     setOpen(next);
     if (next && list === null) {
-      const qs = new URLSearchParams({ project, sprint: s.id, limit: 1000, offset: 0 });
+      const qs = new URLSearchParams({ project, sprint: s.id, limit: 1000, offset: 0, sort: 'rank' });
       setList((await api('/api/issues?' + qs)).rows);
     }
   };
@@ -741,13 +759,14 @@ function QuickCreate({ meta, project, sprintId, open, onToggle, onCreated }) {
 // ---------- 백로그 (스프린트 + 인라인 계층) ----------
 export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onChanged, onCount, reloadPdata, boardJql, board }) {
   // 사용자 JQL은 백로그에 적용하지 않지만(실제 Jira 백로그도 JQL 미지원), 보드 컨텍스트 필터는 적용한다.
-  // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 최신순 1,000건
+  // 두 번 나눠 로드: ① 열린 스프린트 소속 이슈는 전부 ② 백로그(스프린트 없음)는 순위순 1,000건
   //   — 보드 필터의 ORDER BY가 로드 윈도우를 바꿔 스프린트 이슈가 빠지는 문제 방지 (완료 스프린트는 아래 접힘 그룹에서 지연 로드)
   // 실제 Jira 백로그처럼 완료(done) 이슈는 어디에도 표시하지 않는다 (완료분은 보드/목록·완료 스프린트 그룹에서)
   const { rows: sprRows } = useIssues(project, { ...filters, sprint: '', jql: '' }, bump,
-    { extraJql: [boardJql, 'sprint IN openSprints()', 'statusCategory != done'] });
+    { extraJql: [boardJql, 'sprint IN openSprints()', 'statusCategory != done'], sort: 'rank' });
   const { rows: backRows, total: backTotal } = useIssues(project, { ...filters, sprint: 'none', jql: '' }, bump,
-    { extraJql: [boardJql, 'statusCategory != done'], sort: '-key' });
+    { extraJql: [boardJql, 'statusCategory != done'], sort: 'rank' });
+  const dragIssue = useRef(null);
   const [expanded, setExpanded] = useState(() => new Set());
   const [showClosed, setShowClosed] = useState(false);
   const [qc, setQc] = useState(() => new Set()); // 인라인 '+ 만들기'가 열린 섹션 (스프린트 id | 'none')
@@ -795,7 +814,16 @@ export function BacklogView({ project, meta, pdata, filters, bump, onOpen, onCha
   };
 
   const IssueRow = ({ r, child, twisty }) => (
-    <div className={`srow${child ? ' child' : ''}`}>
+    <div className={`srow${child ? ' child' : ''}`} draggable={!isMobile()}
+      onDragStart={() => { dragIssue.current = r.issue_key; }} onDragEnd={() => { dragIssue.current = null; }}
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={async (e) => {
+        e.preventDefault(); e.stopPropagation();
+        if (!dragIssue.current || dragIssue.current === r.issue_key) return;
+        const after = e.clientY > e.currentTarget.getBoundingClientRect().top + e.currentTarget.offsetHeight / 2;
+        await api('/api/issue/' + encodeURIComponent(dragIssue.current), { method: 'PATCH', json: { [after ? 'rankAfter' : 'rankBefore']: r.issue_key, sprintId: r.sprint_id } });
+        dragIssue.current = null; onChanged();
+      }}>
       <EpicBar r={r} />
       {twisty}
       <TypeIcon name={r.type_name} />
