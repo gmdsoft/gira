@@ -163,6 +163,8 @@ CREATE TABLE IF NOT EXISTS whiteboard_snapshots (
   fetched_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (content_id, version)
 );
+-- 편집본(GIRA-74)은 원본 바이너리가 없다 — 이관 버전만 source_ybin 보관
+ALTER TABLE whiteboard_snapshots ALTER COLUMN source_ybin DROP NOT NULL;
 CREATE TABLE IF NOT EXISTS space_templates (
   id bigint PRIMARY KEY,
   space_id bigint NOT NULL REFERENCES spaces(id),

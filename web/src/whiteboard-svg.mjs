@@ -10,7 +10,7 @@ export function whiteboardBounds(data) {
   return [Math.min(...xs) - 40, Math.min(...ys) - 40, Math.max(...xs) - Math.min(...xs) + 80, Math.max(...ys) - Math.min(...ys) + 80];
 }
 // 아이콘 도형(사람·서버·코드): 상자 위쪽 60%에 그림, 아래는 이름표
-function iconGlyph(e) {
+export function iconGlyph(e) {
   const gh = e.h * 0.58, gw = Math.min(e.w, gh * 0.8), cx = e.x + e.w / 2, top = e.y, left = cx - gw / 2;
   const fill = esc(e.color), stroke = esc(e.strokeColor === 'none' ? '#42526e' : e.strokeColor), sw = Math.max(1.5, gh / 30);
   if (e.icon === 'person') {

@@ -1,4 +1,5 @@
 import { saveDatabase } from './database-edit.mjs';
+import { saveWhiteboard, emptyWhiteboard } from './whiteboard-edit.mjs';
 import { registerPlantuml } from './plantuml.mjs';
 import { reportScope, reportNodes, mergeDetails, labelCounts, walk } from './macro-reports.mjs';
 import { resolveAvatar } from './avatar.mjs';
@@ -358,7 +359,7 @@ app.get('/api/content/:id', async (req, reply) => {
     children: childRows.filter((r) => childOk.has(String(r.id))),
     data: canvas,
     currentVersion: c.current_version,
-    canEdit: !['whiteboard', 'embed'].includes(c.type) && acc.edit, role: acc.role, // 데이터베이스는 전용 편집 API 사용
+    canEdit: c.type !== 'embed' && acc.edit, role: acc.role, // 데이터베이스·화이트보드는 전용 편집 API 사용
     id: c.id, spaceKey: c.space_key, spaceName: c.space_name, parentId: c.parent_id,
     type: c.type, title: c.title, status: c.status, fullWidth: c.full_width, authorName: c.author_name,
     createdAt: c.created_at, updatedAt: c.updated_at, version: ver[0] ?? null,
@@ -374,6 +375,23 @@ app.put('/api/content/:id/database', async (req, reply) => {
   try {
     await client.query('BEGIN');
     const result = await saveDatabase(client, { id: req.params.id, baseVersion: req.body.baseVersion, data: req.body.data, userId: req.access.userId });
+    await client.query(result.status === 200 ? 'COMMIT' : 'ROLLBACK');
+    if (result.status === 200) reindex(req.params.id);
+    return reply.code(result.status).send(result);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    if (e.message.startsWith('잘못된')) return reply.code(400).send({ error: e.message });
+    throw e;
+  } finally { client.release(); }
+});
+
+app.put('/api/content/:id/whiteboard', async (req, reply) => {
+  if (!await requireAccess(req, reply, req.params.id, 'edit')) return;
+  if (!Number.isInteger(req.body?.baseVersion)) return reply.code(400).send({ error: 'baseVersion required' });
+  const client = await (await getDb()).connect();
+  try {
+    await client.query('BEGIN');
+    const result = await saveWhiteboard(client, { id: req.params.id, baseVersion: req.body.baseVersion, data: req.body.data, userId: req.access.userId });
     await client.query(result.status === 200 ? 'COMMIT' : 'ROLLBACK');
     if (result.status === 200) reindex(req.params.id);
     return reply.code(result.status).send(result);
@@ -537,11 +555,11 @@ app.post('/api/content/:id/publish', async (req, reply) => {
 app.post('/api/content', async (req, reply) => {
   const { spaceKey, parentId } = req.body ?? {};
   // 유형: 문서(page, 기본) 또는 폴더(folder — 본문 없이 문서를 묶는 용도, 제목 필수)
-  const type = ['folder', 'database'].includes(req.body?.type) ? req.body.type : 'page';
+  const type = ['folder', 'database', 'whiteboard'].includes(req.body?.type) ? req.body.type : 'page';
   let initialDoc;
   try { initialDoc = type === 'page' ? bodyDoc(req.body) : null; } catch (e) { return reply.code(400).send({ error: e.message }); }
   if (type === 'folder' && !req.body?.title?.trim()) return reply.code(400).send({ error: '폴더 이름을 입력하세요' });
-  const title = req.body?.title?.trim() || (type === 'database' ? '새 데이터베이스' : '제목 없는 문서');
+  const title = req.body?.title?.trim() || ({ database: '새 데이터베이스', whiteboard: '새 화이트보드' }[type] ?? '제목 없는 문서');
   if (!spaceKey) return reply.code(400).send({ error: 'spaceKey required' });
   const { rows: sp } = await query(`SELECT id FROM spaces WHERE key = $1`, [spaceKey]);
   if (!sp.length) return reply.code(404).send({ error: 'space not found' });
@@ -549,17 +567,21 @@ app.post('/api/content', async (req, reply) => {
   if (!role || role === 'viewer') return reply.code(403).send({ error: '이 스페이스에 페이지를 만들 권한이 없습니다' });
   if (parentId != null && !await requireAccess(req, reply, parentId)) return;
   const userId = req.access.userId;
-  if (type === 'database') {
+  if (type === 'database' || type === 'whiteboard') {
     const client = await (await getDb()).connect();
     let id;
     try {
       await client.query('BEGIN');
       const result = await client.query(`INSERT INTO content (id,space_id,parent_id,type,title,status,author_id,owner_id,current_version,created_at,updated_at)
-        VALUES (nextval('content_id_seq'),$1,$2,'database',$3,'current',$4,$4,1,now(),now()) RETURNING id`, [sp[0].id,parentId ?? null,title,userId]);
+        VALUES (nextval('content_id_seq'),$1,$2,$5,$3,'current',$4,$4,1,now(),now()) RETURNING id`, [sp[0].id,parentId ?? null,title,userId,type]);
       id = result.rows[0].id;
-      const data = { fields:[{id:'name',name:'이름',type:'t',options:[]}],rows:[],views:[{id:'table',name:'표',type:'table',hiddenFields:[],sort:[],filter:null,groupBy:null}] };
-      await client.query('INSERT INTO database_snapshots (content_id,version,data) VALUES ($1,1,$2)', [id,JSON.stringify(data)]);
-      await client.query(`INSERT INTO content_versions (content_id,version,doc,message,author_id,created_at) VALUES ($1,1,NULL,'데이터베이스 생성',$2,now())`, [id,userId]);
+      if (type === 'whiteboard') {
+        await client.query('INSERT INTO whiteboard_snapshots (content_id,version,data) VALUES ($1,1,$2)', [id,JSON.stringify(emptyWhiteboard())]);
+      } else {
+        const data = { fields:[{id:'name',name:'이름',type:'t',options:[]}],rows:[],views:[{id:'table',name:'표',type:'table',hiddenFields:[],sort:[],filter:null,groupBy:null}] };
+        await client.query('INSERT INTO database_snapshots (content_id,version,data) VALUES ($1,1,$2)', [id,JSON.stringify(data)]);
+      }
+      await client.query(`INSERT INTO content_versions (content_id,version,doc,message,author_id,created_at) VALUES ($1,1,NULL,$3,$2,now())`, [id,userId,type === 'whiteboard' ? '화이트보드 생성' : '데이터베이스 생성']);
       await client.query('COMMIT');
     } catch (e) { await client.query('ROLLBACK'); throw e; }
     finally { client.release(); }
@@ -631,7 +653,8 @@ app.get('/api/content/:id/versions/:v', async (req, reply) => {
        FROM content_versions v LEFT JOIN users u ON u.id = v.author_id
       WHERE v.content_id = $1 AND v.version = $2`, [req.params.id, req.params.v]);
   if (!rows.length) return reply.code(404).send({ error: 'version not found' });
-  const snapshot = await query('SELECT data FROM database_snapshots WHERE content_id=$1 AND version=$2', [req.params.id, req.params.v]);
+  const snapshot = await query(`SELECT data FROM database_snapshots WHERE content_id=$1 AND version=$2
+                                 UNION ALL SELECT data FROM whiteboard_snapshots WHERE content_id=$1 AND version=$2 LIMIT 1`, [req.params.id, req.params.v]);
   return { ...rows[0], data: snapshot.rows[0]?.data };
 });
 
