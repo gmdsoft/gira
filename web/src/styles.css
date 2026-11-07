@@ -106,7 +106,7 @@ mark, .comment-mark, .inline-flash { color: var(--ink); }
 .tree-node .tree-node { margin-left: 14px; }
 .tree-row { display: flex; align-items: center; border-radius: 4px; padding: 2px 4px; }
 .tree-row.current { background: var(--sel); }
-.tree-row.current > a { color: var(--accent); font-weight: 600; }
+.tree-row.current > a { color: var(--accent); font-weight: 500; }
 .tree-toggle { width: 18px; flex: none; border: 0; background: none; cursor: pointer; color: var(--muted); padding: 0; }
 .tree-row a, .tree-label { color: inherit; text-decoration: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-row a:hover { color: var(--accent); }
@@ -860,8 +860,8 @@ span.cf-macro-slot { display: inline; margin: 0; }
 .gs-tree .tree { font-size: 14px; }
 .gs-tree .tree-row[draggable="true"] { cursor: grab; }
 .gs-tree .tree-row { min-height: 32px; padding: 3px 4px; border-radius: 6px; }
-.gs-tree .tree-row.current { background: var(--sel); box-shadow: inset 3px 0 0 var(--accent); }
-.gs-tree .tree-row.current > a { color: var(--accent); font-weight: 600; }
+.gs-tree .tree-row.current { background: #e9f2fe; box-shadow: none; }
+.gs-tree .tree-row.current > a { color: var(--accent); font-weight: 500; }
 .gs-child { padding-left: 18px; color: var(--text2); font-size: 14px; min-height: 32px; }
 .gs-recent { min-height: 32px; font-size: 14px; }
 .gs-input { width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; margin: 8px 0 16px; background: var(--panel); color: var(--text); }
