@@ -29,10 +29,27 @@ export function iconGlyph(e) {
   }
   return box;
 }
-export function whiteboardSvg(data) {
+// 서식 있는 글자(GIRA-78): 줄마다 div — 목록 기호·들여쓰기, 제목은 굵게, 글자 조각은 굵게·기울임·취소선·링크
+const safeHref = (href) => /^https?:\/\//i.test(String(href ?? '')) ? String(href) : null;
+export function richHtml(lines) {
+  return lines.map((l) => {
+    const runs = l.runs.map((r) => {
+      let h = esc(r.text);
+      if (r.b) h = `<b>${h}</b>`; if (r.i) h = `<i>${h}</i>`; if (r.s) h = `<s>${h}</s>`;
+      const href = safeHref(r.href);
+      return href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer" style="color:#0c66e4">${h}</a>` : h;
+    }).join('');
+    const mark = l.list === 'ul' ? ['•', '◦', '▪'][(l.depth ?? 0) % 3] : l.list === 'ol' ? `${l.n ?? 1}.` : '';
+    const style = [l.heading ? 'font-weight:600' : '', l.list ? `padding-left:${1.2 * ((l.depth ?? 0) + 1)}em;text-indent:-1.2em` : ''].filter(Boolean).join(';');
+    return `<div${style ? ` style="${style}"` : ''}>${mark ? `<span style="display:inline-block;width:1.2em;text-indent:0">${esc(mark)}</span>` : ''}${runs || '<br/>'}</div>`;
+  }).join('');
+}
+const STAMPS = { fire: '🔥', success: '✅', heart: '❤️', like: '👍', question: '❓', star: '⭐' };
+// opts.contentId: 이관한 이미지 원본을 /api/att/<id>/<파일>로 표시. opts.comments: { ci → 댓글 수 } (원본 댓글 이관분)
+export function whiteboardSvg(data, opts = {}) {
   const bounds = whiteboardBounds(data), elements = new Map((data.elements ?? []).map(e => [e.id, e])), connectors = new Map((data.connectors ?? []).map(e => [e.id, e]));
   // 텍스트 요소는 원본처럼 왼쪽 위 정렬·줄바꿈 없이 내용 크기만큼 (상자 밖으로 넘쳐도 보이게)
-  const label = (e, text = e.text) => text ? `<foreignObject x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.type === 'text' ? ' style="overflow:visible"' : ''}><div xmlns="http://www.w3.org/1999/xhtml" style="${e.type === 'text' ? 'display:block;text-align:left;white-space:pre;' : 'display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;'}overflow-wrap:anywhere;width:100%;height:100%;padding:4px;box-sizing:border-box;font:${14 * (e.fontScale || 1)}px sans-serif;color:${esc(e.textColor ?? "#172b4d")}">${esc(text)}</div></foreignObject>` : '';
+  const label = (e, text = e.text) => text ? `<foreignObject x="${n(e.x)}" y="${n(e.y)}" width="${n(e.w)}" height="${n(e.h)}"${e.type === 'text' ? ' style="overflow:visible"' : ''}><div xmlns="http://www.w3.org/1999/xhtml" style="${e.type === 'text' ? 'display:block;text-align:left;white-space:pre;' : e.rich ? 'display:flex;flex-direction:column;justify-content:center;text-align:left;white-space:pre-wrap;' : 'display:flex;align-items:center;justify-content:center;text-align:center;white-space:pre-wrap;'}overflow-wrap:anywhere;width:100%;height:100%;padding:4px;box-sizing:border-box;font:${14 * (e.fontScale || 1)}px sans-serif;color:${esc(e.textColor ?? "#172b4d")}">${e.rich && text === e.text ? richHtml(e.rich) : esc(text)}</div></foreignObject>` : '';
   const parts = [];
   for (const id of data.order ?? [...elements.keys(), ...connectors.keys()]) {
     const c = connectors.get(id);
@@ -47,9 +64,15 @@ export function whiteboardSvg(data) {
     }
     else if (e.icon) body = iconGlyph(e) + label({ ...e, y: y + h * 0.62, h: h * 0.38 });
     else if (e.type === 'text' || e.type === 'pathLabel') body = label(e);
-    else if (e.type === 'image') body = rect('#ebecf0', '#c1c7d0') + label(e, e.filename);
-    else if (e.type === 'stamp') body = `<text x="${n(x + w / 2)}" y="${n(y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-size="${Math.min(w, h)}">${esc(({ fire: '🔥', success: '✅', heart: '❤️', like: '👍', question: '❓', star: '⭐' })[e.stamp] ?? '●')}</text>`;
-    else if (e.type === 'comment') body = `<circle cx="${n(x + 12)}" cy="${n(y + 12)}" r="12" fill="#deebff"/><text x="${n(x + 12)}" y="${n(y + 17)}" text-anchor="middle" font-size="14">💬</text>`;
+    // 이미지: 자리 표시 상자 위에 이관한 원본 — 원본이 아직 없으면(404) 자리 표시만 보인다
+    else if (e.type === 'image') body = rect('#ebecf0', '#c1c7d0') + label(e, e.filename)
+      + (opts.contentId && e.imageName ? `<image href="/api/att/${encodeURIComponent(opts.contentId)}/${encodeURIComponent(e.imageName)}" x="${n(x)}" y="${n(y)}" width="${n(w)}" height="${n(h)}" preserveAspectRatio="xMidYMid meet"/>` : '');
+    else if (e.type === 'stamp') body = `<text x="${n(x + w / 2)}" y="${n(y + h / 2)}" dominant-baseline="central" text-anchor="middle" font-size="${Math.min(w, h)}">${esc(STAMPS[e.stamp] ?? '●')}</text>`;
+    // 댓글 표시: 눌러서 본문 보기(WhiteboardView가 data-wb-comment로 찾는다). 이관된 댓글 수를 작은 숫자로
+    else if (e.type === 'comment') {
+      const count = opts.comments?.[e.commentId] ?? 0;
+      body = `<g data-wb-comment="${esc(e.commentId ?? '')}" style="cursor:pointer"><title>${count ? `댓글 ${count}개 — 눌러서 보기` : '댓글'}</title><circle cx="${n(x + 12)}" cy="${n(y + 12)}" r="12" fill="#deebff" stroke="#0c66e4" stroke-width="${count ? 1 : 0}"/><text x="${n(x + 12)}" y="${n(y + 17)}" text-anchor="middle" font-size="14">💬</text>${count > 1 ? `<circle cx="${n(x + 23)}" cy="${n(y + 2)}" r="7" fill="#0c66e4"/><text x="${n(x + 23)}" y="${n(y + 6)}" text-anchor="middle" font-size="10" font-family="sans-serif" fill="#fff">${count}</text>` : ''}</g>`;
+    }
     else if (e.type === 'drawing') body = `<polyline points="${(e.points ?? []).map(p => p.map(n).join(',')).join(' ')}" fill="none" stroke="${esc(e.color)}" stroke-width="2"/>`;
     else if (e.type === 'shape' || e.type === 'sticky') {
       if (e.shape === 2) body = `<ellipse cx="${n(x + w / 2)}" cy="${n(y + h / 2)}" rx="${n(w / 2)}" ry="${n(h / 2)}" fill="${esc(e.color)}" stroke="${esc(e.strokeColor)}"/>`;
@@ -57,6 +80,8 @@ export function whiteboardSvg(data) {
       else body = rect(e.color);
       body += label(e);
     }
+    // 아직 모르는 요소(스마트 카드 등): 사라지지 않게 점선 상자와 종류를 표시한다
+    else if (!['pathLabel', 'pathWaypoint'].includes(e.type)) body = rect('#f7f8f9', '#8590a2').replace('/>', ' stroke-dasharray="4 3"/>') + label({ ...e, type: 'unknown' }, e.text || `(${e.type} — 옮기지 못한 요소)`);
     parts.push(`<g transform="rotate(${n(e.rotation)} ${n(x + w / 2)} ${n(y + h / 2)})">${body}</g>`);
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${bounds.join(' ')}" width="100%" height="100%" role="img" aria-label="화이트보드"><defs><marker id="wb-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="context-stroke"/></marker><marker id="wb-arrow-start" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M10 0 L0 5 L10 10Z" fill="context-stroke"/></marker></defs>${parts.join('')}</svg>`;

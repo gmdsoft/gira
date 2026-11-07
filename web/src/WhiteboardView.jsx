@@ -8,7 +8,52 @@ import { WhiteboardExportDialog } from './WhiteboardExport.jsx';
 const WhiteboardBoard = lazy(() => import('./WhiteboardBoard.jsx'));
 
 // 이관 원본 형식을 그대로 그리는 정적 보기 (원본과 같은 모양)
-function SvgView({ data, actions, title }) {
+// 댓글 본문(문서 JSON) → 문단 글자 (보드 옆 목록용 — 서식 없이)
+const docText = (doc) => {
+  const out = [];
+  const walk = (node, line) => {
+    if (!node) return line;
+    if (node.type === 'text') return line + (node.text ?? '');
+    if (node.type === 'mention') return line + '@' + (node.attrs?.text ?? '');
+    if (node.type === 'hardBreak') return line + '\n';
+    let cur = line;
+    for (const c of node.content ?? []) cur = walk(c, cur);
+    if (['paragraph', 'heading', 'listItem', 'codeBlock', 'blockquote'].includes(node.type) && cur) { out.push(cur); return ''; }
+    return cur;
+  };
+  const rest = walk(doc, ''); if (rest) out.push(rest);
+  return out.join('\n');
+};
+
+// 보드 댓글(원본 이관분): 보드의 💬 표시를 누르면 해당 댓글을 강조한다. 해결된 댓글은 원본처럼 숨긴다.
+function BoardComments({ comments, active, onPick }) {
+  if (!comments.length) return null;
+  return <section className="comments inline-comments wb-comments">
+    <h2>보드 댓글 <span className="muted">({comments.length})</span></h2>
+    {comments.map((c) => <div key={c.id} data-wb-comment-item={c.inline_ref} className={`inline-comment-item${active === c.inline_ref ? ' inline-flash' : ''}`}
+      onClick={() => onPick(c.inline_ref)} style={{ cursor: 'pointer' }}>
+      <div className="muted" style={{ fontSize: 12 }}>{c.author_name ?? '(알 수 없는 사용자)'}{c.created_at ? ` · ${new Date(c.created_at).toLocaleString('ko-KR')}` : ''}</div>
+      <div style={{ whiteSpace: 'pre-wrap' }}>{docText(c.doc) || '(본문 없음)'}</div>
+    </div>)}
+  </section>;
+}
+
+function SvgView({ data, actions, title, contentId }) {
+  const [comments, setComments] = useState([]);
+  const [active, setActive] = useState(null);
+  useEffect(() => {
+    if (!contentId) return undefined;
+    let alive = true;
+    fetch(`/api/content/${contentId}/comments`).then((r) => r.ok ? r.json() : []).then((rows) => {
+      if (alive) setComments(rows.filter((c) => c.kind === 'inline' && c.inline_ref && !c.resolved));
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [contentId]);
+  const counts = useMemo(() => comments.reduce((m, c) => ({ ...m, [c.inline_ref]: (m[c.inline_ref] ?? 0) + 1 }), {}), [comments]);
+  const pick = (ref) => {
+    setActive(ref);
+    document.querySelector(`[data-wb-comment-item="${CSS.escape(ref)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
   const [exporting, setExporting] = useState(false);
   const [view, setView] = useState({ x: 0, y: 0, scale: 1 });
   const [pan, setPan] = useState(false);
@@ -24,7 +69,7 @@ function SvgView({ data, actions, title }) {
     node.addEventListener('wheel', zoom, { passive: false });
     return () => node.removeEventListener('wheel', zoom);
   }, [data]);
-  const svg = useMemo(() => data ? whiteboardSvg(data) : '', [data]);
+  const svg = useMemo(() => data ? whiteboardSvg(data, { contentId, comments: counts }) : '', [data, contentId, counts]);
   // 바탕 격자 — 편집기(Excalidraw)와 같은 20px 칸, 5칸마다 굵은 선. 보드와 함께 이동·확대된다(중심 기준 scale)
   const cw = viewport.current?.clientWidth ?? 0, ch = viewport.current?.clientHeight ?? 0;
   const g = 20 * view.scale, G = g * 5;
@@ -52,7 +97,7 @@ function SvgView({ data, actions, title }) {
     <div className="wb-toolbar">
       <div className="wb-left">
         <span className="wb-badge"><WbIcon name="board" />이관 원본</span>
-        <span className="wb-note" title="이미지 원본과 댓글 본문은 이관 대기 중입니다.">이미지 원본·댓글 본문은 이관 대기 중</span>
+        {comments.length > 0 && <span className="wb-note">💬 표시를 누르면 댓글을 볼 수 있습니다</span>}
       </div>
       <div className="wb-right">
         <div className="wb-group" role="group" aria-label="확대/축소">
@@ -68,10 +113,12 @@ function SvgView({ data, actions, title }) {
     </div>
     <div ref={viewport} className="wb-canvas wb-grid" style={{ height: '70vh', overflow: 'hidden', ...grid, touchAction: pan ? 'none' : 'auto', cursor: pan ? 'grab' : 'text' }}
       onPointerDown={e => { if (!pan || e.button !== 0) return; e.currentTarget.setPointerCapture(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, view }; }}
+      onClick={e => { const ref = e.target.closest?.('[data-wb-comment]')?.getAttribute('data-wb-comment'); if (ref && counts[ref]) pick(ref); }}
       onPointerMove={e => { if (drag.current) { const d = drag.current; setView({ ...d.view, x: d.view.x + e.clientX - d.x, y: d.view.y + e.clientY - d.y }); } }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}>
       {exporting && <WhiteboardExportDialog title={title} canSelect={false} render={renderExport} onClose={() => setExporting(false)} />}
       <div style={{ width: '100%', height: '100%', transform: `translate(${view.x}px,${view.y}px) scale(${view.scale})`, userSelect: pan ? 'none' : 'text' }} dangerouslySetInnerHTML={{ __html: svg }} />
     </div>
+    <BoardComments comments={comments} active={active} onPick={setActive} />
   </div>;
 }
 
@@ -89,6 +136,6 @@ export default function WhiteboardView({ page }) {
           <WhiteboardBoard key={editing ? 'edit' : `view-${board.version}`} pageId={page.id} data={board.data} version={board.version} editing={editing}
             title={page.title} editAction={editBtn} onSaved={(version, data) => setBoard({ version, data })} onClose={() => setEditing(false)} />
         </Suspense>
-        : <SvgView data={board.data} actions={editBtn} title={page.title} />}
+        : <SvgView data={board.data} actions={editBtn} title={page.title} contentId={page.id} />}
   </article>;
 }

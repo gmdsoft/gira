@@ -53,7 +53,7 @@ export function toExcalidrawScene(data) {
       out.push(text(e.id, e.x, e.y, e.w, e.h, e.text ?? '', 14 * (e.fontScale || 1), { align: e.type === 'text' ? 'left' : 'center', color: hex(e.textColor, '#172b4d') }));
     } else if (e.type === 'image') {
       out.push(base(e.id, e.x, e.y, e.w, e.h, { type: 'rectangle', backgroundColor: '#ebecf0', strokeColor: '#c1c7d0' }));
-      out.push(text(e.id + '-t', e.x, e.y, e.w, e.h, e.filename || '이미지 (이관 대기)', 14, { containerId: e.id }));
+      out.push(text(e.id + '-t', e.x, e.y, e.w, e.h, e.filename || '이미지', 14, { containerId: e.id }));
       byId.get(e.id).boundElements.push({ type: 'text', id: e.id + '-t' });
     } else if (e.type === 'stamp') {
       out.push(text(e.id, e.x, e.y, e.w, e.h, STAMP[e.stamp] ?? '●', Math.max(12, Math.min(e.w, e.h) * 0.8)));
