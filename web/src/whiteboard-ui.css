@@ -1,0 +1,48 @@
+/* 화이트보드 상단 바 + 캔버스 틀 (GIRA-74) — 바와 캔버스가 한 덩어리로 붙은 카드 */
+.wb-frame { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); box-shadow: 0 1px 2px rgba(9, 30, 66, .08); }
+.wb-frame > .wb-canvas { border-top: 1px solid var(--border); }
+.wb-toolbar { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; background: var(--panel); min-height: 48px; flex-wrap: wrap; }
+.wb-toolbar .wb-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1 1 auto; }
+.wb-toolbar .wb-right { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.wb-note { color: var(--muted2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 배지 */
+.wb-badge { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 4px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--code-bg); color: var(--text2); }
+.wb-badge.is-edit { background: var(--sel); color: var(--accent); }
+.wb-badge svg { width: 13px; height: 13px; }
+
+/* 상태 표시 (점 + 글자) */
+.wb-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted2); white-space: nowrap; }
+.wb-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--line2); }
+.wb-status.dirty::before { background: #e2b203; }
+.wb-status.saved::before { background: #22a06b; }
+.wb-status.busy::before { background: var(--accent); animation: wb-pulse 1s ease-in-out infinite; }
+.wb-status.error { color: #c9372c; }
+.wb-status.error::before { background: #c9372c; }
+@keyframes wb-pulse { 50% { opacity: .3; } }
+
+/* 버튼 */
+.wb-btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text2); font: inherit; font-size: 13.5px; font-weight: 500; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
+.wb-btn svg { width: 16px; height: 16px; flex: none; }
+.wb-btn:hover { background: var(--hover); color: var(--text); }
+.wb-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.wb-btn:disabled { opacity: .45; cursor: default; background: transparent; }
+.wb-btn.icon { width: 32px; padding: 0; }
+.wb-btn[aria-pressed="true"] { background: var(--sel); color: var(--accent); }
+.wb-btn.primary { background: var(--accent); color: var(--on-accent); }
+.wb-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.wb-btn.primary:disabled { opacity: .5; background: var(--accent); }
+.wb-btn kbd { font: inherit; font-size: 11px; opacity: .75; padding: 0 4px; border-radius: 3px; background: rgba(255, 255, 255, .18); }
+
+/* 확대/축소 묶음 */
+.wb-group { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 2px; gap: 2px; }
+.wb-group .wb-btn { height: 26px; }
+.wb-group .wb-btn.icon { width: 26px; }
+.wb-zoom { min-width: 48px; text-align: center; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--text2); }
+.wb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+@media (max-width: 720px) {
+  .wb-note { display: none; }
+  .wb-btn .wb-label { display: none; }
+}

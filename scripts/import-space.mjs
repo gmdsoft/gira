@@ -8,6 +8,7 @@
 import { fetchWhiteboard } from './lib/confluence-whiteboard.mjs';
 import { fetchDatabase } from './lib/confluence-database.mjs';
 import { embedDoc } from './lib/confluence-embed.mjs';
+import { locallyEditedCanvases } from './lib/canvas-local-edits.mjs';
 import { importTemplates } from './lib/import-templates.mjs';
 import { parseArgs } from 'node:util';
 import { convertStorage } from './convert-storage.mjs';
@@ -337,11 +338,17 @@ for (const [i, p] of pages.entries()) {
      uid(p.authorId), uid(p.ownerId), p.version?.number ?? 1, perPage[i]?.fullWidth ?? false,
      ts(p.createdAt), ts(p.version?.createdAt)]);
 }
+// 우리 쪽에서 편집한 화이트보드·데이터베이스는 건드리지 않는다 (편집본이 원본으로 덮어써지는 것 방지)
+const locallyEdited = await locallyEditedCanvases(query, canvases);
 for (const d of canvases) {
   const snap = canvasData.get(String(d.id));
   const version = d.version?.number ?? 1;
   const type = d.type === 'whiteboard' ? 'whiteboard' : 'database';
   const table = type === 'whiteboard' ? 'whiteboard_snapshots' : 'database_snapshots';
+  if (locallyEdited.has(String(d.id))) {
+    console.log(`  건너뜀: ${type} ${d.id} "${d.title}" — 로컬 편집본이 있어 원본(버전 ${version})으로 덮어쓰지 않음`);
+    continue;
+  }
   await query(`INSERT INTO content (id, space_id, type, title, current_version, full_width, updated_at)
     VALUES ($1,$2,$6,$3,$4,true,$5)
     ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title, current_version=EXCLUDED.current_version, updated_at=EXCLUDED.updated_at

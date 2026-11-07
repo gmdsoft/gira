@@ -135,7 +135,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
     if (!res.ok) { alert((await res.json().catch(() => ({}))).error ?? '만들기 실패'); return; }
     const { id } = await res.json();
     setOpen((s) => new Set(s).add(sp.key));
-    if (type === 'database') { reloadTrees(); navigate(`/s/${sp.key}/p/${id}`); }
+    if (type === 'database' || type === 'whiteboard') { reloadTrees(); navigate(`/s/${sp.key}/p/${id}`); }
     else if (type === 'page') navigate(`/s/${sp.key}/p/${id}/edit`);
     else if (space?.key === sp.key) reloadSpace?.();
     else loadTree(sp.key);
@@ -213,6 +213,7 @@ export default function GonfShell({ me, route, space, navigate, reloadSpace, log
                             <button onClick={() => { setPlusMenu(null); createIn(sp, 'page'); }}>📄 문서</button>
                             <button onClick={() => { setPlusMenu(null); setTemplateFor(sp); }}>📋 템플릿으로 만들기</button>
                             <button onClick={() => { setPlusMenu(null); createIn(sp, 'database'); }}>🗄️ 데이터베이스</button>
+                            <button onClick={() => { setPlusMenu(null); createIn(sp, 'whiteboard'); }}>🖊️ 화이트보드</button>
                             <button onClick={() => { setPlusMenu(null); setFolderFor(sp); }}>📁 폴더</button>
                           </div>
                         </>}
